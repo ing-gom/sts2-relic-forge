@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Runs;
@@ -28,9 +29,17 @@ internal static class RunLoadReforgePatch
             uint seed = runState.Rng.Seed;
             int count = 0;
             foreach (var player in runState.Players)
-                foreach (var relic in player.Relics)
+            {
+                // Snapshot: companions aren't serialized, so player.Relics holds only hosts —
+                // but GrantCompanionIfAny mutates the list, so iterate a copy. Re-forge first
+                // (re-derives the same seed-deterministic prefix), then re-graft companions.
+                var hosts = player.Relics.ToList();
+                foreach (var relic in hosts)
                     if (RelicForgeService.Forge(relic, seed, relic.FloorAddedToDeck) != null)
                         count++;
+                foreach (var relic in hosts)
+                    RelicForgeService.GrantCompanionIfAny(relic, player);
+            }
             if (count > 0)
                 MainFile.Logger.Info($"[{MainFile.ModId}] re-applied forge to {count} relic(s) on load.");
         }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using MegaCrit.Sts2.Core.Entities.Relics;
 
@@ -34,4 +35,10 @@ internal sealed class ForgeRecord
     public bool Amplify;                 // the rolled prefix was an amplify (Volatile) one
     public readonly List<VarChange> Changes = new();
     public bool HasChanges => Changes.Count > 0;
+
+    // Companion prefix: the donor relic type to graft, and a guard so the hidden instance
+    // is granted exactly once per host instance (re-derived, not persisted — see
+    // CompanionSerializationPatch + RunLoadReforgePatch).
+    public Type? CompanionRelic;
+    public bool CompanionGranted;
 }

@@ -27,6 +27,9 @@ internal static class RelicObtainPatch
             string? summary = RelicForgeService.Forge(relic, runState.Rng.Seed, runState.TotalFloor);
             if (summary != null)
                 MainFile.Logger.Info($"[{MainFile.ModId}] forged {summary}");
+            // If this relic rolled a companion prefix, graft the hidden donor relic now (we
+            // have the player here). No-op for numeric/no prefix; guarded to grant once.
+            RelicForgeService.GrantCompanionIfAny(relic, player);
         }
         catch (Exception e)
         {

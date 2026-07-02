@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Localization.DynamicVars;
 using MegaCrit.Sts2.Core.Models;
@@ -31,9 +33,49 @@ internal static class RelicForgeService
     // instance twice. Tooltip patches read this for prefix + colored deltas.
     private static readonly ConditionalWeakTable<RelicModel, ForgeRecord> Records = new();
 
+    // Marks a relic INSTANCE as a hidden companion (granted by a companion prefix), so it
+    // can be hidden from the inventory and excluded from serialization. The value is the HOST
+    // relic it was grafted onto, so visual effects (flash VFX) can show the host — the relic
+    // the player actually owns — instead of the hidden donor. Never serialized; companions
+    // are re-derived on load.
+    private static readonly ConditionalWeakTable<RelicModel, RelicModel> Companions = new();
+
     /// <summary>The forge record for a relic instance, or null if it was never forged.</summary>
     public static ForgeRecord? RecordFor(RelicModel relic)
         => Records.TryGetValue(relic, out var rec) ? rec : null;
+
+    /// <summary>True if this relic instance is a hidden companion granted by a companion prefix.</summary>
+    public static bool IsCompanion(RelicModel relic) => Companions.TryGetValue(relic, out _);
+
+    /// <summary>The host relic a companion was grafted onto, or null if not a companion.</summary>
+    public static RelicModel? HostOf(RelicModel companion)
+        => Companions.TryGetValue(companion, out var host) ? host : null;
+
+    /// <summary>
+    /// If <paramref name="host"/> rolled a companion prefix, grant the donor relic as a HIDDEN
+    /// instance to <paramref name="player"/> (once per host). The donor is added via
+    /// AddRelicInternal(silent) so no "relic get" popup/sound/inventory icon is created, but it
+    /// still enters player.Relics — so its native hooks fire (verified: both RunState and
+    /// CombatState IterateHookListeners include every non-melted relic). Called from the obtain
+    /// path and the load re-forge path; the preview/tooltip path never grants.
+    /// </summary>
+    public static void GrantCompanionIfAny(RelicModel host, Player player)
+    {
+        var rec = RecordFor(host);
+        if (rec?.CompanionRelic == null || rec.CompanionGranted) return;
+
+        var template = ModelDb.AllRelics.FirstOrDefault(r => r.GetType() == rec.CompanionRelic);
+        if (template == null)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] companion type {rec.CompanionRelic.Name} not found in ModelDb.");
+            return;
+        }
+        RelicModel companion = template.ToMutable();
+        Companions.Add(companion, host);           // tag (value=host) BEFORE adding so save/inventory/vfx patches see it
+        player.AddRelicInternal(companion, -1, silent: true);
+        rec.CompanionGranted = true;
+        MainFile.Logger.Info($"[{MainFile.ModId}] grafted {companion.Id.Entry} onto {host.Id.Entry} ({rec.Prefix}).");
+    }
 
     /// <summary>
     /// Forge a candidate relic that isn't owned yet, so its tooltip previews the enhanced
@@ -124,6 +166,15 @@ internal static class RelicForgeService
         double pct = prefix.PowerPct;
         var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify };
         Records.Add(relic, record); // guard re-forge even if nothing changes
+
+        // Companion prefix: don't scale vars — record the donor type; the actual hidden grant
+        // happens later (GrantCompanionIfAny) once we have the player. Works on ANY host relic,
+        // including var-less ones the numeric path skips.
+        if (prefix.CompanionRelic != null)
+        {
+            record.CompanionRelic = prefix.CompanionRelic;
+            return $"{prefix.Name} {relicId}: graft {prefix.CompanionRelic.Name}";
+        }
 
         foreach (DynamicVar dv in relic.DynamicVars.Values)
         {

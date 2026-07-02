@@ -27,6 +27,13 @@ internal static class ForgeText
         string headerColor = PrefixTable.ColorOf(rec.Prefix);
         sb.Append("\n\n[color=").Append(headerColor).Append("]⚒ ")
           .Append(PrefixTable.Localize(rec.Prefix)).Append("[/color]");
+        // Companion prefix: no var deltas — show the grafted effect note instead, tinted like
+        // a boon (green), e.g. "전투 시작 시 가시 3".
+        if (rec.CompanionRelic != null)
+        {
+            string note = PrefixTable.ByName(rec.Prefix)?.NoteDisplay ?? "";
+            if (note.Length > 0) sb.Append('\n').Append("[green]").Append(note).Append("[/green]");
+        }
         foreach (VarChange c in rec.Changes)
         {
             int d = (int)c.Delta;

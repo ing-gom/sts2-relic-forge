@@ -71,10 +71,33 @@ internal static class RelicForgeService
             return;
         }
         RelicModel companion = template.ToMutable();
+        WeakenCompanion(companion);                // grafted effect is a reduced version of the real relic
         Companions.Add(companion, host);           // tag (value=host) BEFORE adding so save/inventory/vfx patches see it
         player.AddRelicInternal(companion, -1, silent: true);
         rec.CompanionGranted = true;
         MainFile.Logger.Info($"[{MainFile.ModId}] grafted {companion.Id.Entry} onto {host.Id.Entry} ({rec.Prefix}).");
+    }
+
+    // A grafted effect should be a WEAKER version of owning the real relic. Reduce each
+    // beneficial (INCREASE) var by WeakenFactor, floored at 1 so it never disappears.
+    // Counters/thresholds (SKIP) are left alone. VarOverride handles the odd case where
+    // "weaker" means RAISING a var — HappyFlower's "every N turns" interval (3 -> 4).
+    private const double WeakenFactor = 0.6;
+    private static readonly Dictionary<(string relic, string var), decimal> VarOverride = new()
+    {
+        [("HappyFlower", "Turns")] = 4m,   // every 3 turns -> every 4 (less frequent = weaker)
+    };
+
+    private static void WeakenCompanion(RelicModel companion)
+    {
+        string key = companion.GetType().Name;
+        foreach (DynamicVar dv in companion.DynamicVars.Values)
+        {
+            if (VarOverride.TryGetValue((key, dv.Name), out var forced)) { dv.BaseValue = forced; continue; }
+            if (dv.BaseValue <= 0m) continue;
+            if (AffixPolicy.DirectionFor(key, dv.Name) != AffixDir.Increase) continue; // only cut boons
+            dv.BaseValue = Math.Max(1m, Math.Round(dv.BaseValue * (decimal)WeakenFactor, MidpointRounding.AwayFromZero));
+        }
     }
 
     /// <summary>
@@ -167,13 +190,13 @@ internal static class RelicForgeService
         var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify };
         Records.Add(relic, record); // guard re-forge even if nothing changes
 
-        // Companion prefix: don't scale vars — record the donor type; the actual hidden grant
-        // happens later (GrantCompanionIfAny) once we have the player. Works on ANY host relic,
-        // including var-less ones the numeric path skips.
-        if (prefix.CompanionRelic != null)
+        // Companion-family prefix (grafted OR delayed): don't scale the host's vars. Grafted
+        // prefixes graft a donor later (GrantCompanionIfAny); delayed prefixes apply a fixed
+        // effect on a set turn (DelayedCompanionPatch). Works on ANY host relic.
+        if (prefix.IsCompanionPrefix)
         {
-            record.CompanionRelic = prefix.CompanionRelic;
-            return $"{prefix.Name} {relicId}: graft {prefix.CompanionRelic.Name}";
+            record.CompanionRelic = prefix.CompanionRelic; // null for delayed prefixes
+            return $"{prefix.Name} {relicId}: {(prefix.CompanionRelic != null ? "graft " + prefix.CompanionRelic.Name : "delayed t" + prefix.DelayTurn)}";
         }
 
         foreach (DynamicVar dv in relic.DynamicVars.Values)

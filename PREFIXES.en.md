@@ -33,18 +33,18 @@ Exact per-relic numbers are in the interactive [`prefix_dashboard.html`](prefix_
 
 ## 2. Companion prefixes
 
-Instead of scaling numbers, these **graft another relic's whole effect** onto yours. They can roll on **any** relic. The effect shows on the host relic's tooltip and flashes the host icon when it triggers.
+Instead of scaling numbers, these graft another relic's effect onto yours — but as a **weaker version** than owning the real relic (reduced value, or a later/less frequent trigger), so the original relic is still worth getting. They can roll on **any** relic.
 
 | Prefix | Effect | From | Share |
 |---|---|---|---:|
-| Thorned | Thorns 3 at combat start | Bronze Scales | 5.4% |
-| Mighty | Strength +1 at combat start | Vajra | 3.6% |
-| Quicksilver | 3 damage to all enemies each turn | Mercury Hourglass | 3.6% |
-| Anchored | Block 10 at combat start | Anchor | 4.2% |
-| Vital | Heal 2 on turn 1 | Blood Vial | 4.8% |
-| Rhythmic | +1 energy every 3 turns | Happy Flower | 3.0% |
-| Insightful | Draw 3 cards when first hit | Centennial Puzzle | 4.2% |
-| Intimidating | Vulnerable 1 to all enemies at combat start | Bag of Marbles | 4.8% |
+| Thorned | Thorns 2 at combat start | Bronze Scales | 5.4% |
+| Mighty | Strength +1 on turn 3 | Vajra | 3.6% |
+| Quicksilver | 2 damage to all enemies each turn | Mercury Hourglass | 3.6% |
+| Anchored | Block 6 at combat start | Anchor | 4.2% |
+| Vital | Heal 1 on turn 1 | Blood Vial | 4.8% |
+| Rhythmic | +1 energy every 4 turns | Happy Flower | 3.0% |
+| Insightful | Draw 2 cards when first hit | Centennial Puzzle | 4.2% |
+| Intimidating | Vulnerable 1 to all enemies on turn 2 | Bag of Marbles | 4.8% |
 
 > More companion prefixes are on the way.
 

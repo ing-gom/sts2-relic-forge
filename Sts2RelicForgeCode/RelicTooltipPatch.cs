@@ -55,9 +55,10 @@ internal static class RelicTooltipPatch
             // potions" instead of the base "1, 1". Key by class name (PascalCase), NOT Id.Entry
             // (UPPER_SNAKE) — the bespoke table is authored in PascalCase.
             int[]? counts = BespokeBonus.CountTokens(__instance.GetType().Name, rec.Percent, rec.Amplify);
-            // Companion prefixes have no var changes and no bespoke counts, but still decorate
-            // (title prefix + grafted-effect note), so don't bail on them.
-            if (!rec.HasChanges && counts is null && rec.CompanionRelic is null) return;
+            // Companion-family prefixes (grafted or delayed) have no var changes and no bespoke
+            // counts, but still decorate (title prefix + effect note), so don't bail on them.
+            bool companionFam = (PrefixTable.ByName(rec.Prefix)?.NoteDisplay.Length ?? 0) > 0;
+            if (!rec.HasChanges && counts is null && !companionFam) return;
 
             // Title prefix FIRST and on its own, so a description-side failure can never
             // stop the prefix from showing on the relic name. Also prepend an invisible color

@@ -32,6 +32,14 @@ internal sealed class Prefix
     public string NoteEn = "";
     public string NoteZh = "";
 
+    // Delayed companion: if > 0, this prefix does NOT graft a relic; instead a fixed effect
+    // (see DelayedCompanionPatch) is applied on this combat turn. Used to weaken min-1 effects
+    // that can't be scaled down — a later trigger is strictly worse than combat-start.
+    public int DelayTurn;
+
+    /// <summary>True for any companion-family prefix (grafts a relic OR applies a delayed effect).</summary>
+    public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0;
+
     /// <summary>Name in the game's current language (ko / zh_Hans), else English.</summary>
     public string Display => Localize(Ko, Zh, Name);
 
@@ -90,30 +98,34 @@ internal static class PrefixTable
         // the effect is surfaced on the HOST tooltip via NoteXx. All donors are hook-driven
         // (not on-pickup) and benign/moderate — verified against decompiled effect code.
         // Weights: rare-ish treats, tuned by power (bigger effect → lower weight).
+        // Grafted companions — the donor's effect is granted at a REDUCED magnitude (×0.6,
+        // floor 1) so it stays weaker than owning the real relic. Notes state the reduced value.
         new Prefix { Name = "Thorned", Ko = "가시돋친", Zh = "尖刺的", Weight = 9, Color = "#7ed957",
             CompanionRelic = typeof(BronzeScales),
-            NoteKo = "전투 시작 시 가시 3", NoteEn = "Thorns 3 at combat start", NoteZh = "战斗开始时获得3荆棘" },
-        new Prefix { Name = "Mighty", Ko = "강건한", Zh = "强壮的", Weight = 6, Color = "#ff6b4d",
-            CompanionRelic = typeof(Vajra),
-            NoteKo = "전투 시작 시 힘 +1", NoteEn = "Strength +1 at combat start", NoteZh = "战斗开始时获得1力量" },
+            NoteKo = "전투 시작 시 가시 2", NoteEn = "Thorns 2 at combat start", NoteZh = "战斗开始时获得2荆棘" },
         new Prefix { Name = "Quicksilver", Ko = "수은의", Zh = "水银的", Weight = 6, Color = "#c0c8d8",
             CompanionRelic = typeof(MercuryHourglass),
-            NoteKo = "매 턴 모든 적에게 3 피해", NoteEn = "3 damage to all enemies each turn", NoteZh = "每回合对所有敌人造成3点伤害" },
+            NoteKo = "매 턴 모든 적에게 2 피해", NoteEn = "2 damage to all enemies each turn", NoteZh = "每回合对所有敌人造成2点伤害" },
         new Prefix { Name = "Anchored", Ko = "닻내린", Zh = "沉稳的", Weight = 7, Color = "#4db8ff",
             CompanionRelic = typeof(Anchor),
-            NoteKo = "전투 시작 시 블록 10", NoteEn = "Block 10 at combat start", NoteZh = "战斗开始时获得10格挡" },
+            NoteKo = "전투 시작 시 블록 6", NoteEn = "Block 6 at combat start", NoteZh = "战斗开始时获得6格挡" },
         new Prefix { Name = "Vital", Ko = "피끓는", Zh = "血涌的", Weight = 8, Color = "#ff5c8a",
             CompanionRelic = typeof(BloodVial),
-            NoteKo = "첫 턴에 체력 2 회복", NoteEn = "Heal 2 on turn 1", NoteZh = "第1回合回复2点生命" },
+            NoteKo = "첫 턴에 체력 1 회복", NoteEn = "Heal 1 on turn 1", NoteZh = "第1回合回复1点生命" },
         new Prefix { Name = "Rhythmic", Ko = "규칙적인", Zh = "规律的", Weight = 5, Color = "#ffd23f",
             CompanionRelic = typeof(HappyFlower),
-            NoteKo = "3턴마다 에너지 +1", NoteEn = "+1 energy every 3 turns", NoteZh = "每3回合获得1点能量" },
+            NoteKo = "4턴마다 에너지 +1", NoteEn = "+1 energy every 4 turns", NoteZh = "每4回合获得1点能量" },
         new Prefix { Name = "Insightful", Ko = "통찰의", Zh = "洞察的", Weight = 7, Color = "#c04dff",
             CompanionRelic = typeof(CentennialPuzzle),
-            NoteKo = "전투 중 첫 피격 시 카드 3장 드로우", NoteEn = "Draw 3 cards when first hit", NoteZh = "战斗中首次受击时抓3张牌" },
+            NoteKo = "전투 중 첫 피격 시 카드 2장 드로우", NoteEn = "Draw 2 cards when first hit", NoteZh = "战斗中首次受击时抓2张牌" },
+        // Delayed companions — no graft; a fixed min-1 effect applies LATER than the original
+        // relic (turn 2/3 instead of combat start), so it's strictly weaker. See DelayedCompanionPatch.
+        new Prefix { Name = "Mighty", Ko = "강건한", Zh = "强壮的", Weight = 6, Color = "#ff6b4d",
+            DelayTurn = 3,
+            NoteKo = "3번째 턴에 힘 +1", NoteEn = "Strength +1 on turn 3", NoteZh = "第3回合获得1力量" },
         new Prefix { Name = "Intimidating", Ko = "위협적인", Zh = "威慑的", Weight = 8, Color = "#9b6bff",
-            CompanionRelic = typeof(BagOfMarbles),
-            NoteKo = "전투 시작 시 모든 적에게 취약 1", NoteEn = "Vulnerable 1 to all enemies at combat start", NoteZh = "战斗开始时对所有敌人施加1易伤" },
+            DelayTurn = 2,
+            NoteKo = "2번째 턴에 모든 적에게 취약 1", NoteEn = "Vulnerable 1 to all enemies on turn 2", NoteZh = "第2回合对所有敌人施加1易伤" },
     };
 
     // Rarities that can receive a prefix at all. Starter/Event/None never do.

@@ -29,6 +29,7 @@ internal static class DelayedCompanionPatch
     {
         ["Mighty"] = (ctx, p, cs) => PowerCmd.Apply<StrengthPower>(ctx, p.Creature, 1m, p.Creature, null),
         ["Intimidating"] = (ctx, p, cs) => PowerCmd.Apply<VulnerablePower>(ctx, cs.HittableEnemies, 1m, p.Creature, null),
+        ["Supple"] = (ctx, p, cs) => PowerCmd.Apply<DexterityPower>(ctx, p.Creature, 1m, p.Creature, null),
     };
 
     private static void Postfix(ICombatState combatState, PlayerChoiceContext choiceContext, Player player)

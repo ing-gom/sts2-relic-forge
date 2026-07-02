@@ -75,6 +75,10 @@ internal static class RelicForgeService
         Companions.Add(companion, host);           // tag (value=host) BEFORE adding so save/inventory/vfx patches see it
         player.AddRelicInternal(companion, -1, silent: true);
         rec.CompanionGranted = true;
+        rec.Companion = companion;
+        // Mirror the companion's live counter (e.g. "attacks until trigger") on the HOST icon:
+        // when the hidden companion's DisplayAmount changes, refresh the host's holder too.
+        companion.DisplayAmountChanged += host.InvokeDisplayAmountChanged;
         MainFile.Logger.Info($"[{MainFile.ModId}] grafted {companion.Id.Entry} onto {host.Id.Entry} ({rec.Prefix}).");
     }
 
@@ -85,7 +89,13 @@ internal static class RelicForgeService
     private const double WeakenFactor = 0.6;
     private static readonly Dictionary<(string relic, string var), decimal> VarOverride = new()
     {
-        [("HappyFlower", "Turns")] = 4m,   // every 3 turns -> every 4 (less frequent = weaker)
+        [("HappyFlower", "Turns")] = 4m,     // every 3 turns -> every 4 (less frequent = weaker)
+        // "every N cards" counters (Cards is the modulo) — raise N so they trigger less often.
+        [("LetterOpener", "Cards")] = 4m,    // every 3 skills -> 4
+        [("Shuriken", "Cards")] = 4m,        // every 3 attacks -> 4
+        [("OrnamentalFan", "Cards")] = 4m,   // every 3 attacks -> 4
+        [("Kunai", "Cards")] = 4m,           // every 3 attacks -> 4
+        [("Nunchaku", "Cards")] = 12m,       // every 10 attacks -> 12
     };
 
     private static void WeakenCompanion(RelicModel companion)

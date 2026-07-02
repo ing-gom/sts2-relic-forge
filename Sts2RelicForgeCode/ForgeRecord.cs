@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using MegaCrit.Sts2.Core.Entities.Relics;
+using MegaCrit.Sts2.Core.Models;
 
 namespace Sts2RelicForge;
 
@@ -41,4 +42,8 @@ internal sealed class ForgeRecord
     // CompanionSerializationPatch + RunLoadReforgePatch).
     public Type? CompanionRelic;
     public bool CompanionGranted;
+
+    // The granted hidden companion instance (runtime only), so the host icon can mirror the
+    // companion's counter (e.g. "attacks until next trigger"). Null for delayed/non-graft prefixes.
+    public RelicModel? Companion;
 }

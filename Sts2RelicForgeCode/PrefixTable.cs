@@ -126,6 +126,32 @@ internal static class PrefixTable
         new Prefix { Name = "Intimidating", Ko = "위협적인", Zh = "威慑的", Weight = 8, Color = "#9b6bff",
             DelayTurn = 2,
             NoteKo = "2번째 턴에 모든 적에게 취약 1", NoteEn = "Vulnerable 1 to all enemies on turn 2", NoteZh = "第2回合对所有敌人施加1易伤" },
+
+        // --- 2nd batch (all weakened vs the real relic: reduced value, longer interval, or delay) ---
+        new Prefix { Name = "Ferocious", Ko = "사나운", Zh = "凶猛的", Weight = 5, Color = "#ff5533",
+            CompanionRelic = typeof(Akabeko),   // Vigor 8 -> 5 (×0.6)
+            NoteKo = "첫 턴에 활력 5", NoteEn = "Vigor 5 on turn 1", NoteZh = "第1回合获得5鼓舞" },
+        new Prefix { Name = "Bladed", Ko = "칼날의", Zh = "锋刃的", Weight = 6, Color = "#d9d9e0",
+            CompanionRelic = typeof(LetterOpener),   // Damage 5->3 (×0.6), interval 3->4 (VarOverride) — per-turn counter
+            NoteKo = "한 턴에 스킬 4회마다 모든 적에게 3 피해", NoteEn = "3 damage to all enemies per 4 skills in one turn", NoteZh = "一回合内每4张技能牌对所有敌人造成3点伤害" },
+        new Prefix { Name = "Relentless", Ko = "연격의", Zh = "连击的", Weight = 5, Color = "#ff8c42",
+            CompanionRelic = typeof(Shuriken),   // Strength +1, interval 3->4 (VarOverride) — per-turn counter
+            NoteKo = "한 턴에 공격 4회마다 힘 +1", NoteEn = "Strength +1 per 4 attacks in one turn", NoteZh = "一回合内每4张攻击牌获得1力量" },
+        new Prefix { Name = "Tempered", Ko = "단단한", Zh = "淬火的", Weight = 7, Color = "#5a9fd4",
+            CompanionRelic = typeof(Orichalcum),   // Block 6 -> 4 (×0.6)
+            NoteKo = "턴 종료 시 블록이 없으면 블록 4", NoteEn = "Block 4 if you end your turn with no Block", NoteZh = "回合结束时若无格挡则获得4格挡" },
+        new Prefix { Name = "Gusting", Ko = "질풍의", Zh = "疾风的", Weight = 7, Color = "#7ed9e0",
+            CompanionRelic = typeof(OrnamentalFan),   // Block 4->2 (×0.6), interval 3->4 (VarOverride) — per-turn counter
+            NoteKo = "한 턴에 공격 4회마다 블록 2", NoteEn = "Block 2 per 4 attacks in one turn", NoteZh = "一回合内每4张攻击牌获得2格挡" },
+        new Prefix { Name = "Darting", Ko = "표창의", Zh = "迅捷的", Weight = 6, Color = "#6ee0a0",
+            CompanionRelic = typeof(Kunai),   // Dexterity +1, interval 3->4 (VarOverride) — per-turn counter
+            NoteKo = "한 턴에 공격 4회마다 민첩 +1", NoteEn = "Dexterity +1 per 4 attacks in one turn", NoteZh = "一回合内每4张攻击牌获得1敏捷" },
+        new Prefix { Name = "Supple", Ko = "유연한", Zh = "柔韧的", Weight = 7, Color = "#6ed9c0",
+            DelayTurn = 2,   // Oddly Smooth Stone's Dex +1, delayed to turn 2 instead of combat start
+            NoteKo = "2번째 턴에 민첩 +1", NoteEn = "Dexterity +1 on turn 2", NoteZh = "第2回合获得1敏捷" },
+        new Prefix { Name = "Accelerating", Ko = "가속의", Zh = "加速的", Weight = 5, Color = "#ffcf3f",
+            CompanionRelic = typeof(Nunchaku),   // Energy +1, interval 10->12 (VarOverride)
+            NoteKo = "공격 12회마다 에너지 +1", NoteEn = "+1 energy every 12 attacks", NoteZh = "每12张攻击牌获得1点能量" },
     };
 
     // Rarities that can receive a prefix at all. Starter/Event/None never do.

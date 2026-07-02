@@ -29,7 +29,7 @@ public class MainFile
 
     private static void RegisterConfig()
     {
-        // Pull any persisted value first (percent 0..100) so we don't briefly use the default.
+        // Pull any persisted value first so we don't briefly use the default.
         double savedPct = ModConfigBridge.GetValue<double>(ModId, EntryKeyNoPrefix, 60.0);
         ForgeConfig.NoPrefixChance = savedPct / 100.0;
 

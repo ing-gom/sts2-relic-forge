@@ -37,6 +37,13 @@ internal sealed class ForgeRecord
     public readonly List<VarChange> Changes = new();
     public bool HasChanges => Changes.Count > 0;
 
+    // How many times this relic instance has been RE-forged (rolled again after the first
+    // grade). 0 = the original seed-deterministic grade (unchanged from pre-reforge behavior);
+    // N folds into the RNG so the outcome is still deterministic given (seed, id, floor, N).
+    // This is the ONLY forge state that can't be re-derived from the seed, so it is the one
+    // value persisted across save/load (SavedProperty "__rf_count", see ReforgeSaveInjectPatch).
+    public int ReforgeCount;
+
     // Companion prefix: the donor relic type to graft, and a guard so the hidden instance
     // is granted exactly once per host instance (re-derived, not persisted — see
     // CompanionSerializationPatch + RunLoadReforgePatch).

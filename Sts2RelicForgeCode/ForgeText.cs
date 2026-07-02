@@ -27,12 +27,17 @@ internal static class ForgeText
         string headerColor = PrefixTable.ColorOf(rec.Prefix);
         sb.Append("\n\n[color=").Append(headerColor).Append("]⚒ ")
           .Append(PrefixTable.Localize(rec.Prefix)).Append("[/color]");
-        // Companion-family prefix (grafted or delayed): no var deltas — show the effect note
-        // instead, tinted like a boon (green), e.g. "전투 시작 시 가시 2". Only companion
+        // Companion-family prefix (grafted / delayed / penalty): no var deltas — show the effect
+        // note instead. Boons are green; penalties (curses) are red. Only companion-family
         // prefixes carry a note, so a non-empty note is the signal.
         {
-            string note = PrefixTable.ByName(rec.Prefix)?.NoteDisplay ?? "";
-            if (note.Length > 0) sb.Append('\n').Append("[green]").Append(note).Append("[/green]");
+            Prefix? pfx = PrefixTable.ByName(rec.Prefix);
+            string note = pfx?.NoteDisplay ?? "";
+            if (note.Length > 0)
+            {
+                string c = pfx!.Penalty ? "red" : "green";
+                sb.Append('\n').Append('[').Append(c).Append(']').Append(note).Append("[/").Append(c).Append(']');
+            }
         }
         foreach (VarChange c in rec.Changes)
         {

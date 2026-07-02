@@ -40,6 +40,47 @@ internal static class RelicForgeService
     // are re-derived on load.
     private static readonly ConditionalWeakTable<RelicModel, RelicModel> Companions = new();
 
+    // Save/load carries the reforge COUNT (the one non-seed-derivable value) as a SavedProperty
+    // on the serialized relic. FromSerializable rebuilds a fresh RelicModel instance well before
+    // LoadRun re-forges, so the count captured there is parked here, keyed by that instance, and
+    // taken by RunLoadReforgePatch when it re-forges. StrongBox because a CWT value must be a ref
+    // type. See ReforgeSaveInjectPatch / ReforgeLoadCapturePatch.
+    private static readonly ConditionalWeakTable<RelicModel, StrongBox<int>> Pending = new();
+
+    /// <summary>The SavedProperty name our reforge count rides on inside a serialized relic.</summary>
+    public const string RfCountKey = "__rf_count";
+
+    /// <summary>The reforge count of a relic instance (0 if never forged / never re-forged).</summary>
+    public static int ReforgeCountOf(RelicModel relic)
+        => Records.TryGetValue(relic, out var rec) ? rec.ReforgeCount : 0;
+
+    /// <summary>Park a reforge count for a load-restored relic instance (set from FromSerializable).</summary>
+    public static void SetPendingReforgeCount(RelicModel relic, int n) => Pending.AddOrUpdate(relic, new StrongBox<int>(n));
+
+    /// <summary>Read the parked reforge count for a relic instance (0 if none), consuming it.</summary>
+    public static int TakePendingReforgeCount(RelicModel relic)
+    {
+        if (!Pending.TryGetValue(relic, out var box)) return 0;
+        Pending.Remove(relic);
+        return box.Value;
+    }
+
+    /// <summary>The base per-relic grade seed, matching the game's own per-relic RNG idiom
+    /// (runState.Rng.Seed + TotalFloor + hash(id), see decompile ~line 291714).</summary>
+    private static uint GradeSeed(uint runSeed, int floor, string relicId)
+        => (uint)((int)runSeed + floor + StringHelper.GetDeterministicHashCode(relicId));
+
+    // splitmix32 finalizer (same as Sts2RngFix.Mix): every input bit affects every output bit, so
+    // consecutive reforge counts map to unrelated grades instead of the correlated drift a linear
+    // "+ count * k" mix would cause (see reference_sts2_rng_correlation).
+    private static uint SplitMix32(uint x)
+    {
+        x += 0x9E3779B9u;
+        x = (x ^ (x >> 16)) * 0x21F0AAADu;
+        x = (x ^ (x >> 15)) * 0x735A2D97u;
+        return x ^ (x >> 15);
+    }
+
     /// <summary>The forge record for a relic instance, or null if it was never forged.</summary>
     public static ForgeRecord? RecordFor(RelicModel relic)
         => Records.TryGetValue(relic, out var rec) ? rec : null;
@@ -80,6 +121,84 @@ internal static class RelicForgeService
         // when the hidden companion's DisplayAmount changes, refresh the host's holder too.
         companion.DisplayAmountChanged += host.InvokeDisplayAmountChanged;
         MainFile.Logger.Info($"[{MainFile.ModId}] grafted {companion.Id.Entry} onto {host.Id.Entry} ({rec.Prefix}).");
+    }
+
+    /// <summary>Result of a reforge attempt: the prefix was re-rolled, or the relic broke and was destroyed.</summary>
+    /// <summary>Result of a reforge: a normal re-roll, or one that landed a PENALTY prefix
+    /// (the campfire caller ends its reforge action on a penalty — the gamble's cost).</summary>
+    public enum ReforgeOutcome { Reforged, RolledPenalty }
+
+    /// <summary>
+    /// Re-roll a relic's prefix. Works on ANY owned relic — one that already has a prefix (the
+    /// normal case), one that rolled "no prefix", AND one that was never eligible for the pickup
+    /// auto-forge (Starter/Event): a deliberate campfire reforge bypasses the eligibility gate and
+    /// always lands a prefix. Restores the relic to its canonical numbers first (so the new grade
+    /// scales from base, not from a previous enhancement), un-grafts any companion the old prefix
+    /// granted, bumps the reforge count, and forges again. Deterministic given (seed, id, floor,
+    /// newCount) — reloading reproduces it, so it can't be save-scummed.
+    ///
+    /// If breaking is enabled, each reforge past the first rolls a (deterministic) break chance; on
+    /// a break the relic is destroyed and removed instead. Returns which happened.
+    /// </summary>
+    public static ReforgeOutcome Reforge(RelicModel relic, Player player)
+    {
+        // A relic may have NO record yet (never forged / ineligible on pickup) — that's fine, it
+        // just starts from count 0 and canonical vars (nothing to restore).
+        Records.TryGetValue(relic, out var rec);
+        int next = (rec?.ReforgeCount ?? 0) + 1;
+
+        // (1) Undo the previous grade so Forge scales from canonical values again.
+        //     Grafted companion prefixes added a hidden relic instance -> remove it. Delayed
+        //     prefixes need no cleanup: they re-derive from the record each turn, so swapping the
+        //     record below is enough. Numeric prefixes just restore each changed var to OldValue.
+        if (rec != null)
+        {
+            RemoveCompanion(rec, player);
+            foreach (var c in rec.Changes)
+                if (relic.DynamicVars.TryGetValue(c.VarName, out var dv))
+                    dv.BaseValue = c.OldValue; // setter also ResetToBase() -> tooltip reverts
+            Records.Remove(relic); // drop so Forge's "already processed" guard passes
+        }
+
+        // (2) Re-roll: guaranteePrefix also bypasses the rarity-eligibility gate, so a deliberate
+        //     reforge can prefix even a Starter/Event relic the pickup path would have skipped.
+        var runState = player.RunState;
+        string? summary = Forge(relic, runState.Rng.Seed, relic.FloorAddedToDeck,
+                                reforgeCount: next, guaranteePrefix: true);
+
+        // (3) If the new prefix is a graft companion, grant it.
+        GrantCompanionIfAny(relic, player);
+
+        // (4) Did this roll land a PENALTY prefix? The campfire caller uses this to end its
+        //     reforge action (the risk that balances unlimited free re-rolls).
+        bool penalty = Records.TryGetValue(relic, out var newRec)
+                       && (PrefixTable.ByName(newRec.Prefix)?.Penalty ?? false);
+        MainFile.Logger.Info($"[{MainFile.ModId}] reforge #{next} {relic.Id.Entry}: {summary ?? "(no numeric change)"}{(penalty ? " [PENALTY]" : "")}");
+        return penalty ? ReforgeOutcome.RolledPenalty : ReforgeOutcome.Reforged;
+    }
+
+    /// <summary>Remove the hidden companion instance a graft prefix granted, if any (safe if none).</summary>
+    private static void RemoveCompanion(ForgeRecord rec, Player player)
+    {
+        var companion = rec.Companion;
+        if (companion == null) return;
+
+        // Mirror the grant path in reverse: unsubscribe the host-mirror handler, then drop the
+        // hidden instance from the player so its hooks stop firing.
+        if (HostOf(companion) is RelicModel host)
+            companion.DisplayAmountChanged -= host.InvokeDisplayAmountChanged;
+        try
+        {
+            if (player.Relics.Contains(companion))
+                player.RemoveRelicInternal(companion, silent: true);
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] reforge un-graft failed: {e.Message}");
+        }
+        Companions.Remove(companion);
+        rec.Companion = null;
+        rec.CompanionGranted = false;
     }
 
     // A grafted effect should be a WEAKER version of owning the real relic. Reduce each
@@ -153,14 +272,21 @@ internal static class RelicForgeService
     /// obtained on — TotalFloor at pickup, or relic.FloorAddedToDeck when re-applying on
     /// load (both the same, so the derived prefix is identical across save/load).
     /// <paramref name="forced"/> (test command only) forces a specific prefix and bypasses
-    /// the eligibility gate. Returns a log summary or null.
+    /// the eligibility gate.
+    /// <paramref name="reforgeCount"/> folds into the RNG so a re-forged relic rolls a
+    /// different-but-deterministic grade; 0 reproduces the original pre-reforge outcome exactly.
+    /// <paramref name="guaranteePrefix"/> skips the no-prefix gate (used by reforge, so paying
+    /// to re-roll never yields "no prefix"). Returns a log summary or null.
     /// </summary>
-    public static string? Forge(RelicModel relic, uint runSeed, int floor, Prefix? forced = null)
+    public static string? Forge(RelicModel relic, uint runSeed, int floor, Prefix? forced = null,
+                                int reforgeCount = 0, bool guaranteePrefix = false)
     {
         if (Records.TryGetValue(relic, out _)) return null; // already processed
 
         bool test = forced != null;
-        if (!test && !PrefixTable.Eligible.Contains(relic.Rarity)) return null;
+        // Eligibility gates only the automatic pickup forge. A forced test or a deliberate reforge
+        // (guaranteePrefix) may prefix any relic, including Starter/Event rarities.
+        if (!test && !guaranteePrefix && !PrefixTable.Eligible.Contains(relic.Rarity)) return null;
 
         string relicId = relic.Id.Entry;               // canonical UPPER_SNAKE id (seed + logs)
         // Per-relic policy (Overrides/BoostFactor) is keyed by the C# class name, which is
@@ -170,7 +296,12 @@ internal static class RelicForgeService
         string policyKey = relic.GetType().Name;
 
         // Same derivation the game uses for per-relic RNG (see decompile ~line 291714).
-        uint seed = (uint)((int)runSeed + floor + StringHelper.GetDeterministicHashCode(relicId));
+        // reforgeCount==0 leaves the seed byte-identical to the original behavior, so existing
+        // saves / first grades never shift; count>0 avalanche-mixes the count in so each re-roll
+        // is an unrelated but reproducible grade.
+        uint seed = GradeSeed(runSeed, floor, relicId);
+        if (reforgeCount > 0)
+            seed = SplitMix32(seed + (uint)reforgeCount * 0x9E3779B9u);
         var rng = new Rng(seed);
 
         // Prefix gate + roll. Draw both from the seeded rng in a fixed order so the
@@ -186,18 +317,20 @@ internal static class RelicForgeService
         {
             double gate = rng.NextFloat();
             Prefix rolled = PrefixTable.Roll(rng);
-            prefix = gate < ForgeConfig.NoPrefixChance ? null : rolled;
+            // Draw the gate roll unconditionally (fixed rng order) but ignore it when
+            // guaranteePrefix is set, so a reforge always lands a prefix.
+            prefix = (!guaranteePrefix && gate < ForgeConfig.NoPrefixChance) ? null : rolled;
         }
 
         if (prefix == null)
         {
             // No prefix (stays vanilla). Record it anyway so the relic isn't re-rolled.
-            Records.Add(relic, new ForgeRecord { Rarity = relic.Rarity, Prefix = "", Percent = 0 });
+            Records.Add(relic, new ForgeRecord { Rarity = relic.Rarity, Prefix = "", Percent = 0, ReforgeCount = reforgeCount });
             return null;
         }
 
         double pct = prefix.PowerPct;
-        var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify };
+        var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount };
         Records.Add(relic, record); // guard re-forge even if nothing changes
 
         // Companion-family prefix (grafted OR delayed): don't scale the host's vars. Grafted

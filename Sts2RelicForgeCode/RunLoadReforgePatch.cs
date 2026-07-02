@@ -35,8 +35,14 @@ internal static class RunLoadReforgePatch
                 // (re-derives the same seed-deterministic prefix), then re-graft companions.
                 var hosts = player.Relics.ToList();
                 foreach (var relic in hosts)
-                    if (RelicForgeService.Forge(relic, seed, relic.FloorAddedToDeck) != null)
+                {
+                    // A re-forged relic persisted a count>0; re-derive with the same count, and
+                    // guarantee a prefix (reforge never lands "no prefix"), matching Reforge().
+                    int rf = RelicForgeService.TakePendingReforgeCount(relic);
+                    if (RelicForgeService.Forge(relic, seed, relic.FloorAddedToDeck,
+                            reforgeCount: rf, guaranteePrefix: rf > 0) != null)
                         count++;
+                }
                 foreach (var relic in hosts)
                     RelicForgeService.GrantCompanionIfAny(relic, player);
             }

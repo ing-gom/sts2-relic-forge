@@ -5,4 +5,12 @@
         <RootNamespace>Sts2RelicForge</RootNamespace>
         <AssemblyName>Sts2RelicForge</AssemblyName>
     </PropertyGroup>
+
+    <!-- The resource .pck (icons) is built separately by the build-pck skill into pck_src/.
+         Keep it synced to the mods folder on every DLL build so a rebuild never drops it. -->
+    <Target Name="CopyPckToModsFolder" AfterTargets="Sts2ModKit_CopyToModsFolder">
+        <Copy SourceFiles="$(MSBuildProjectDirectory)/pck_src/$(AssemblyName).pck"
+              DestinationFolder="$(Sts2ModOutputDir)"
+              Condition="Exists('$(MSBuildProjectDirectory)/pck_src/$(AssemblyName).pck')" />
+    </Target>
 </Project>

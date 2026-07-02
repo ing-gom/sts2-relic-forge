@@ -37,8 +37,12 @@ internal sealed class Prefix
     // that can't be scaled down — a later trigger is strictly worse than combat-start.
     public int DelayTurn;
 
-    /// <summary>True for any companion-family prefix (grafts a relic OR applies a delayed effect).</summary>
-    public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0;
+    // Penalty (curse) prefix: a pure downside applied to the player on some trigger
+    // (see PenaltyCompanionPatch). Grafts nothing; its NoteXx shows in red on the tooltip.
+    public bool Penalty;
+
+    /// <summary>True for any companion-family prefix (grafts a relic, delays an effect, or is a penalty).</summary>
+    public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0 || Penalty;
 
     /// <summary>Name in the game's current language (ko / zh_Hans), else English.</summary>
     public string Display => Localize(Ko, Zh, Name);
@@ -152,6 +156,26 @@ internal static class PrefixTable
         new Prefix { Name = "Accelerating", Ko = "가속의", Zh = "加速的", Weight = 5, Color = "#ffcf3f",
             CompanionRelic = typeof(Nunchaku),   // Energy +1, interval 10->12 (VarOverride)
             NoteKo = "공격 12회마다 에너지 +1", NoteEn = "+1 energy every 12 attacks", NoteZh = "每12张攻击牌获得1点能量" },
+
+        // --- Penalty (curse) prefixes: pure downside, low weight (see PenaltyCompanionPatch) ---
+        new Prefix { Name = "Cursed", Ko = "저주받은", Zh = "被诅咒的", Weight = 8, Penalty = true, Color = "#b0554d",
+            NoteKo = "전투 시작 시 자신에게 약화 1", NoteEn = "Weak 1 to self at combat start", NoteZh = "战斗开始时给予自己1虚弱" },
+        new Prefix { Name = "Cumbersome", Ko = "무거운", Zh = "笨重的", Weight = 8, Penalty = true, Color = "#8f8f8f",
+            NoteKo = "첫 턴에 자신 민첩 -1", NoteEn = "Dexterity -1 to self on turn 1", NoteZh = "第1回合自身敏捷-1" },
+        new Prefix { Name = "Fickle", Ko = "변덕스러운", Zh = "善变的", Weight = 6, Penalty = true, Color = "#9a6b8f",
+            NoteKo = "매 턴 25% 확률로 자신에게 랜덤 디버프 1", NoteEn = "25% each turn: a random debuff 1 to self", NoteZh = "每回合25%概率给予自己1个随机减益" },
+        new Prefix { Name = "Overloaded", Ko = "과부하", Zh = "超载的", Weight = 6, Penalty = true, Color = "#a0605a",
+            NoteKo = "한 턴에 카드 6장 사용 시 자신에게 취약 1", NoteEn = "Vulnerable 1 to self after 6 cards in one turn", NoteZh = "一回合内打出6张牌后给予自己1易伤" },
+
+        // --- Card-insertion penalties: shove a status card into a combat pile (see PenaltyCompanionPatch) ---
+        new Prefix { Name = "Tainted", Ko = "오염된", Zh = "污秽的", Weight = 5, Penalty = true, Color = "#7a8a5a",
+            NoteKo = "매 턴 뽑을 더미에 현기증 1장", NoteEn = "Adds a Dazed to your draw pile each turn", NoteZh = "每回合将1张眩晕加入抽牌堆" },
+        new Prefix { Name = "Festering", Ko = "곪은", Zh = "溃烂的", Weight = 5, Penalty = true, Color = "#8a6a4a",
+            NoteKo = "전투 시작 시 버린 더미에 상처 2장", NoteEn = "Adds 2 Wounds to your discard at combat start", NoteZh = "战斗开始时将2张伤口加入弃牌堆" },
+        new Prefix { Name = "Smoldering", Ko = "불타는", Zh = "阴燃的", Weight = 5, Penalty = true, Color = "#c0603a",
+            NoteKo = "전투 시작 시 뽑을 더미에 화상 1장", NoteEn = "Adds a Burn to your draw pile at combat start", NoteZh = "战斗开始时将1张灼烧加入抽牌堆" },
+        new Prefix { Name = "Hollow", Ko = "공허한", Zh = "虚空的", Weight = 5, Penalty = true, Color = "#6a5a8a",
+            NoteKo = "전투 시작 시 뽑을 더미에 공허 1장", NoteEn = "Adds a Void to your draw pile at combat start", NoteZh = "战斗开始时将1张虚无加入抽牌堆" },
     };
 
     // Rarities that can receive a prefix at all. Starter/Event/None never do.

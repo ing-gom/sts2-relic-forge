@@ -63,6 +63,7 @@ Every relic reads its effect magnitude from the same `DynamicVars` that also fee
 
 - **Not a balance mod** — it makes runs stronger (with a dash of risk); it's a power-fantasy / casual mod.
 - **Disable prefixes** — set the ModConfig "No-prefix chance" slider to 100% for pure vanilla relics.
+- **Leave Ancient relics vanilla** — turn OFF the ModConfig "Forge Ancient relics" toggle to keep Ancient rarity relics untouched (skipped on pickup and hidden from the reforge picker); every other rarity still forges.
 - Languages: English, 한국어, 简体中文.
 
 ## Installation

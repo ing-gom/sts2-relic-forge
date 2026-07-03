@@ -89,11 +89,13 @@ internal static class RestSiteReforgeSupport
     /// <summary>
     /// Every owned, player-chosen relic can be reforged — whether it currently has a prefix, rolled
     /// "no prefix", or was never eligible on pickup (a deliberate reforge always lands a prefix).
-    /// Only hidden companion instances (grafted donors) are excluded, since those aren't relics the
-    /// player picked.
+    /// Hidden companion instances (grafted donors) are excluded, since those aren't relics the
+    /// player picked; Ancient (先古) relics are excluded too while <see cref="ForgeConfig.ForgeAncientRelics"/>
+    /// is off, so the opt-out leaves them untouched at campfires and shops as well as on pickup.
     /// </summary>
     public static IEnumerable<RelicModel> Reforgeable(Player player)
-        => player.Relics.Where(r => !RelicForgeService.IsCompanion(r));
+        => player.Relics.Where(r => !RelicForgeService.IsCompanion(r)
+            && (ForgeConfig.ForgeAncientRelics || r.Rarity != RelicRarity.Ancient));
 
     public static bool HasReforgeable(Player player) => Reforgeable(player).Any();
 

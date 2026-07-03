@@ -216,9 +216,9 @@ internal static class PrefixTable
             NoteZh = "战斗开始时对一个敌人和自己施加1层虚弱" },
         // Chaotic: a coin flip each turn — good (enemies) or bad (you).
         new Prefix { Name = "Chaotic", Ko = "혼돈의", Zh = "混沌的", Weight = 6, Mixed = true, RandomDebuff = true, Color = "#a06fd0",
-            NoteKo = "매 턴 50% 확률로 적 하나 또는 자신에게 취약/약화 1",
-            NoteEn = "Each turn, 50% chance: Vulnerable or Weak 1 to one enemy or one player",
-            NoteZh = "每回合50%概率：对一个敌人或一名玩家施加1层易伤或虚弱" },
+            NoteKo = "매 턴 50% 확률로 적 하나 또는 자신에게 무작위 디버프(취약/약화/손상)",
+            NoteEn = "Each turn, 50% chance: a random debuff (Vulnerable / Weak / Frail) to one enemy or one player",
+            NoteZh = "每回合50%概率：对一个敌人或一名玩家施加随机减益（易伤/虚弱/脆弱）" },
     };
 
     // Rarities that can receive a prefix at all. Starter/Event/None never do.

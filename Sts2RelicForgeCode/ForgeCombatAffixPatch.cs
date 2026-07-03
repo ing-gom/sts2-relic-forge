@@ -96,26 +96,32 @@ internal static class ForgeCombatAffixPatch
     }
 
     /// <summary>
-    /// Chaotic gamble: each turn, a 50% chance to apply Vulnerable OR Weak 1 to EITHER one enemy
-    /// (good) OR one player (bad) — a coin flip on both which debuff and which side. In MP the target
-    /// is a single random creature of the chosen side. Deterministic per (seed, turn, relic) so a
-    /// reload reproduces the rolls. Stacks with other relics (PowerCmd.Apply adds to existing powers).
+    /// Chaotic gamble: each turn, a 50% chance to apply a RANDOM debuff — Vulnerable / Weak / Frail 1
+    /// — to EITHER one enemy (good) OR one player (bad). Which debuff and which side are a coin flip.
+    /// In MP the target is a single random creature of the chosen side. Deterministic per
+    /// (seed, turn, relic) so a reload reproduces every roll. Stacks with other relics.
     /// </summary>
     private static void ApplyRandomDebuff(ICombatState cs, PlayerChoiceContext ctx, Player player, RelicModel relic, uint seed, int turn)
     {
         var rng = new Rng((uint)((int)seed + turn * 39119 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
         if (rng.NextFloat() >= 0.5f) return;   // 50% chance to fire this turn
-        bool weak = rng.NextFloat() < 0.5f;    // Weak vs Vulnerable
         bool self = rng.NextFloat() < 0.5f;    // a player vs an enemy
         Creature source = player.Creature;
 
         Creature? target = ForgeCombat.PickOne(self ? cs.PlayerCreatures : cs.HittableEnemies, rng);
         if (target == null) return;
 
+        int pick = (int)(rng.NextFloat() * 3);
+        if (pick > 2) pick = 2;
         relic.Flash();
-        if (weak) TaskHelper.RunSafely(PowerCmd.Apply<WeakPower>(ctx, target, 1m, source, null));
-        else      TaskHelper.RunSafely(PowerCmd.Apply<VulnerablePower>(ctx, target, 1m, source, null));
-        MainFile.Logger.Info($"[{MainFile.ModId}] Chaotic: {(weak ? "Weak" : "Vulnerable")} 1 to a {(self ? "player" : "enemy")} on turn {turn} ({relic.Id.Entry}).");
+        string name;
+        switch (pick)
+        {
+            case 0: TaskHelper.RunSafely(PowerCmd.Apply<VulnerablePower>(ctx, target, 1m, source, null)); name = "Vulnerable"; break;
+            case 1: TaskHelper.RunSafely(PowerCmd.Apply<WeakPower>(ctx, target, 1m, source, null));       name = "Weak"; break;
+            default: TaskHelper.RunSafely(PowerCmd.Apply<FrailPower>(ctx, target, 1m, source, null));     name = "Frail"; break;
+        }
+        MainFile.Logger.Info($"[{MainFile.ModId}] Chaotic: {name} to a {(self ? "player" : "enemy")} on turn {turn} ({relic.Id.Entry}).");
     }
 
     /// <summary>

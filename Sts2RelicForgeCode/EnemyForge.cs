@@ -31,6 +31,8 @@ internal sealed class EnemyEffect
     public int Cap;
     public bool IsHp;
     public int Period;          // 0 = applied once at combat start; >0 = re-applied every N turns
+    public double Chance;       // 0 = always; else the per-turn probability a periodic effect fires
+    public bool Raw;            // true = fixed amount (NOT scaled by contribution × balance × tier)
     public PowerApply? Apply;
 
     /// <summary>Roll the base within its range using a seed-fixed rng (deterministic / MP-safe).</summary>
@@ -42,6 +44,7 @@ internal sealed class Periodic
 {
     public int Period;
     public int Amount;
+    public double Chance;       // 0 = always; else the per-turn probability it fires
     public PowerApply Apply = null!;
 }
 
@@ -92,7 +95,8 @@ internal static class EnemyPrefixTable
     private static Task Flame(PlayerChoiceContext c, Creature e, int a) => PowerCmd.Apply<FlameBarrierPower>(c, e, a, e, null);
     private static Task Block(PlayerChoiceContext c, Creature e, int a) => CreatureCmd.GainBlock(e, a, default, null);
 
-    private static EnemyEffect Pow(PowerApply apply, double min, double max, int cap = 0, int period = 0) => new() { Apply = apply, Base = min, BaseMax = max, Cap = cap, Period = period };
+    private static EnemyEffect Pow(PowerApply apply, double min, double max, int cap = 0, int period = 0, double chance = 0, bool raw = false)
+        => new() { Apply = apply, Base = min, BaseMax = max, Cap = cap, Period = period, Chance = chance, Raw = raw };
     private static EnemyEffect Hp(double min, double max) => new() { IsHp = true, Base = min, BaseMax = max };
 
     // Only the prefixes the rider suffixes map to (see RiderSuffix). Amounts are RANGES — the
@@ -106,7 +110,7 @@ internal static class EnemyPrefixTable
         new EnemyPrefix { Name = "Spiny",   Ko = "가시돋친", Zh = "尖刺的", Color = "#7ed957",
             Effects = new[] { Pow(Thorn, 2, 5) } },                               // Thorns
         new EnemyPrefix { Name = "Regenerating", Ko = "재생하는", Zh = "再生的", Color = "#6ee0a0",
-            Effects = new[] { Pow(Regen, 3, 6) } },                               // Regen (heal/turn)
+            Effects = new[] { Pow(Regen, 3, 3, period: 1, chance: 0.5, raw: true) } }, // 50% each turn: Regen 3 (fixed)
         new EnemyPrefix { Name = "Legendary", Ko = "전설적인", Zh = "传奇的", Color = "#ff8000",
             Effects = new[] { Pow(Str, 1, 2), Pow(Plate, 3, 5), Pow(Thorn, 2, 4) } }, // Strength + Plating + Thorns (maxes shaved)
         new EnemyPrefix { Name = "Warded", Ko = "수호받은", Zh = "守护的", Color = "#ffd23f",
@@ -266,15 +270,15 @@ internal static class EnemyForge
                     MainFile.Logger.Info($"[{MainFile.ModId}]   +{hp} MaxHp → {enemy.Name}");
                     continue;
                 }
-                int amt = AtLeastOne(b * mag * tier);
+                int amt = AtLeastOne(eff.Raw ? b : b * mag * tier);   // Raw = fixed amount (no scaling)
                 if (eff.Cap > 0 && amt > eff.Cap) amt = eff.Cap;
                 if (eff.Apply == null) continue;
 
                 if (eff.Period > 0)
                 {
                     // Recurring: don't apply now — drive it every Period turns (see RunPeriodic).
-                    tag.Periodics.Add(new Periodic { Period = eff.Period, Amount = amt, Apply = eff.Apply });
-                    MainFile.Logger.Info($"[{MainFile.ModId}]   {eff.Apply.Method.Name} {amt} every {eff.Period}t → {enemy.Name}");
+                    tag.Periodics.Add(new Periodic { Period = eff.Period, Amount = amt, Chance = eff.Chance, Apply = eff.Apply });
+                    MainFile.Logger.Info($"[{MainFile.ModId}]   {eff.Apply.Method.Name} {amt} every {eff.Period}t{(eff.Chance > 0 ? $" @{eff.Chance:P0}" : "")} → {enemy.Name}");
                 }
                 else
                 {
@@ -289,19 +293,27 @@ internal static class EnemyForge
         }
     }
 
-    /// <summary>Re-apply recurring buffs (e.g. Frenzied Strength) on forged enemies each turn.</summary>
-    public static void RunPeriodic(ICombatState combatState, PlayerChoiceContext ctx, int turn)
+    /// <summary>Re-apply recurring buffs (Frenzied Strength, Regen…) on forged enemies each turn, with any per-turn chance.</summary>
+    public static void RunPeriodic(ICombatState combatState, PlayerChoiceContext ctx, Player player, int turn)
     {
+        uint seed = player.RunState?.Rng.Seed ?? 0;
+        int floor = player.RunState?.TotalFloor ?? 0;
         foreach (var enemy in combatState.HittableEnemies)
         {
             var tag = TagOf(enemy);
             if (tag == null) continue;
-            foreach (var p in tag.Periodics)
-                if (p.Period > 0 && turn % p.Period == 0)
+            for (int i = 0; i < tag.Periodics.Count; i++)
+            {
+                var p = tag.Periodics[i];
+                if (p.Period <= 0 || turn % p.Period != 0) continue;
+                if (p.Chance > 0)   // seed-fixed per-turn roll (deterministic / MP-safe)
                 {
-                    try { TaskHelper.RunSafely(p.Apply(ctx, enemy, p.Amount)); }
-                    catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}]   periodic on {enemy.Name} FAILED: {e.Message}"); }
+                    var rng = new Rng((uint)((int)seed + floor * 7919 + turn * 48611 + i * 104729));
+                    if (rng.NextFloat() >= p.Chance) continue;
                 }
+                try { TaskHelper.RunSafely(p.Apply(ctx, enemy, p.Amount)); }
+                catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}]   periodic on {enemy.Name} FAILED: {e.Message}"); }
+            }
         }
     }
 

@@ -52,7 +52,7 @@ internal static class RiderSuffix
         new RiderSuffixDef { En = "the Tyrant", Ko = "폭군", Zh = "暴君", Color = "#ff8000", PrefixName = "Legendary",
             EffKo = "적이 힘·판금·가시를 얻습니다", EffEn = "Enemies gain Strength, Plated Armor & Thorns", EffZh = "敌人获得力量·镀甲·荆棘" },
         new RiderSuffixDef { En = "Bloodlust",  Ko = "피",   Zh = "血",   Color = "#c0335a", PrefixName = "Regenerating",
-            EffKo = "적이 재생(매 턴 회복)을 얻습니다", EffEn = "Enemies Regenerate",        EffZh = "敌人再生" },
+            EffKo = "적이 매 턴 50% 확률로 재생 3을 얻습니다", EffEn = "Enemies gain Regen 3 each turn (50% chance)", EffZh = "敌人每回合有50%概率获得3层再生" },
         new RiderSuffixDef { En = "Warding",    Ko = "인공물", Zh = "守护", Color = "#ffd23f", PrefixName = "Warded",
             EffKo = "적이 인공물을 얻습니다(당신 디버프 무효)", EffEn = "Enemies gain Artifact (negate your debuffs)", EffZh = "敌人获得神器(免疫你的减益)" },
         new RiderSuffixDef { En = "Shielding",  Ko = "버퍼", Zh = "护盾", Color = "#7ed0ff", PrefixName = "Shielded",

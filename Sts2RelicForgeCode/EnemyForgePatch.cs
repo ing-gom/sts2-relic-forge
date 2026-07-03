@@ -61,8 +61,8 @@ internal static class EnemyForgePatch
                 }
             }
 
-            // Every turn: drive recurring buffs (e.g. Frenzied +Strength every 3rd turn).
-            EnemyForge.RunPeriodic(combatState, choiceContext, turn);
+            // Every turn: drive recurring buffs (Frenzied +Strength every 3rd turn, Regen 50%/turn, …).
+            EnemyForge.RunPeriodic(combatState, choiceContext, player, turn);
         }
         catch (Exception e)
         {

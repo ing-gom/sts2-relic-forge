@@ -322,6 +322,13 @@ internal static class RelicForgeService
             prefix = (!guaranteePrefix && gate < ForgeConfig.NoPrefixChance) ? null : rolled;
         }
 
+        // Enemy-rider roll (a Terraria-style curse): any forged relic MIGHT also strengthen enemies.
+        // Drawn in fixed rng order so the stream stays stable if the chance is retuned; whether it
+        // lands depends on the config chance, and penalty prefixes never carry it. A second draw
+        // picks the flavor suffix name (used only if the rider lands).
+        double riderRoll = rng.NextFloat();
+        double suffixRoll = rng.NextFloat();
+
         if (prefix == null)
         {
             // No prefix (stays vanilla). Record it anyway so the relic isn't re-rolled.
@@ -330,7 +337,9 @@ internal static class RelicForgeService
         }
 
         double pct = prefix.PowerPct;
-        var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount };
+        var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount,
+            EnemyRider = !prefix.Penalty && riderRoll < ForgeConfig.EnemyRiderChance };
+        if (record.EnemyRider) record.EnemyRiderSuffix = RiderSuffix.Pick(suffixRoll);
         Records.Add(relic, record); // guard re-forge even if nothing changes
 
         // Companion-family prefix (grafted OR delayed): don't scale the host's vars. Grafted

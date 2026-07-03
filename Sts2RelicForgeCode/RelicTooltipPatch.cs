@@ -78,7 +78,7 @@ internal static class RelicTooltipPatch
             {
                 string m = HoverTipTitleTintPatch.Mark.ToString();
                 string mark = m + PrefixTable.ColorOf(rec.Prefix).TrimStart('#') + m;
-                __result.Title = mark + ForgeText.TitlePrefix(rec) + __result.Title;
+                __result.Title = mark + ForgeText.TitlePrefix(rec) + __result.Title + ForgeText.TitleSuffix(rec);
             }
 
             // Description block, isolated: any label/loc hiccup logs and leaves the base

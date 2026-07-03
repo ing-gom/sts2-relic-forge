@@ -44,6 +44,15 @@ internal sealed class ForgeRecord
     // value persisted across save/load (SavedProperty "__rf_count", see ReforgeSaveInjectPatch).
     public int ReforgeCount;
 
+    // Enemy-rider: a Terraria-style "curse" that a forged relic MAY also carry — while owned, it
+    // strengthens elites/bosses (see EnemyForge). Rolled deterministically at forge time, so it is
+    // re-derived on load (not persisted). Never set on penalty prefixes.
+    public bool EnemyRider;
+
+    // The flavor SUFFIX name (English key, e.g. "Wrath") shown on the relic when it carries the
+    // enemy-rider curse — "Legendary Anchor of Wrath". Localized at display via RiderSuffix.
+    public string EnemyRiderSuffix = "";
+
     // Companion prefix: the donor relic type to graft, and a guard so the hidden instance
     // is granted exactly once per host instance (re-derived, not persisted — see
     // CompanionSerializationPatch + RunLoadReforgePatch).

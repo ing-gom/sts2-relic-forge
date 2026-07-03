@@ -9,4 +9,33 @@ internal static class ForgeConfig
     /// in-game via ModConfig; 0 = every eligible relic is prefixed.
     /// </summary>
     public static double NoPrefixChance = 0.60;
+
+    /// <summary>
+    /// Master multiplier for the "enemy forge" balance mechanism: elites and bosses always roll
+    /// their own Terraria-style prefix (no Ascension or forged relics required). Forging more at
+    /// higher Ascension only pushes the strength above the baseline. 1.0 = 100% (the designed
+    /// strength), 0 = feature OFF, 2.0 = double. See <see cref="EnemyForge"/>.
+    /// </summary>
+    public static double BalanceStrength = 1.0;
+
+    /// <summary>
+    /// Fixed gold cost of one shop reforge (see <see cref="NMerchantReforgeButton"/>). Uses are
+    /// unlimited per shop, so each reforge charges this amount; a penalty prefix can still roll
+    /// (paid gamble). Default 50, adjustable in-game via ModConfig (0–100); 0 = free.
+    /// </summary>
+    public static int ShopReforgeCost = 50;
+
+    /// <summary>
+    /// Master switch for the "enemy forge" mechanic (elites &amp; bosses rolling their own prefixes).
+    /// Default ON; turn off for a pure power fantasy. The player-side relic forging is unaffected
+    /// either way. See <see cref="EnemyForge"/>.
+    /// </summary>
+    public static bool EnemyForgeEnabled = true;
+
+    /// <summary>
+    /// Probability that a freshly-forged relic ALSO carries the "enemy-rider" curse (strengthens
+    /// elites/bosses while owned). Default 0.25. Only matters when <see cref="EnemyForgeEnabled"/>
+    /// is on. Penalty prefixes never roll it. See <see cref="EnemyForge"/>.
+    /// </summary>
+    public static double EnemyRiderChance = 0.33;
 }

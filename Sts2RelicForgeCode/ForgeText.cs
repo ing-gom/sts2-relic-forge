@@ -1,4 +1,5 @@
 using System.Text;
+using MegaCrit.Sts2.Core.Localization;
 
 namespace Sts2RelicForge;
 
@@ -14,6 +15,20 @@ internal static class ForgeText
 {
     /// <summary>Localized prefix + space, prepended to the relic title (plain text).</summary>
     public static string TitlePrefix(ForgeRecord rec) => PrefixTable.Localize(rec.Prefix) + " ";
+
+    /// <summary>
+    /// Localized enemy-rider SUFFIX, appended to the relic title (plain text) — e.g. " of Wrath" /
+    /// " 〈재앙〉". Empty unless the mechanic is on and the relic carries the rider curse.
+    /// </summary>
+    public static string TitleSuffix(ForgeRecord rec)
+    {
+        if (!ForgeConfig.EnemyForgeEnabled || !rec.EnemyRider || rec.EnemyRiderSuffix.Length == 0) return "";
+        // Just a simple "curse" mark on the name — the exact effect is in the tooltip line.
+        string lang = LocManager.Instance?.Language ?? "";
+        if (lang.StartsWith("ko")) return " 〈저주〉";
+        if (lang.StartsWith("zh")) return " 〈诅咒〉";
+        return " (Cursed)";
+    }
 
     /// <summary>
     /// Rich-text block appended under the relic description: the prefix (as the heading)
@@ -35,8 +50,14 @@ internal static class ForgeText
             string note = pfx?.NoteDisplay ?? "";
             if (note.Length > 0)
             {
-                string c = pfx!.Penalty ? "red" : "green";
-                sb.Append('\n').Append('[').Append(c).Append(']').Append(note).Append("[/").Append(c).Append(']');
+                if (pfx!.Mixed)
+                    // gamble affix: neither pure boon nor curse — amber, via a hex color tag.
+                    sb.Append("\n[color=#e0b64d]").Append(note).Append("[/color]");
+                else
+                {
+                    string c = pfx.Penalty ? "red" : "green";
+                    sb.Append('\n').Append('[').Append(c).Append(']').Append(note).Append("[/").Append(c).Append(']');
+                }
             }
         }
         foreach (VarChange c in rec.Changes)
@@ -47,6 +68,13 @@ internal static class ForgeText
             sb.Append('\n').Append(VarLabel.Of(c.VarName)).Append("  [")
               .Append(color).Append(']').Append(sign).Append(d)
               .Append("[/").Append(color).Append(']');
+        }
+        // Enemy-rider curse: name the SPECIFIC buff this relic grants elites/bosses (only surfaced
+        // when the mechanic is enabled). Amber warning so the trade-off is clear.
+        if (rec.EnemyRider && ForgeConfig.EnemyForgeEnabled)
+        {
+            string effect = RiderSuffix.EffectOf(rec.EnemyRiderSuffix);
+            if (effect.Length > 0) sb.Append("\n[color=#e0554d]⚔ ").Append(effect).Append("[/color]");
         }
         return sb.ToString();
     }

@@ -41,8 +41,29 @@ internal sealed class Prefix
     // (see PenaltyCompanionPatch). Grafts nothing; its NoteXx shows in red on the tooltip.
     public bool Penalty;
 
-    /// <summary>True for any companion-family prefix (grafts a relic, delays an effect, or is a penalty).</summary>
-    public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0 || Penalty;
+    // Enemy-strip prefix: each turn, move ONE of the enemies' powers 1 toward zero
+    // (see ForgeCombatAffixPatch.StripOne). Chaos — strips enemy buffs (good) AND the
+    // debuffs you applied (bad) alike, so it's a gamble, not a pure boon.
+    public bool EnemyStrip;
+
+    // Symmetric combat-start prefix: on turn 1, apply SymPower (amount SymAmount) to BOTH the
+    // player and every enemy (see ForgeCombatAffixPatch.ApplySymmetric). SymPower is a short
+    // key ("Vulnerable" / "Weak"); grafts nothing.
+    public string SymPower = "";
+    public int SymAmount;
+
+    // Random-debuff prefix: each turn, a 50% chance to apply Vulnerable/Weak 1 to either all
+    // enemies or the player (a coin flip on both), see ForgeCombatAffixPatch.ApplyRandomDebuff.
+    public bool RandomDebuff;
+
+    // Mixed (gamble) prefix: its note is neither a pure boon nor a curse, so it renders amber
+    // (neither green nor red). Set on the enemy-strip and symmetric prefixes.
+    public bool Mixed;
+
+    /// <summary>True for any companion-family prefix (grafts a relic, delays/strips an effect,
+    /// applies a symmetric/random effect, or is a penalty) — none of these scale the host's vars.</summary>
+    public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0 || Penalty
+                                     || EnemyStrip || SymPower.Length > 0 || RandomDebuff;
 
     /// <summary>Name in the game's current language (ko / zh_Hans), else English.</summary>
     public string Display => Localize(Ko, Zh, Name);
@@ -176,6 +197,28 @@ internal static class PrefixTable
             NoteKo = "전투 시작 시 뽑을 더미에 화상 1장", NoteEn = "Adds a Burn to your draw pile at combat start", NoteZh = "战斗开始时将1张灼烧加入抽牌堆" },
         new Prefix { Name = "Hollow", Ko = "공허한", Zh = "虚空的", Weight = 5, Penalty = true, Color = "#6a5a8a",
             NoteKo = "전투 시작 시 뽑을 더미에 공허 1장", NoteEn = "Adds a Void to your draw pile at combat start", NoteZh = "战斗开始时将1张虚无加入抽牌堆" },
+
+        // --- Mixed (gamble) affixes: no var scaling, an amber note. See ForgeCombatAffixPatch. ---
+        // Enemy-strip: each turn erodes one enemy power toward zero. Chaos — it strips enemy
+        // buffs (Strength/Plating/Artifact…) AND the debuffs you applied (Weak/Vuln/Frail) alike.
+        new Prefix { Name = "Eroding", Ko = "침식의", Zh = "侵蚀的", Weight = 6, Mixed = true, EnemyStrip = true, Color = "#8fbf6f",
+            NoteKo = "매 턴 적 능력치 하나를 0쪽으로 1 감소 (버프·디버프 모두)",
+            NoteEn = "Each turn, move one enemy power 1 toward zero (buffs and debuffs alike)",
+            NoteZh = "每回合使敌方一个能力值向零靠近1点（增益与减益皆可）" },
+        // Symmetric combat-start: applies a debuff to BOTH you and every enemy on turn 1.
+        new Prefix { Name = "Exposing", Ko = "노출의", Zh = "暴露的", Weight = 6, Mixed = true, SymPower = "Vulnerable", SymAmount = 1, Color = "#e0904d",
+            NoteKo = "전투 시작 시 적 하나와 자신에게 취약 1",
+            NoteEn = "Vulnerable 1 to one enemy and yourself at combat start",
+            NoteZh = "战斗开始时对一个敌人和自己施加1层易伤" },
+        new Prefix { Name = "Enervating", Ko = "쇠약의", Zh = "衰弱的", Weight = 6, Mixed = true, SymPower = "Weak", SymAmount = 1, Color = "#c0a04d",
+            NoteKo = "전투 시작 시 적 하나와 자신에게 약화 1",
+            NoteEn = "Weak 1 to one enemy and yourself at combat start",
+            NoteZh = "战斗开始时对一个敌人和自己施加1层虚弱" },
+        // Chaotic: a coin flip each turn — good (enemies) or bad (you).
+        new Prefix { Name = "Chaotic", Ko = "혼돈의", Zh = "混沌的", Weight = 6, Mixed = true, RandomDebuff = true, Color = "#a06fd0",
+            NoteKo = "매 턴 50% 확률로 적 하나 또는 자신에게 취약/약화 1",
+            NoteEn = "Each turn, 50% chance: Vulnerable or Weak 1 to one enemy or one player",
+            NoteZh = "每回合50%概率：对一个敌人或一名玩家施加1层易伤或虚弱" },
     };
 
     // Rarities that can receive a prefix at all. Starter/Event/None never do.

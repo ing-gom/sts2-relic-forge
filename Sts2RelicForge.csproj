@@ -13,4 +13,12 @@
               DestinationFolder="$(Sts2ModOutputDir)"
               Condition="Exists('$(MSBuildProjectDirectory)/pck_src/$(AssemblyName).pck')" />
     </Target>
+
+    <!-- Loose runtime-loaded icon (swappable without a pck rebuild). Only copied if it doesn't
+         already exist in the mods folder, so a user's replaced icon isn't overwritten on rebuild. -->
+    <Target Name="CopyShopIconToModsFolder" AfterTargets="Sts2ModKit_CopyToModsFolder">
+        <Copy SourceFiles="$(MSBuildProjectDirectory)/reforge_shop_icon.png"
+              DestinationFolder="$(Sts2ModOutputDir)"
+              Condition="Exists('$(MSBuildProjectDirectory)/reforge_shop_icon.png') And !Exists('$(Sts2ModOutputDir)/reforge_shop_icon.png')" />
+    </Target>
 </Project>

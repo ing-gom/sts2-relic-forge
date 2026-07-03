@@ -60,6 +60,16 @@ internal static class RelicTooltipPatch
             bool companionFam = (PrefixTable.ByName(rec.Prefix)?.NoteDisplay.Length ?? 0) > 0;
             if (!rec.HasChanges && counts is null && !companionFam) return;
 
+            // A one-time reward relic (LostCoffer/NeowsTalisman) dispenses its bonus ONCE, at
+            // AfterObtained. Reforging it at a campfire re-rolls the prefix but can't hand out the
+            // reward again — yet counts above reflect the NEW prefix. So once the relic is OWNED
+            // (its one-time effect has fired) AND it was re-forged (count > 0), the shown bonus is
+            // stale: suppress the inflated numbers and show an "already granted" footnote instead.
+            // count == 0 (never re-forged) still matches what was granted, and the not-yet-owned
+            // preview must keep showing the real bonus you're about to get — both untouched.
+            bool owned = __instance.Owner?.Relics?.Contains(__instance) ?? false;
+            bool staleOneTimeBonus = counts != null && rec.ReforgeCount > 0 && owned;
+
             // Title prefix FIRST and on its own, so a description-side failure can never
             // stop the prefix from showing on the relic name. Also prepend an invisible color
             // marker (U+2063 + hex + U+2063) that HoverTipTitleTintPatch reads to tint the
@@ -82,13 +92,17 @@ internal static class RelicTooltipPatch
                     if (!string.IsNullOrEmpty(enhanced)) body = enhanced;
                 }
                 string tail = ForgeText.DescriptionBlock(rec);
-                if (counts != null)
+                if (counts != null && !staleOneTimeBonus)
                 {
                     // Rewrite the inline counts (1 -> 2) AND list the per-count deltas under
                     // the ⚒ header, so bespoke relics match the numeric-relic tooltip format.
                     body = BespokeBonus.RewriteCounts(body, counts);
                     tail += BespokeBonus.DeltaLines(__instance.GetType().Name, counts);
                 }
+                if (staleOneTimeBonus)
+                    // Re-forged after the one-time reward was already dispensed: don't advertise
+                    // the new (uncollectable) numbers — just note that the effect already fired.
+                    tail += BespokeBonus.SpentNote();
                 __result.Description = body + tail;
             }
             catch (Exception de)

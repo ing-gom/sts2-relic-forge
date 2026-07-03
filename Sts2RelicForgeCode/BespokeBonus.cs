@@ -109,4 +109,28 @@ internal static class BespokeBonus
                            ko ? "수비 강화" : zh ? "防御强化" : "Defend Upgrade" };
         return Array.Empty<string>();
     }
+
+    /// <summary>True for a hardcoded ONE-TIME reward relic (its bonus is dispensed once, at
+    /// AfterObtained). Reforging such a relic can't retroactively change what was already granted.</summary>
+    public static bool IsOneTimeReward(string relicType)
+        => relicType == "LostCoffer" || relicType == "NeowsTalisman";
+
+    /// <summary>The BBCode color marker unique to <see cref="SpentNote"/>, so tests / callers can
+    /// detect the footnote in a built tooltip string without depending on the localized text.</summary>
+    public const string SpentMarker = "#9a9a9a";
+
+    /// <summary>
+    /// Muted note shown under the ⚒ header for an already-obtained one-time reward relic whose
+    /// prefix was re-rolled at a campfire: the card/potion/upgrade bonus was handed out at the
+    /// pre-reforge prefix and can't be re-collected, so the tooltip must not advertise the new
+    /// (uncollectable) numbers. Localization-independent gray so it reads as a footnote.
+    /// </summary>
+    public static string SpentNote()
+    {
+        string lang = LocManager.Instance?.Language ?? "";
+        string text = lang.StartsWith("ko") ? "일회성 효과 · 이미 지급됨"
+                    : lang.StartsWith("zh") ? "一次性效果 · 已发放"
+                    : "One-time effect · already granted";
+        return $"\n[color={SpentMarker}]{text}[/color]";
+    }
 }

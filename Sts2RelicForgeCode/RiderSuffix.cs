@@ -56,7 +56,7 @@ internal static class RiderSuffix
         new RiderSuffixDef { En = "Warding",    Ko = "인공물", Zh = "守护", Color = "#ffd23f", PrefixName = "Warded",
             EffKo = "적이 인공물을 얻습니다(당신 디버프 무효)", EffEn = "Enemies gain Artifact (negate your debuffs)", EffZh = "敌人获得神器(免疫你的减益)" },
         new RiderSuffixDef { En = "Shielding",  Ko = "버퍼", Zh = "护盾", Color = "#7ed0ff", PrefixName = "Shielded",
-            EffKo = "적이 버퍼를 얻습니다(다음 N타 무효)", EffEn = "Enemies gain Buffer (negate the next hits)", EffZh = "敌人获得缓冲(免疫接下来的攻击)" },
+            EffKo = "적이 버퍼를 얻습니다", EffEn = "Enemies gain Buffer", EffZh = "敌人获得缓冲" },
         new RiderSuffixDef { En = "Frenzy",     Ko = "광란", Zh = "狂乱", Color = "#ff6b4d", PrefixName = "Frenzied",
             EffKo = "적이 3번째 턴마다 힘을 얻습니다", EffEn = "Enemies gain Strength every 3rd turn", EffZh = "敌人每第3回合获得力量" },
     };

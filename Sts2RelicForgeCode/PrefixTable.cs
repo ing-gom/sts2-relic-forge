@@ -233,18 +233,17 @@ internal static class PrefixTable
             NoteEn = "Each turn, 50% chance: a random debuff (Vulnerable / Weak / Frail) to one enemy or one player",
             NoteZh = "每回合50%概率：对一个敌人或一名玩家施加随机减益（易伤/虚弱/脆弱）" },
 
-        // --- Reactive affixes. Weight 0 = defined but NOT in the live roll pool until the reaction
-        //     event-hooks are wired locally (see ReactiveAffix / REACTIVE_PREFIXES.md). Forceable via
-        //     the `forge <relic> Resonant` console command for testing. ---
-        new Prefix { Name = "Resonant", Ko = "공명의", Zh = "共鸣的", Weight = 0, Mixed = true, GainAmplify = true, AlwaysCurse = true, Color = "#4db8ff",
+        // --- Reactive affixes (see ReactiveAffix / ReactiveAffixPatches / REACTIVE_PREFIXES.md). They
+        //     react to the player's power/energy events in combat. Forceable via `forge <relic> Resonant`. ---
+        new Prefix { Name = "Resonant", Ko = "공명의", Zh = "共鸣的", Weight = 5, Mixed = true, GainAmplify = true, AlwaysCurse = true, Color = "#4db8ff",
             NoteKo = "힘·민첩을 얻을 때마다 그 능력치를 1 더 얻는다 (턴당 3회). 항상 저주 동반",
             NoteEn = "When you gain Strength or Dexterity, gain 1 more of it (up to 3/turn). Always cursed",
             NoteZh = "获得力量或敏捷时，额外获得1点（每回合最多3次）。必定附带诅咒" },
-        new Prefix { Name = "Obstinate", Ko = "완강한", Zh = "顽固的", Weight = 0, Mixed = true, LossInvert = true, Color = "#8fbf6f",
+        new Prefix { Name = "Obstinate", Ko = "완강한", Zh = "顽固的", Weight = 6, Mixed = true, LossInvert = true, Color = "#8fbf6f",
             NoteKo = "적이 힘·민첩을 깎으면, 그만큼 오히려 얻는다",
             NoteEn = "When an enemy reduces your Strength or Dexterity, gain that amount instead",
             NoteZh = "当敌人降低你的力量或敏捷时，反而获得等量" },
-        new Prefix { Name = "Discharging", Ko = "방전의", Zh = "放电的", Weight = 0, Mixed = true, EnergyDischarge = 2, Color = "#e0904d",
+        new Prefix { Name = "Discharging", Ko = "방전의", Zh = "放电的", Weight = 6, Mixed = true, EnergyDischarge = 2, Color = "#e0904d",
             NoteKo = "추가 에너지를 얻을 때마다 모든 적에게 2 피해",
             NoteEn = "Whenever you gain bonus Energy, deal 2 damage to all enemies",
             NoteZh = "每当你获得额外能量时，对所有敌人造成2点伤害" },

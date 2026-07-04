@@ -3,16 +3,30 @@
 A new prefix family for Relic Forge: **reactive** affixes that respond in real time to the player's
 power/energy changes, rather than the mostly-passive numeric / companion / penalty / gamble families.
 
-**Status: scaffold committed; event hooks + damage command remain.** The data model, the three
-prefix rows (at Weight 0), the `AlwaysCurse` curse hook, and the full reaction engine + guards
-(`ReactiveAffix`) are in place. What's left needs the game / `Sts2.ModKit` assemblies: the three
-event-interception Harmony patches that call the engine, and the damage command for 방전의. The
-runtime cost is all deterministic (`PowerCmd` / damage commands), so — unlike the networked reforge
-work — **multiplayer is free**: every client re-derives the same reactions.
+**Status: WIRED and live (v0.3.6); in-game / co-op smoke test pending.** The data model, the three
+prefix rows (now at real Weight 5/6/6), the `AlwaysCurse` curse hook, the reaction engine + guards
+(`ReactiveAffix`), and the event interception (`ReactiveAffixPatches`) are all in place, and
+`ReactiveAffix.Enabled = true`. All effects route through `PowerCmd` / `CreatureCmd` (networked +
+deterministic), so — unlike the networked reforge work — **multiplayer is free**: every client
+re-derives the same reactions with no extra sync.
 
-**Remaining local steps:** (1) wire the three interception patches documented at the bottom of
-`ReactiveAffix.cs`; (2) fill in `ReactiveAffix.DealDamage`; (3) set `ReactiveAffix.Enabled = true`
-and give the three prefixes a real `Weight` in `PrefixTable.All`; (4) build + co-op test.
+**How it's wired** (`ReactiveAffixPatches` — Harmony patches on the game's per-event Hook methods,
+same idiom as `ForgeCombatAffixPatch`, because the mod tags existing game relics rather than owning a
+custom `RelicModel` to override virtuals on):
+
+- **공명의 / Resonant** — `Hook.AfterPowerAmountChanged` postfix; on a player self-gain of Str/Dex
+  (delta > 0, applier is the player) grant +1, guarded by an echo-suppress counter + a per-turn cap.
+- **완강한 / Obstinate** — `Hook.ModifyPowerAmountReceived` postfix; flips an enemy-applied Str/Dex
+  loss to its positive in one step by rewriting the applied amount (no separate apply, no double event).
+- **방전의 / Discharging** — `Hook.ModifyEnergyGain` postfix (bonus-only; the turn-start refill sets
+  energy directly and never reaches this hook) → `CreatureCmd.Damage` (Unblockable | Unpowered) to
+  every enemy. That hook carries no `PlayerChoiceContext`, so the damage borrows the most recent one
+  captured from `AfterPowerAmountChanged` / `AfterPlayerTurnStart`.
+
+**Runtime items still to verify in-game/co-op** (compiles + is logically complete, but unverified at
+runtime): (1) the borrowed context is valid for `CreatureCmd.Damage` mid-turn; (2) the async
+fire-and-forget grant echoes exactly once (suppress counter vs the per-turn cap of 3); (3) Obstinate's
+in-place flip lands as a gain across save/load and co-op.
 
 ## Scope
 

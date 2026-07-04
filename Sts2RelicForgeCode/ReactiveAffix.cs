@@ -10,46 +10,49 @@ using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Powers;
+using MegaCrit.Sts2.Core.ValueProps;
 
 namespace Sts2RelicForge;
 
 /// <summary>
 /// Reaction engine for the reactive prefix family (see REACTIVE_PREFIXES.md):
-///   공명의 / Resonant    — gain Str/Dex -> gain +1 more of it
+///   공명의 / Resonant    — gain Str/Dex -> gain +1 more of it (up to 3/turn, always cursed)
 ///   완강한 / Obstinate   — an enemy-applied Str/Dex loss becomes a gain
 ///   방전의 / Discharging  — each bonus Energy gained deals damage to all enemies
 ///
-/// The guard + effect logic here is complete and reused by all three. The one piece that needs the
-/// game/ModKit assemblies is the EVENT INTERCEPTION that calls these handlers (and the damage
-/// command for 방전의) — see the big comment block at the bottom. Until those Harmony patches are
-/// wired, <see cref="Enabled"/> stays false and the prefixes carry Weight 0, so nothing half-works
-/// in a real game. Everything routes through PowerCmd / damage commands, which are networked +
-/// deterministic, so co-op stays consistent with no extra sync.
+/// The event interception lives in <see cref="ReactiveAffixPatches"/> (Harmony patches on the
+/// game's power/energy Hook methods), which call the handlers here. Everything routes through
+/// PowerCmd / CreatureCmd (networked + deterministic), so co-op stays consistent with no extra sync —
+/// same property the passive forge already relies on. <see cref="Enabled"/> is the master gate.
 /// </summary>
 internal static class ReactiveAffix
 {
-    /// <summary>
-    /// Master gate. Flip to true ONCE the event-interception patches below are implemented and
-    /// co-op tested. Kept <c>static readonly</c> (not <c>const</c>) so the handlers compile without
-    /// unreachable-code warnings while the wiring is still stubbed.
-    /// </summary>
-    internal static readonly bool Enabled = false;
+    /// <summary>Master gate for the whole reactive family. Off = handlers no-op (and the prefixes
+    /// carry Weight 0), on = live. Kept <c>static readonly</c> so branches compile without warnings.</summary>
+    internal static readonly bool Enabled = true;
 
-    // 공명의 hard cap: at most this many amplifier triggers per relic per turn. This is the real
-    // infinite-loop backstop — even if the +1 we apply re-enters the gain event, a relic amplifies
-    // at most PerTurnCap times per turn, so it always terminates. The reentrancy flag below is only
-    // an optimization so the bonus itself doesn't eat into the cap.
+    // 공명의 hard cap: at most this many amplifier triggers per relic per turn. The real backstop —
+    // even if an echo slips past the suppress counter, a relic amplifies at most PerTurnCap/turn.
     private const int PerTurnCap = 3;
 
-    // Reentrancy optimization: while we are applying an amplifier bonus, ignore the gain event it
-    // itself raises (that +1 must not be amplified again). Thread-static to stay isolated per turn
-    // execution. NOTE: PowerCmd.Apply is async; whether the gain event fires synchronously inside it
-    // determines how much this catches — but PerTurnCap guarantees termination regardless. Validate
-    // the exact timing locally once the interception patch is wired.
-    [ThreadStatic] private static bool _applyingBonus;
+    // Suppress-echo counter: the +1 we grant echoes back into OnPlayerGainPower as its own gain
+    // event. Increment before granting; the echo decrements and is ignored, so one real gain yields
+    // exactly one +1. Plain static (combat runs single-threaded through the action executor); reset
+    // each turn so a missed echo can't leak into the next turn.
+    private static int _suppressSelfGains;
 
     // Per-relic [lastTurn, countThisTurn], so the cap self-resets each turn with no separate hook.
     private static readonly ConditionalWeakTable<RelicModel, int[]> AmpTurn = new();
+
+    // Most-recent real combat PlayerChoiceContext, captured from hooks that carry one. The energy
+    // hook (Hook.ModifyEnergyGain) provides none, so 방전의's damage borrows this. Cleared each turn.
+    private static PlayerChoiceContext? _lastCtx;
+
+    /// <summary>Remember the latest real hook context (for 방전의, whose hook carries none).</summary>
+    public static void CaptureCtx(PlayerChoiceContext? ctx) { if (ctx != null) _lastCtx = ctx; }
+
+    /// <summary>Per-turn reset: clear the echo-suppress counter so a missed echo can't leak.</summary>
+    public static void ResetTurn() { _suppressSelfGains = 0; }
 
     /// <summary>
     /// 공명의 / Resonant. The player gained a positive amount of Strength or Dexterity. For each
@@ -57,7 +60,8 @@ internal static class ReactiveAffix
     /// </summary>
     public static void OnPlayerGainPower(PlayerChoiceContext ctx, Player player, bool isDexterity, int delta)
     {
-        if (!Enabled || _applyingBonus || delta <= 0) return;
+        if (!Enabled || delta <= 0) return;
+        if (_suppressSelfGains > 0) { _suppressSelfGains--; return; } // the echo of our own +1 grant
         try
         {
             int turn = player.PlayerCombatState?.TurnNumber ?? 0;
@@ -68,40 +72,36 @@ internal static class ReactiveAffix
                 if (box[1] >= PerTurnCap) continue;
                 box[1]++;
 
-                _applyingBonus = true;
-                try { ApplyPower(ctx, player, isDexterity, 1); }
-                finally { _applyingBonus = false; }
+                relic.Flash();
+                _suppressSelfGains++;                 // swallow the echo this grant will raise
+                ApplyPower(ctx, player, isDexterity, 1);
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] Resonant apply failed: {e.Message}"); }
     }
 
     /// <summary>
-    /// 완강한 / Obstinate. An enemy tried to reduce the player's Strength or Dexterity (delta &lt; 0).
-    /// Grant +|delta| of that power instead. The caller's interception patch must ALSO cancel the
-    /// original reduction (skip the original apply, or add the amount back) — this only grants the
-    /// inverted gain. Self-inflicted reductions (Flex-style) must NOT reach here (enemy applier only).
+    /// 완강한 / Obstinate. True when an ENEMY-applied reduction of the player's Strength/Dexterity
+    /// (<paramref name="amount"/> &lt; 0) should be inverted into a gain. The caller (the
+    /// ModifyPowerAmountReceived patch) then rewrites the applied amount to its positive — a single
+    /// step, no separate apply, no double event. Self-inflicted reductions (Flex-style) are excluded
+    /// by the enemy-applier check, so the give-then-take exploit never happens.
     /// </summary>
-    public static void OnEnemyReducePower(PlayerChoiceContext ctx, Player player, bool isDexterity, int delta)
+    public static bool ShouldInvertEnemyLoss(PowerModel power, Creature? target, decimal amount, Creature? applier)
     {
-        if (!Enabled || delta >= 0) return;
-        if (!ReactiveRelics(player, p => p.LossInvert).Any()) return;
-        try
-        {
-            // Flag as a bonus so this granted gain doesn't also trip 공명의 on a relic that has both.
-            _applyingBonus = true;
-            try { ApplyPower(ctx, player, isDexterity, -delta); }
-            finally { _applyingBonus = false; }
-        }
-        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] Obstinate invert failed: {e.Message}"); }
+        if (!Enabled || amount >= 0m) return false;
+        if (target?.Side != CombatSide.Player || applier?.Side != CombatSide.Enemy) return false;
+        if (!(power is StrengthPower || power is DexterityPower)) return false;
+        var player = target.Player;
+        return player != null && ReactiveRelics(player, p => p.LossInvert).Any();
     }
 
     /// <summary>
     /// 방전의 / Discharging. The player gained bonus Energy (beyond the turn refill). Deal the
     /// relic's EnergyDischarge damage to every enemy. Multiple such relics don't stack the count —
-    /// the strongest applies (they'd re-trigger on the same event otherwise).
+    /// the strongest applies. Borrows the last captured context (the energy hook carries none).
     /// </summary>
-    public static void OnPlayerGainBonusEnergy(PlayerChoiceContext ctx, Player player, ICombatState cs, int amount)
+    public static void OnPlayerGainBonusEnergy(Player player, ICombatState cs, int amount)
     {
         if (!Enabled || amount <= 0 || cs == null) return;
         try
@@ -113,6 +113,9 @@ internal static class ReactiveAffix
                 if (pfx != null) dmg = Math.Max(dmg, pfx.EnergyDischarge);
             }
             if (dmg <= 0) return;
+
+            var ctx = _lastCtx;
+            if (ctx == null) { MainFile.Logger.Info($"[{MainFile.ModId}] 방전의: no combat context captured yet — skipping this discharge."); return; }
 
             foreach (var enemy in cs.HittableEnemies.ToList())
                 DealDamage(ctx, player, enemy, dmg);
@@ -144,38 +147,13 @@ internal static class ReactiveAffix
             TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(ctx, creature, amount, creature, null));
     }
 
-    /// <summary>
-    /// Deal a flat hit to one enemy for 방전의.
-    /// TODO(hook): wire the game's damage command here. Mirror however the game deals a fixed,
-    /// source-attributed hit (the damage analogue of PowerCmd.Apply / CreatureCmd.GainBlock used in
-    /// EnemyForge). Signature to confirm against the assemblies — until then this only logs, so the
-    /// prefix is inert even if Enabled/Weight are turned on prematurely.
-    /// </summary>
+    /// <summary>Deal a flat, player-sourced hit to one enemy for 방전의. Unblockable + Unpowered so
+    /// it's a fixed ping (Block and Strength-scaling are skipped; Vulnerable on the target still
+    /// applies — there is no ValueProp flag to suppress it, which is fine for a relic ping).</summary>
     private static void DealDamage(PlayerChoiceContext ctx, Player player, Creature enemy, int amount)
     {
-        // e.g. TaskHelper.RunSafely(DamageCmd.Deal(ctx, enemy, amount, player.Creature, ...));
-        MainFile.Logger.Info($"[{MainFile.ModId}] 방전의: would deal {amount} to {enemy?.Id} (damage cmd TODO)");
+        if (ctx == null || enemy == null || player.Creature == null || amount <= 0) return;
+        TaskHelper.RunSafely(CreatureCmd.Damage(ctx, enemy, amount,
+            ValueProp.Unblockable | ValueProp.Unpowered | ValueProp.SkipHurtAnim, player.Creature, null));
     }
-
-    // ------------------------------------------------------------------------------------------
-    // TODO(hook): EVENT INTERCEPTION — the piece that needs the game/ModKit assemblies.
-    //
-    // Add Harmony patches that call the handlers above. Each needs an event point the mod does not
-    // yet hook (the existing ForgeCombatAffixPatch uses Hook.AfterPlayerTurnStart, which is turn-
-    // scoped, not per power/energy event). Confirm the exact target methods, then:
-    //
-    //   * Player gains a power  -> if target is the player and the power is Strength/Dexterity with
-    //     delta > 0: ReactiveAffix.OnPlayerGainPower(ctx, player, isDex, delta).
-    //       - 공명의 reads this.
-    //   * Same interception, delta < 0 AND applier is an ENEMY: ReactiveAffix.OnEnemyReducePower(...)
-    //     and CANCEL the original reduction (skip original / add it back).
-    //       - 완강한 reads this. Self-inflicted (Flex) reductions must be left alone.
-    //   * Player gains bonus energy (beyond the turn refill):
-    //     ReactiveAffix.OnPlayerGainBonusEnergy(ctx, player, combatState, amount).
-    //       - 방전의 reads this. Also fill in DealDamage above.
-    //
-    // The PlayerChoiceContext (ctx) should come from the hook/patched method, same as
-    // ForgeCombatAffixPatch's Postfix receives it. Once wired and co-op tested, set Enabled = true
-    // and give the three prefixes a real Weight in PrefixTable so they enter the roll pool.
-    // ------------------------------------------------------------------------------------------
 }

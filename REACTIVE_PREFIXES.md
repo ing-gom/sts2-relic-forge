@@ -42,7 +42,7 @@ scope here:
 |---|---|---|
 | **공명의 / Resonant / 共鸣的** | Each time you gain Strength or Dexterity, gain **+1 more** of that same power | **Always** ✅ |
 | **완강한 / Obstinate / 顽固的** | An **enemy-applied** decrease to your Strength/Dexterity is **inverted into a gain** of the same amount | none |
-| **방전의 / Discharging / 放电的** | Each time you gain **Energy**, deal **2 damage to all enemies** | none |
+| **방전의 / Discharging / 放电的** | Each time you gain **Energy**, deal **4 damage to all enemies** | none |
 
 ### 공명의 / Resonant — gain amplifier (always cursed)
 
@@ -67,7 +67,7 @@ scope here:
 
 ### 방전의 / Discharging — energy → AoE
 
-- Each time the player gains Energy, deal **2 damage to all enemies** (flat; ignores Block/Vulnerable
+- Each time the player gains Energy, deal **4 damage to all enemies** (flat; ignores Block/Vulnerable
   for simplicity).
 - **Counts bonus energy only** — energy gained *beyond* the normal turn-start refill. This keeps it a
   build-around reward (energy-gen synergies) rather than a flat "~6 AoE every turn" engine. (If a
@@ -131,7 +131,7 @@ across co-op clients with no extra sync (same property the passive forge already
 
 - 공명의 is the strongest → its cost is the **mandatory curse** (elites/bosses gain 재앙), self-scaling.
 - 완강한 is **conditional** (dead without enemy Str/Dex shred) → naturally balanced, no curse needed.
-- 방전의 counts **bonus energy only** at **2** damage → build-around, no curse needed.
+- 방전의 counts **bonus energy only** at **4** damage → build-around, no curse needed.
 
 ## Files this will touch
 

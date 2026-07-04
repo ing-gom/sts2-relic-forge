@@ -258,7 +258,7 @@ internal sealed partial class NMerchantReforgeButton : Control
             if (chosen != null && _player != null && _player.Gold >= cost)
             {
                 if (cost > 0) await PlayerCmd.LoseGold(cost, _player);
-                RelicForgeService.Reforge(chosen, _player);   // penalty prefix may roll — paid gamble
+                ReforgeNet.Reforge(chosen, _player);          // penalty prefix may roll — paid gamble
                 chosen.Flash();
                 MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge: {chosen.Id.Entry} for {cost}g.");
             }
@@ -276,7 +276,7 @@ internal static class MerchantReforgeButtonPatch
     {
         try
         {
-            if (!RunManager.Instance.IsSingleplayerOrFakeMultiplayer) return; // reforge is SP-only
+            if (!ReforgeNet.Available()) return; // reforge is SP-only until the networked path lands (ReforgeNet)
             NMerchantReforgeButton.Attach(__instance);
         }
         catch (Exception e)

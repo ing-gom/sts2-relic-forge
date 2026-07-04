@@ -26,10 +26,10 @@ internal static class RestSiteReforgeOptionPatch
     {
         try
         {
-            if (!RunManager.Instance.IsSingleplayerOrFakeMultiplayer)
+            if (!ReforgeNet.Available())
             {
                 RestSiteReforgeSupport.Current = null; // ensure KeepReforgeOptionPatch never re-adds a stale option
-                return;                                 // reforge is SP-only
+                return;                                 // reforge is SP-only until the networked path lands (ReforgeNet)
             }
             RestSiteReforgeSupport.EnsureLoc();
             var option = new ReforgeRestSiteOption(player);

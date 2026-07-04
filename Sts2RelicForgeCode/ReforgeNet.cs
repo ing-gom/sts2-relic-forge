@@ -1,5 +1,5 @@
-using System;
 using System.Linq;
+using MegaCrit.Sts2.Core.DevConsole;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Runs;
@@ -7,31 +7,30 @@ using MegaCrit.Sts2.Core.Runs;
 namespace Sts2RelicForge;
 
 /// <summary>
-/// Multiplayer seam for reforge (campfire + shop). WORK IN PROGRESS — see MULTIPLAYER_REFORGE.md.
+/// Multiplayer seam for reforge (campfire + shop). See MULTIPLAYER_REFORGE.md.
 ///
-/// The reforge UIs mutate relic state LOCALLY (<see cref="RelicForgeService.Reforge"/>) with no
-/// networked command, so co-op would desync. That is why both entry points are gated to
-/// single-player. The fix mirrors how the game's own card upgrade / card removal work: ride a
-/// synchronized command that runs on EVERY client, and let each client re-derive the identical
-/// result. This mod's forge is already seed-deterministic (seed+id+floor+count), so passive
-/// prefixes stay consistent across clients without transmitting the result — reforge only needs the
-/// same treatment: broadcast (relic, newCount), then each client re-derives locally.
+/// A raw reforge mutates relic state LOCALLY (<see cref="RelicForgeService.Reforge"/>), so doing it
+/// unsynchronized in co-op would desync the peers' replicated copies. Instead — mirroring how the
+/// game's own card upgrade / card removal replicate — reforge rides a synchronized command that runs
+/// on EVERY client, and each client re-derives the identical result. This mod's forge is already
+/// seed-deterministic (seed+id+floor+count), so nothing about the result needs transmitting: the
+/// command carries only (relicEntry, newCount) and every client converges via
+/// <see cref="ApplyReforgeStepOnClient"/>.
 ///
-/// This file centralizes that decision behind one seam so the two reforge call sites and the two
-/// availability gates route through it. Everything here is single-player-identical UNTIL
-/// <see cref="TransportReady"/> flips — the networked dispatch (<see cref="DispatchNetworked"/>) is
-/// the one piece that needs the game/ModKit command API and must be filled in locally.
+/// This centralizes that decision behind one seam so the two reforge call sites and the two
+/// availability gates route through it. Single-player takes the local fast path; co-op takes the
+/// networked path (<see cref="DispatchNetworked"/>, wired via the built-in console-command net action
+/// — see <see cref="ReforgeNetConsoleCmd"/>). <see cref="TransportReady"/> is the master switch.
 /// </summary>
 internal static class ReforgeNet
 {
     /// <summary>
-    /// Flip to true ONCE <see cref="DispatchNetworked"/> is implemented against the game/ModKit
-    /// networked-command API. Until then reforge stays single-player-only, exactly as before, so a
-    /// co-op session never sees the desyncing local-only mutation. Kept as a <c>static readonly</c>
-    /// (not <c>const</c>) on purpose so the co-op branches below compile without unreachable-code
-    /// warnings while the transport is still stubbed.
+    /// True now that <see cref="DispatchNetworked"/> is wired against the game's synchronized action
+    /// queue (see <see cref="ReforgeNetConsoleCmd"/>): reforge replicates to every co-op client via a
+    /// networked command, so the reforge UIs are offered in co-op too. Kept as a <c>static readonly</c>
+    /// (not <c>const</c>) so the single-player fast paths below compile without unreachable-code warnings.
     /// </summary>
-    internal static readonly bool TransportReady = false;
+    internal static readonly bool TransportReady = true;
 
     /// <summary>
     /// Whether the reforge UI (campfire option / shop button) may be offered right now.
@@ -68,7 +67,7 @@ internal static class ReforgeNet
             return PredictOutcome(relic, player, nextCount);
         }
 
-        // Single-player / fake-MP, and the current co-op-disabled fallback: local mutation.
+        // Single-player / fake-MP: mutate locally, unchanged historic behavior.
         return RelicForgeService.Reforge(relic, player);
     }
 
@@ -101,28 +100,36 @@ internal static class ReforgeNet
     /// </summary>
     private static RelicForgeService.ReforgeOutcome PredictOutcome(RelicModel relic, Player player, int nextCount)
     {
-        // TODO(mp): compute deterministically from (seed, id, floor, nextCount) — same roll order as
-        // RelicForgeService.Forge — or read it back after the synced handler runs on this client.
-        return RelicForgeService.ReforgeOutcome.Reforged;
+        // Pure re-derivation from (seed, id, floor, nextCount) in the same roll order as
+        // RelicForgeService.Forge — no mutation. The real mutation lands asynchronously via the synced
+        // command (ApplyReforgeStepOnClient), but the initiator's campfire UI needs the outcome up
+        // front to end its free reforge on a penalty. Both agree because both are the same function.
+        var runState = player.RunState;
+        return RelicForgeService.PredictReforgeOutcome(relic, runState.Rng.Seed, relic.FloorAddedToDeck, nextCount);
     }
 
     /// <summary>
-    /// Enqueue the reforge into the game's synchronized command stream so it runs on every client.
-    /// TODO(mp): implement against the game/ModKit command API. Mirror CardCmd.Upgrade / card removal:
-    /// a command in the run's synchronized queue whose handler calls
-    /// <see cref="ApplyReforgeStepOnClient"/> with (owner, relicEntry, targetCount) on all clients.
-    /// Candidate transports (confirm which the ModKit exposes to mods):
-    ///   1. A networked console-style command (AbstractConsoleCmd already has IsNetworked) issued
-    ///      programmatically — smallest surface, reuses an existing synced channel.
-    ///   2. A custom Cmd type carrying (playerId, relicEntry, targetCount).
-    ///   3. A networked relic-selection command (the analogue of CardSelectCmd.FromSimpleGrid the mod
-    ///      already uses), which also moves the picker itself onto the synced path.
-    /// Also fix reforge-count replication: ReforgeKeyPacketGuardPatch currently STRIPS __rf_count from
-    /// MP packets. With every client stepping locally that is fine for live sync; register the key (or
-    /// carry the count in the command) so late joiners / mid-run state sync stay consistent.
+    /// Enqueue the reforge onto the run's synchronized action stream so it replays on every client.
+    /// We reuse the game's BUILT-IN console-command net action (<c>ConsoleCmdGameAction</c> /
+    /// <c>NetConsoleCmdGameAction</c>): its payload is a plain command string, so the mod adds no new
+    /// <c>INetAction</c> subtype and the net type-id table is never perturbed (lockstep-safe). The
+    /// string "<c>rf_sync &lt;relicEntry&gt; &lt;targetCount&gt;</c>" is replayed through the DevConsole on each
+    /// client, where <see cref="ReforgeNetConsoleCmd"/> calls <see cref="ApplyReforgeStepOnClient"/>.
+    ///
+    /// <paramref name="owner"/> is the local reforging player (the action's OwnerId = its NetId), so
+    /// each client resolves the same player and steps that player's own relic copy. relicEntry is the
+    /// canonical UPPER_SNAKE id (no spaces), so the space-delimited console parse round-trips cleanly.
+    ///
+    /// Live co-op sync needs nothing more: every client re-derives the identical grade from
+    /// seed+id+floor+count. (Reforge counts are not carried in MP save packets —
+    /// ReforgeKeyPacketGuardPatch strips <c>__rf_count</c> — so a client that JOINS mid-run won't
+    /// retroactively see prior reforge counts; that mid-join catch-up is the one remaining gap.)
     /// </summary>
     private static void DispatchNetworked(Player owner, string relicEntry, int targetCount)
-        => throw new NotImplementedException(
-            "networked reforge dispatch not wired — see MULTIPLAYER_REFORGE.md. "
-            + "Keep ReforgeNet.TransportReady false until this is implemented and co-op tested.");
+    {
+        string synced = $"{ReforgeNetConsoleCmd.Verb} {relicEntry} {targetCount}";
+        // Reforge only ever happens at a rest site or shop, never in combat, so inCombat is false.
+        RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(
+            new ConsoleCmdGameAction(owner, synced, inCombat: false));
+    }
 }

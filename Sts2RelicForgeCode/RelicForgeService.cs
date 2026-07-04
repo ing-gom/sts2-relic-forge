@@ -178,6 +178,27 @@ internal static class RelicForgeService
         return penalty ? ReforgeOutcome.RolledPenalty : ReforgeOutcome.Reforged;
     }
 
+    /// <summary>
+    /// Predict the outcome (Reforged vs RolledPenalty) a reforge to <paramref name="reforgeCount"/>
+    /// would produce, WITHOUT mutating anything. Pure function of (seed, id, floor, count): it rebuilds
+    /// the same seeded RNG and draws the prefix in the exact fixed order <see cref="Forge"/> uses under
+    /// a guaranteed reforge (gate draw, then <see cref="PrefixTable.Roll"/>), then reports whether that
+    /// prefix is a penalty. The co-op path uses this because the real mutation lands asynchronously via
+    /// the synchronized command, yet the initiator's campfire UI needs the outcome up front to end its
+    /// free reforge on a penalty. It matches what the eventual Reforge produces — both are this same
+    /// derivation.
+    /// </summary>
+    public static ReforgeOutcome PredictReforgeOutcome(RelicModel relic, uint runSeed, int floor, int reforgeCount)
+    {
+        uint seed = GradeSeed(runSeed, floor, relic.Id.Entry);
+        if (reforgeCount > 0)
+            seed = SplitMix32(seed + (uint)reforgeCount * 0x9E3779B9u);
+        var rng = new Rng(seed);
+        rng.NextFloat();                        // gate draw — ignored under guaranteePrefix, kept for rng order
+        Prefix rolled = PrefixTable.Roll(rng);  // the prefix a guaranteed reforge lands
+        return rolled.Penalty ? ReforgeOutcome.RolledPenalty : ReforgeOutcome.Reforged;
+    }
+
     /// <summary>Remove the hidden companion instance a graft prefix granted, if any (safe if none).</summary>
     private static void RemoveCompanion(ForgeRecord rec, Player player)
     {

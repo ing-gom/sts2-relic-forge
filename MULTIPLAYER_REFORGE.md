@@ -1,8 +1,15 @@
-# Multiplayer Reforge — design & remaining work
+# Multiplayer Reforge — design & status
 
-**Status: scaffold in place, networked transport not yet wired.** Reforge (campfire + shop) is
-still single-player-only at runtime. This document is the spec for finishing co-op support locally,
-once the game / `Sts2.ModKit` assemblies are available to compile and co-op test against.
+**Status: networked transport WIRED (v0.3.5); co-op smoke test pending.** Reforge (campfire + shop)
+now rides the game's synchronized action queue and is offered in co-op. The dispatch reuses the
+built-in console-command net action (`ConsoleCmdGameAction` / `NetConsoleCmdGameAction`) so the mod
+adds no new `INetAction` subtype and never perturbs the net type-id ordering — see
+`ReforgeNetConsoleCmd` and `ReforgeNet.DispatchNetworked`. This document is the design record; the
+one remaining runtime gate is an actual two-client co-op verification (see §5).
+
+**Lockstep requirement:** both connected clients must run this mod (same version). The net type-id
+table is computed by sorting built-in + mod net types by short name; a peer without the mod, or a
+different mod set, diverges. This is the normal co-op mod constraint.
 
 ## Why reforge is SP-only today
 

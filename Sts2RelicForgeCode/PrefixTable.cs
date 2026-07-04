@@ -243,10 +243,10 @@ internal static class PrefixTable
             NoteKo = "적이 힘·민첩을 깎으면, 그만큼 오히려 얻는다",
             NoteEn = "When an enemy reduces your Strength or Dexterity, gain that amount instead",
             NoteZh = "当敌人降低你的力量或敏捷时，反而获得等量" },
-        new Prefix { Name = "Discharging", Ko = "방전의", Zh = "放电的", Weight = 6, Mixed = true, EnergyDischarge = 2, Color = "#e0904d",
-            NoteKo = "추가 에너지를 얻을 때마다 모든 적에게 2 피해",
-            NoteEn = "Whenever you gain bonus Energy, deal 2 damage to all enemies",
-            NoteZh = "每当你获得额外能量时，对所有敌人造成2点伤害" },
+        new Prefix { Name = "Discharging", Ko = "방전의", Zh = "放电的", Weight = 6, Mixed = true, EnergyDischarge = 4, Color = "#e0904d",
+            NoteKo = "추가 에너지를 얻을 때마다 모든 적에게 4 피해",
+            NoteEn = "Whenever you gain bonus Energy, deal 4 damage to all enemies",
+            NoteZh = "每当你获得额外能量时，对所有敌人造成4点伤害" },
     };
 
     // Rarities that can receive a prefix at all. Starter/Event/None never do. Ancient is included

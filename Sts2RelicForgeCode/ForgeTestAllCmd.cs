@@ -21,9 +21,9 @@ namespace Sts2RelicForge;
 public class ForgeTestAllCmd : AbstractConsoleCmd
 {
     public override string CmdName => "forgetest";
-    public override string Args => "[penalty|delayed|graft]";
+    public override string Args => "[penalty|delayed|graft|reactive]";
     public override string Description =>
-        "Grants one relic per companion prefix for bulk re-testing. Optional filter: penalty | delayed | graft.";
+        "Grants one relic per companion prefix for bulk re-testing. Optional filter: penalty | delayed | graft | reactive.";
     public override bool IsNetworked => false;
     public override bool DebugOnly => false;
 
@@ -47,11 +47,12 @@ public class ForgeTestAllCmd : AbstractConsoleCmd
             "penalty" => p => p.Penalty,
             "delayed" => p => p.DelayTurn > 0,
             "graft" => p => p.CompanionRelic != null,
+            "reactive" => p => p.GainAmplify || p.LossInvert || p.EnergyDischarge > 0,
             _ => p => p.IsCompanionPrefix,
         };
         var companions = PrefixTable.All.Where(pred).ToList();
         if (companions.Count == 0)
-            return new CmdResult(success: false, "No matching prefixes (filter: penalty|delayed|graft).");
+            return new CmdResult(success: false, "No matching prefixes (filter: penalty|delayed|graft|reactive).");
 
         // Distinct eligible non-donor hosts — one per prefix. Deterministic order.
         var donorTypes = companions.Where(p => p.CompanionRelic != null).Select(p => p.CompanionRelic!).ToHashSet();

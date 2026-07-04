@@ -236,9 +236,9 @@ internal static class PrefixTable
         // --- Reactive affixes (see ReactiveAffix / ReactiveAffixPatches / REACTIVE_PREFIXES.md). They
         //     react to the player's power/energy events in combat. Forceable via `forge <relic> Resonant`. ---
         new Prefix { Name = "Resonant", Ko = "공명의", Zh = "共鸣的", Weight = 5, Mixed = true, GainAmplify = true, AlwaysCurse = true, Color = "#4db8ff",
-            NoteKo = "힘·민첩을 얻을 때마다 그 능력치를 1 더 얻는다 (턴당 3회). 항상 저주 동반",
-            NoteEn = "When you gain Strength or Dexterity, gain 1 more of it (up to 3/turn). Always cursed",
-            NoteZh = "获得力量或敏捷时，额外获得1点（每回合最多3次）。必定附带诅咒" },
+            NoteKo = "힘·민첩을 얻을 때마다 그 능력치를 1 더 얻는다 (턴당 3회)",
+            NoteEn = "When you gain Strength or Dexterity, gain 1 more of it (up to 3/turn)",
+            NoteZh = "获得力量或敏捷时，额外获得1点（每回合最多3次）" },
         new Prefix { Name = "Obstinate", Ko = "완강한", Zh = "顽固的", Weight = 6, Mixed = true, LossInvert = true, Color = "#8fbf6f",
             NoteKo = "적이 힘·민첩을 깎으면, 그만큼 오히려 얻는다",
             NoteEn = "When an enemy reduces your Strength or Dexterity, gain that amount instead",

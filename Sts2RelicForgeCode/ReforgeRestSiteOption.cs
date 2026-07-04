@@ -59,7 +59,7 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
 
         if (chosen != null)
         {
-            var outcome = RelicForgeService.Reforge(chosen, Owner);
+            var outcome = ReforgeNet.Reforge(chosen, Owner);
             chosen.Flash();                                  // pulse the re-forged relic for feedback
             if (outcome == RelicForgeService.ReforgeOutcome.RolledPenalty)
             {

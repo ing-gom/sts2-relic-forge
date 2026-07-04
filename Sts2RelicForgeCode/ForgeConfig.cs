@@ -38,4 +38,13 @@ internal static class ForgeConfig
     /// is on. Penalty prefixes never roll it. See <see cref="EnemyForge"/>.
     /// </summary>
     public static double EnemyRiderChance = 0.33;
+
+    /// <summary>
+    /// Whether Ancient (先古) rarity relics may be forged at all. Default true (they roll prefixes
+    /// like any other eligible rarity). Turn OFF to leave Ancient relics as pure vanilla — the
+    /// automatic pickup forge skips them and they are hidden from the reforge picker, so the mod
+    /// never touches them end-to-end. Only Ancient relics are affected; every other rarity is
+    /// unchanged. See <see cref="PrefixTable.Eligible"/>.
+    /// </summary>
+    public static bool ForgeAncientRelics = true;
 }

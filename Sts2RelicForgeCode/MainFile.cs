@@ -18,6 +18,7 @@ public class MainFile
     private const string EntryKeyEnemyForge = "enemyForgeEnabled";
     private const string EntryKeyRiderChance = "enemyRiderChance";
     private const string EntryKeyShopCost = "shopReforgeCost";
+    private const string EntryKeyForgeAncient = "forgeAncientRelics";
 
     public static readonly MegaCrit.Sts2.Core.Logging.Logger Logger
         = ModBootstrap.CreateLogger(ModId);
@@ -62,6 +63,10 @@ public class MainFile
                 onChanged: v => ForgeConfig.ShopReforgeCost = (int)v)
                 .Range(0f, 100f, 10f, format: "F0")
                 .Description("Gold charged per reforge at a merchant. Unlimited uses per shop (pay each time), and a penalty prefix can still roll — a paid gamble. 0 = free.")
+            .Toggle(EntryKeyForgeAncient, "Forge Ancient relics",
+                defaultValue: true,
+                onChanged: v => ForgeConfig.ForgeAncientRelics = v)
+                .Description("Whether Ancient relics get prefixes like any other relic. Turn OFF to leave Ancient relics as pure vanilla — they skip the pickup forge and are hidden from the reforge picker. Affects relics forged (or re-derived on load) afterward.")
             .Register();
 
         // Now that the keys are registered, read the saved-or-default values.
@@ -70,6 +75,7 @@ public class MainFile
         ForgeConfig.ShopReforgeCost = (int)ModConfigBridge.GetValue<double>(ModId, EntryKeyShopCost, 50.0);
         ForgeConfig.EnemyForgeEnabled = ModConfigBridge.GetValue<bool>(ModId, EntryKeyEnemyForge, true);
         ForgeConfig.EnemyRiderChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyRiderChance, 33.0) / 100.0;
+        ForgeConfig.ForgeAncientRelics = ModConfigBridge.GetValue<bool>(ModId, EntryKeyForgeAncient, true);
 
         Logger.Info($"[{ModId}] shop reforge cost {ForgeConfig.ShopReforgeCost}g, no-prefix chance {ForgeConfig.NoPrefixChance:P0}.");
     }

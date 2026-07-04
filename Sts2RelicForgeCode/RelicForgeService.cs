@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Localization.DynamicVars;
 using MegaCrit.Sts2.Core.Models;
@@ -287,6 +288,12 @@ internal static class RelicForgeService
         // Eligibility gates only the automatic pickup forge. A forced test or a deliberate reforge
         // (guaranteePrefix) may prefix any relic, including Starter/Event rarities.
         if (!test && !guaranteePrefix && !PrefixTable.Eligible.Contains(relic.Rarity)) return null;
+        // Opt-out for Ancient (先古) relics: keep them pure vanilla when the player disables it. Only
+        // the automatic pickup forge is gated here — a forced test or deliberate reforge still may
+        // touch them — but the reforge picker also hides Ancient relics while this is off, so in
+        // normal play they stay untouched end-to-end.
+        if (!test && !guaranteePrefix && !ForgeConfig.ForgeAncientRelics
+            && relic.Rarity == RelicRarity.Ancient) return null;
 
         string relicId = relic.Id.Entry;               // canonical UPPER_SNAKE id (seed + logs)
         // Per-relic policy (Overrides/BoostFactor) is keyed by the C# class name, which is

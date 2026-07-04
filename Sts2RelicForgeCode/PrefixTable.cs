@@ -221,7 +221,8 @@ internal static class PrefixTable
             NoteZh = "每回合50%概率：对一个敌人或一名玩家施加随机减益（易伤/虚弱/脆弱）" },
     };
 
-    // Rarities that can receive a prefix at all. Starter/Event/None never do.
+    // Rarities that can receive a prefix at all. Starter/Event/None never do. Ancient is included
+    // here but can be opted out at runtime via ForgeConfig.ForgeAncientRelics (see RelicForgeService.Forge).
     public static readonly HashSet<RelicRarity> Eligible = new()
     {
         RelicRarity.Common, RelicRarity.Uncommon, RelicRarity.Rare, RelicRarity.Shop, RelicRarity.Ancient

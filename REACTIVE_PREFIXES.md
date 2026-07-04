@@ -3,10 +3,16 @@
 A new prefix family for Relic Forge: **reactive** affixes that respond in real time to the player's
 power/energy changes, rather than the mostly-passive numeric / companion / penalty / gamble families.
 
-**Status: confirmed design, not yet implemented.** This is the spec for building it locally, once the
-game / `Sts2.ModKit` assemblies are available to confirm the exact hook signatures and to compile /
-test against. The runtime cost is all deterministic (`PowerCmd` / damage commands), so — unlike the
-networked reforge work — **multiplayer is free**: every client re-derives the same reactions.
+**Status: scaffold committed; event hooks + damage command remain.** The data model, the three
+prefix rows (at Weight 0), the `AlwaysCurse` curse hook, and the full reaction engine + guards
+(`ReactiveAffix`) are in place. What's left needs the game / `Sts2.ModKit` assemblies: the three
+event-interception Harmony patches that call the engine, and the damage command for 방전의. The
+runtime cost is all deterministic (`PowerCmd` / damage commands), so — unlike the networked reforge
+work — **multiplayer is free**: every client re-derives the same reactions.
+
+**Remaining local steps:** (1) wire the three interception patches documented at the bottom of
+`ReactiveAffix.cs`; (2) fill in `ReactiveAffix.DealDamage`; (3) set `ReactiveAffix.Enabled = true`
+and give the three prefixes a real `Weight` in `PrefixTable.All`; (4) build + co-op test.
 
 ## Scope
 

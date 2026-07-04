@@ -366,7 +366,9 @@ internal static class RelicForgeService
 
         double pct = prefix.PowerPct;
         var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount,
-            EnemyRider = !prefix.Penalty && riderRoll < ForgeConfig.EnemyRiderChance };
+            // AlwaysCurse (e.g. 공명의/Resonant) lands the rider unconditionally — its power always
+            // comes bundled with a curse. Otherwise it's the normal seeded chance. Penalties never carry it.
+            EnemyRider = !prefix.Penalty && (prefix.AlwaysCurse || riderRoll < ForgeConfig.EnemyRiderChance) };
         if (record.EnemyRider) record.EnemyRiderSuffix = RiderSuffix.Pick(suffixRoll);
         Records.Add(relic, record); // guard re-forge even if nothing changes
 

@@ -365,12 +365,27 @@ internal static class RelicForgeService
     // shared canonical doesn't carry a forged look into collection screens.
     private static readonly Dictionary<RelicModel, RelicModel> OfferedPreview = new();
 
+    // Re-entrancy guard for the preview clone build. ToMutable()/the treasure holder's own
+    // tooltip build can re-enter RelicModel.get_HoverTip on the SAME canonical while we're still
+    // inside OfferPreview — and since the clone isn't cached yet, the tooltip's PreviewOnHover hook
+    // would call OfferPreview -> ToMutable() again, recursing until the stack overflows. A stack
+    // overflow is uncatchable, so despite every try/catch it surfaced as a black-screen freeze on
+    // the treasure ("box") page. This flag makes any nested preview request a no-op, breaking the loop.
+    [ThreadStatic] private static bool _buildingPreview;
+
     public static void OfferPreview(RelicModel canonical, uint runSeed, int floor)
     {
         if (canonical.IsMutable) return;        // ToMutable() would throw on a non-canonical
-        var clone = canonical.ToMutable();
-        Forge(clone, runSeed, floor);
-        OfferedPreview[canonical] = clone;      // latest offer wins
+        if (_buildingPreview) return;           // re-entrant call while a clone is mid-build — break the recursion
+        if (OfferedPreview.ContainsKey(canonical)) return; // already previewed this offer; don't re-clone
+        _buildingPreview = true;
+        try
+        {
+            var clone = canonical.ToMutable();
+            Forge(clone, runSeed, floor);
+            OfferedPreview[canonical] = clone;  // latest offer wins
+        }
+        finally { _buildingPreview = false; }
     }
 
     /// <summary>The forged preview clone for a currently-offered canonical relic, if any.</summary>
@@ -387,6 +402,7 @@ internal static class RelicForgeService
     public static RelicModel? PreviewOnHover(RelicModel relic)
     {
         if (relic == null || relic.IsMutable) return null;
+        if (_buildingPreview) return null;      // nested tooltip request while cloning a preview — don't recurse
         if (OfferedPreview.TryGetValue(relic, out var existing)) return existing;
         var state = RunManager.Instance?.State;
         if (state == null) return null;

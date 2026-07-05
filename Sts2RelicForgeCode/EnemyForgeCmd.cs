@@ -70,7 +70,7 @@ public class EnemyForgeCmd : AbstractConsoleCmd
         double mag = EnemyForge.Magnitude(issuingPlayer);
         bool on = ForgeConfig.EnemyForgeEnabled;
 
-        log.Append($"  enemy forge: {(on ? "ON" : "OFF")}  ·  rider chance {ForgeConfig.EnemyRiderChance:P0}\n");
+        log.Append($"  enemy forge: {(on ? "ON" : "OFF")}  ·  curse chance {ForgeConfig.CurseChance:P0} (enemy-rider share {(1 - ForgeConfig.SelfCurseShare):P0})\n");
         log.Append($"  rider heat: {heat:F2}  (from relics carrying the enemy-rider curse)\n");
         log.Append($"  balance slider: {ForgeConfig.BalanceStrength:P0}\n");
         log.Append($"  => magnitude: {mag:F2}  {(mag <= 0 ? "(no enemy buff — off or no rider relics)" : "(elites/bosses buffed)")}");
@@ -94,7 +94,7 @@ public class EnemyForgeCmd : AbstractConsoleCmd
             string suffix = RiderSuffix.Localize(rec.EnemyRiderSuffix);
             sb.Append($"  ★ {relic.Id.Entry}  [{PrefixTable.Localize(rec.Prefix)} · {suffix}]  +{c:F2}\n");
         }
-        if (n == 0) sb.Append("  (none — forge relics; ~").Append((ForgeConfig.EnemyRiderChance * 100).ToString("F0")).Append("% roll the curse)\n");
+        if (n == 0) sb.Append("  (none — forge relics; ~").Append((ForgeConfig.CurseChance * (1 - ForgeConfig.SelfCurseShare) * 100).ToString("F0")).Append("% roll the enemy-rider curse)\n");
         sb.Append($"  total rider heat: {heat:F2}  →  magnitude {EnemyForge.Magnitude(player):F2}");
         return sb.ToString();
     }

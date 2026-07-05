@@ -53,6 +53,12 @@ internal sealed class ForgeRecord
     // enemy-rider curse — "Legendary Anchor of Wrath". Localized at display via RiderSuffix.
     public string EnemyRiderSuffix = "";
 
+    // Self-curse: an INDEPENDENT player-side "저주" (English key, e.g. "Enfeebling") a forged relic may
+    // also carry — it punishes the OWNER on unblocked hits (see SelfCurseTable / UnblockedHitPenaltyPatch).
+    // Its own roll dimension: separate from the prefix pool AND the enemy-rider slot, so a relic can carry
+    // a boon prefix, an enemy-rider curse, AND a self-curse at once. Re-derived on load (not persisted).
+    public string SelfCurse = "";
+
     // Companion prefix: the donor relic type to graft, and a guard so the hidden instance
     // is granted exactly once per host instance (re-derived, not persisted — see
     // CompanionSerializationPatch + RunLoadReforgePatch).

@@ -33,11 +33,12 @@ A single weighted pool — any relic can roll any prefix. Full names, effects an
 
 ## Curses (enemy forge) — opt-in
 
-A forged relic can also roll a **curse** (default ~33% chance) — while you own it, **elites and bosses grow stronger** (the relic name gains a `(Cursed)` tag; the tooltip states the exact effect). A curse on a stronger relic empowers the enemy more, and multiple curses stack onto one enemy. Full list in the **[Curse Guide](CURSES.en.md)** ([한국어](CURSES.ko.md) · [简体中文](CURSES.zh.md)).
+A forged relic can also roll **one curse** — and a stronger prefix is far more likely to carry one (a Legendary is almost always cursed; a weak prefix rarely is). The relic name gains a `(Cursed)` tag and the tooltip states the exact effect. There are two kinds, mutually exclusive per relic. Full list in the **[Curse Guide](CURSES.en.md)** ([한국어](CURSES.ko.md) · [简体中文](CURSES.zh.md)).
 
-- Example curses: of Wrath (Strength), of Malice (Plated Armor), of Spite (Thorns), of the Tyrant (all three), of Bloodlust (Regen), of Warding, of Shielding, of Frenzy (Strength every 3rd turn).
+- **Enemy curses** — **enemies grow stronger** while you own the relic: Strength/Plated Armor/Thorns (of Wrath, Malice, Spite, the Tyrant…), Regen, Frenzy, and **Max HP** curses (of Vigor/Girth/the Titan/Eternity). In multi-enemy fights the curses **spread across the pack**.
+- **Self-curses** — **you** take a penalty on each **unblocked** hit, proportional to the hit count: Enfeebling (Weak), Cracking (Frail), Vulnerating (Vulnerable), Bewildering (a Dazed), Wretched (random). Block well and they never fire.
 - **ON by default** — controlled by **"Enemy forge"** in ModConfig. Turn it off for a pure power fantasy.
-- Strength and curse chance are tunable via ModConfig sliders.
+- Tunable via ModConfig: **"Curse chance"**, **"Self-curse share"** (enemy-vs-self split), and **"Enemy balance strength"**.
 
 ## Reforge
 

@@ -82,6 +82,21 @@ internal static class RelicForgeService
         return x ^ (x >> 15);
     }
 
+    // Curse chance SCALES with the prefix's power ("great power, great cost"): CurseChance is the
+    // reference at CurseRefPower, so a Legendary (+60%) approaches the cap while a Keen (+4%) sits
+    // near the floor. Non-numeric prefixes (companion/mixed/delayed, PowerPct 0) use the reference;
+    // negative prefixes use the floor (an already-weakened relic is rarely also cursed).
+    private const double CurseRefPower = 0.15;
+    private const double CurseFloor = 0.05;
+    private const double CurseCap = 0.85;
+    private static double CurseChanceFor(Prefix prefix)
+    {
+        double boon = prefix.PowerPct > 0 ? prefix.PowerPct
+                    : prefix.PowerPct < 0 ? 0.02
+                    : CurseRefPower;
+        return Math.Clamp(ForgeConfig.CurseChance * (boon / CurseRefPower), CurseFloor, CurseCap);
+    }
+
     /// <summary>The forge record for a relic instance, or null if it was never forged.</summary>
     public static ForgeRecord? RecordFor(RelicModel relic)
         => Records.TryGetValue(relic, out var rec) ? rec : null;
@@ -354,8 +369,11 @@ internal static class RelicForgeService
         // Drawn in fixed rng order so the stream stays stable if the chance is retuned; whether it
         // lands depends on the config chance, and penalty prefixes never carry it. A second draw
         // picks the flavor suffix name (used only if the rider lands).
-        double riderRoll = rng.NextFloat();
-        double suffixRoll = rng.NextFloat();
+        // One MUTUALLY-EXCLUSIVE curse: a non-penalty relic may carry either an enemy-rider curse OR a
+        // self-curse, never both. Three fixed-order draws: does it carry a curse, which kind, which one.
+        double curseRoll = rng.NextFloat();      // carries a curse at all?
+        double curseTypeRoll = rng.NextFloat();  // if so: self-curse vs enemy-rider
+        double cursePickRoll = rng.NextFloat();  // which specific curse of the chosen kind
 
         if (prefix == null)
         {
@@ -365,11 +383,21 @@ internal static class RelicForgeService
         }
 
         double pct = prefix.PowerPct;
-        var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount,
-            // AlwaysCurse (e.g. 공명의/Resonant) lands the rider unconditionally — its power always
-            // comes bundled with a curse. Otherwise it's the normal seeded chance. Penalties never carry it.
-            EnemyRider = !prefix.Penalty && (prefix.AlwaysCurse || riderRoll < ForgeConfig.EnemyRiderChance) };
-        if (record.EnemyRider) record.EnemyRiderSuffix = RiderSuffix.Pick(suffixRoll);
+        var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount };
+        // Exactly one curse (or none). AlwaysCurse prefixes (e.g. 공명의/Resonant) always take the
+        // enemy-rider — their designed cost. Otherwise CurseChance gates whether there's a curse and
+        // SelfCurseShare decides the kind (self-curse vs enemy-rider). Penalty prefixes never carry one.
+        if (!prefix.Penalty && (prefix.AlwaysCurse || curseRoll < CurseChanceFor(prefix)))
+        {
+            bool self = !prefix.AlwaysCurse && curseTypeRoll < ForgeConfig.SelfCurseShare;
+            if (self)
+                record.SelfCurse = SelfCurseTable.Pick(cursePickRoll).En;
+            else
+            {
+                record.EnemyRider = true;
+                record.EnemyRiderSuffix = RiderSuffix.Pick(cursePickRoll);
+            }
+        }
         Records.Add(relic, record); // guard re-forge even if nothing changes
 
         // Companion-family prefix (grafted OR delayed): don't scale the host's vars. Grafted

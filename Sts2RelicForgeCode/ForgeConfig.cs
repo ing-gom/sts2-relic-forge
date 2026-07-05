@@ -8,7 +8,7 @@ internal static class ForgeConfig
     /// only ~40% of relics get a Terraria prefix — a prefix is a lucky find. Adjustable
     /// in-game via ModConfig; 0 = every eligible relic is prefixed.
     /// </summary>
-    public static double NoPrefixChance = 0.60;
+    public static double NoPrefixChance = 0.45;
 
     /// <summary>
     /// Master multiplier for the "enemy forge" balance mechanism: elites and bosses always roll
@@ -33,11 +33,15 @@ internal static class ForgeConfig
     public static bool EnemyForgeEnabled = true;
 
     /// <summary>
-    /// Probability that a freshly-forged relic ALSO carries the "enemy-rider" curse (strengthens
-    /// elites/bosses while owned). Default 0.25. Only matters when <see cref="EnemyForgeEnabled"/>
-    /// is on. Penalty prefixes never roll it. See <see cref="EnemyForge"/>.
+    /// REFERENCE probability that a freshly-forged (non-penalty) relic carries ONE curse — either an
+    /// enemy-rider curse (strengthens elites/bosses, see <see cref="EnemyForge"/>) OR a self-curse
+    /// (punishes you on unblocked hits, see <see cref="SelfCurseTable"/>), but NEVER both. Which kind
+    /// is decided by <see cref="SelfCurseShare"/>. This is the chance for a MID-power prefix; the real
+    /// chance scales with the prefix's power ("great power, great cost"), so a weak prefix is rarely
+    /// cursed and a Legendary is almost always — see RelicForgeService.CurseChanceFor. Default 0.33.
+    /// Penalty prefixes never roll a curse.
     /// </summary>
-    public static double EnemyRiderChance = 0.33;
+    public static double CurseChance = 0.33;
 
     /// <summary>
     /// Whether Ancient (先古) rarity relics may be forged at all. Default true (they roll prefixes
@@ -47,4 +51,12 @@ internal static class ForgeConfig
     /// unchanged. See <see cref="PrefixTable.Eligible"/>.
     /// </summary>
     public static bool ForgeAncientRelics = true;
+
+    /// <summary>
+    /// Of the relics that DO carry a curse (see <see cref="CurseChance"/>), the fraction that get a
+    /// SELF-CURSE (punishes you on unblocked hits) instead of an enemy-rider curse. The two are
+    /// mutually exclusive per relic. Default 0.50 (half self-curse, half enemy-rider). 0 = all curses
+    /// are enemy-rider; 1 = all curses are self-curse. See <see cref="SelfCurseTable"/>.
+    /// </summary>
+    public static double SelfCurseShare = 0.35;
 }

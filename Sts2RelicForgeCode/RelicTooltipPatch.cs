@@ -58,7 +58,11 @@ internal static class RelicTooltipPatch
             // Companion-family prefixes (grafted or delayed) have no var changes and no bespoke
             // counts, but still decorate (title prefix + effect note), so don't bail on them.
             bool companionFam = (PrefixTable.ByName(rec.Prefix)?.NoteDisplay.Length ?? 0) > 0;
-            if (!rec.HasChanges && counts is null && !companionFam) return;
+            // A curse (enemy-rider or self-curse) also decorates even with no var change — common on
+            // modded relics that expose no scalable DynamicVars, where the prefix scales nothing but
+            // the curse still rides along. Without this, the curse line silently never renders.
+            bool hasCurse = rec.EnemyRider || rec.SelfCurse.Length > 0;
+            if (!rec.HasChanges && counts is null && !companionFam && !hasCurse) return;
 
             // A one-time reward relic (LostCoffer/NeowsTalisman) dispenses its bonus ONCE, at
             // AfterObtained. Reforging it at a campfire re-rolls the prefix but can't hand out the

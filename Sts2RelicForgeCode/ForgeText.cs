@@ -22,8 +22,10 @@ internal static class ForgeText
     /// </summary>
     public static string TitleSuffix(ForgeRecord rec)
     {
-        if (!ForgeConfig.EnemyForgeEnabled || !rec.EnemyRider || rec.EnemyRiderSuffix.Length == 0) return "";
-        // Just a simple "curse" mark on the name — the exact effect is in the tooltip line.
+        bool rider = ForgeConfig.EnemyForgeEnabled && rec.EnemyRider && rec.EnemyRiderSuffix.Length > 0;
+        bool self = rec.SelfCurse.Length > 0;
+        if (!rider && !self) return "";
+        // Just a simple "curse" mark on the name — the exact effect(s) are in the tooltip lines.
         string lang = LocManager.Instance?.Language ?? "";
         if (lang.StartsWith("ko")) return " 〈저주〉";
         if (lang.StartsWith("zh")) return " 〈诅咒〉";
@@ -75,6 +77,13 @@ internal static class ForgeText
         {
             string effect = RiderSuffix.EffectOf(rec.EnemyRiderSuffix);
             if (effect.Length > 0) sb.Append("\n[color=#e0554d]⚔ ").Append(effect).Append("[/color]");
+        }
+        // Self-curse: an independent player-side curse (punishes YOU on unblocked hits). Distinct ☠
+        // icon + red so it reads apart from the enemy-rider ⚔ line above.
+        if (rec.SelfCurse.Length > 0)
+        {
+            string effect = SelfCurseTable.EffectOf(rec.SelfCurse);
+            if (effect.Length > 0) sb.Append("\n[color=#c0554d]☠ ").Append(effect).Append("[/color]");
         }
         return sb.ToString();
     }

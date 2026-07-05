@@ -13,7 +13,7 @@ internal sealed class RiderSuffixDef
 {
     public string En = "", Ko = "", Zh = "";       // suffix name
     public string Color = "#e0554d";               // tint for the enemy nameplate
-    public string PrefixName = "";                 // the EnemyPrefix this grants to enemies
+    public string PrefixName = "";                 // the EnemyPrefix this grants to enemies (empty for on-hit riders)
     public string EffKo = "", EffEn = "", EffZh = ""; // short "enemies gain X" line
 
     public string Display
@@ -59,6 +59,18 @@ internal static class RiderSuffix
             EffKo = "적이 버퍼를 얻습니다", EffEn = "Enemies gain Buffer", EffZh = "敌人获得缓冲" },
         new RiderSuffixDef { En = "Frenzy",     Ko = "광란", Zh = "狂乱", Color = "#ff6b4d", PrefixName = "Frenzied",
             EffKo = "적이 3번째 턴마다 힘을 얻습니다", EffEn = "Enemies gain Strength every 3rd turn", EffZh = "敌人每第3回合获得力量" },
+
+        // --- Max-HP curses: strengthen enemies by raising their Max HP (and healing to it), scoped by
+        //     room type. Applied to ALL enemies in a matching fight (see EnemyForge.ApplyHpCurses),
+        //     not just the one decorated elite/boss — so "normal-mob HP up" reaches every enemy. ---
+        new RiderSuffixDef { En = "Vigor",     Ko = "활력", Zh = "活力", Color = "#c0335a", PrefixName = "Vigor",
+            EffKo = "일반 전투의 모든 적이 최대 체력을 얻습니다", EffEn = "Normal-fight enemies gain Max HP", EffZh = "普通战斗的所有敌人获得最大生命" },
+        new RiderSuffixDef { En = "Girth",     Ko = "비대", Zh = "臃肿", Color = "#a03a5a", PrefixName = "Girth",
+            EffKo = "모든 적이 최대 체력을 얻습니다", EffEn = "All enemies gain Max HP", EffZh = "所有敌人获得最大生命" },
+        new RiderSuffixDef { En = "the Titan", Ko = "거인", Zh = "巨人", Color = "#c04d33", PrefixName = "Titan",
+            EffKo = "엘리트가 최대 체력을 크게 얻습니다", EffEn = "Elites gain a lot of Max HP", EffZh = "精英获得大量最大生命" },
+        new RiderSuffixDef { En = "Eternity",  Ko = "영겁", Zh = "永恒", Color = "#7a5ac0", PrefixName = "Eternity",
+            EffKo = "보스가 최대 체력을 얻습니다", EffEn = "Bosses gain Max HP", EffZh = "首领获得最大生命" },
     };
 
     /// <summary>Deterministic pick from a 0..1 roll; returns the English key stored on the record.</summary>

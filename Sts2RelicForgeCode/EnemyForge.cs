@@ -12,9 +12,13 @@ using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.Random;
+using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.ValueProps;
 
 namespace Sts2RelicForge;
+
+/// <summary>Which fights a Max-HP curse reaches (see <see cref="EnemyForge.ApplyHpCurses"/>).</summary>
+internal enum HpScope { EliteBoss, Normal, Elite, Boss, Any }
 
 /// <summary>Applies one native power (or block) to an enemy with a computed amount.</summary>
 internal delegate Task PowerApply(PlayerChoiceContext ctx, Creature enemy, int amount);
@@ -57,6 +61,7 @@ internal sealed class EnemyPrefix
     public double Weight;
     public double MinMag;             // eligible only when magnitude >= this
     public string Color = "#e0554d";
+    public HpScope Scope = HpScope.EliteBoss;  // which fights an HP effect on this prefix reaches
     public EnemyEffect[] Effects = Array.Empty<EnemyEffect>();
 
     public string Display
@@ -119,6 +124,18 @@ internal static class EnemyPrefixTable
             Effects = new[] { Pow(Buffer, 1, 2, cap: 2) } },                          // Buffer: negate next hits
         new EnemyPrefix { Name = "Frenzied", Ko = "광란의", Zh = "狂乱的", Color = "#ff6b4d",
             Effects = new[] { Pow(Str, 1, 2, period: 3) } },                          // +Strength every 3rd turn
+
+        // Max-HP curses — a FIXED fraction of each enemy's spawn MaxHp (Base==BaseMax), broadcast to
+        // ALL enemies in a scope-matching fight by EnemyForge.ApplyHpCurses (NOT the one-enemy
+        // decoration path). GainMaxHp also heals, so they're genuinely tankier from turn 1.
+        new EnemyPrefix { Name = "Vigor",    Ko = "활력", Zh = "活力", Color = "#c0335a", Scope = HpScope.Normal,
+            Effects = new[] { Hp(0.20, 0.20) } },   // normal fights: every enemy +20% Max HP
+        new EnemyPrefix { Name = "Girth",    Ko = "비대", Zh = "臃肿", Color = "#a03a5a", Scope = HpScope.Any,
+            Effects = new[] { Hp(0.12, 0.12) } },   // all fights: every enemy +12% Max HP
+        new EnemyPrefix { Name = "Titan",    Ko = "거인", Zh = "巨人", Color = "#c04d33", Scope = HpScope.Elite,
+            Effects = new[] { Hp(0.30, 0.30) } },   // elites: +30% Max HP
+        new EnemyPrefix { Name = "Eternity", Ko = "영겁", Zh = "永恒", Color = "#7a5ac0", Scope = HpScope.Boss,
+            Effects = new[] { Hp(0.25, 0.25) } },   // boss: +25% Max HP
     };
 
     /// <summary>Find a prefix by English name (case-insensitive), for the test console command.</summary>
@@ -169,6 +186,9 @@ internal static class EnemyForge
     private const double TestMagnitude = 1.6;
 
     private static readonly ConditionalWeakTable<Creature, EnemyForgeTag> Tags = new();
+    // Enemies already given their Max-HP curse bonus this combat (idempotent against a re-invoke).
+    private static readonly ConditionalWeakTable<Creature, object> HpCursed = new();
+    private static readonly object HpMarker = new();
 
     public static EnemyForgeTag? TagOf(Creature enemy) => Tags.TryGetValue(enemy, out var t) ? t : null;
 
@@ -198,25 +218,56 @@ internal static class EnemyForge
     }
 
     /// <summary>
-    /// Apply, to one elite/boss, the buffs dictated by the enemy-rider CURSES the player is carrying:
-    /// each rider relic's suffix (Malice → Plated Armor, Wrath → Strength, …) grants that enemy the
-    /// mapped buff, scaled by the relic's power × balance × tier. So the relic tooltip's promise is
-    /// exactly what the enemy gets. Deterministic (no rng — driven by the player's relics).
+    /// DISTRIBUTE the enemy-rider CURSES the player carries across the enemies in a fight: each rider
+    /// suffix (Malice → Plated Armor, Wrath → Strength, …) is assigned to one enemy round-robin, so a
+    /// pack SHARES the curses instead of one champion carrying them all. A single enemy still gets them
+    /// all (champion preserved). Balance-neutral vs the champion approach — the SAME total buffs land,
+    /// just spread across bodies. HP curses are handled separately (ApplyHpCurses, all enemies).
+    /// Deterministic (assignment is by list order, amounts driven by the player's relics).
     /// </summary>
-    public static EnemyForgeTag? ForgeEnemy(Creature enemy, bool isBoss, PlayerChoiceContext ctx, Player player, Rng rng)
+    public static void ForgePack(IReadOnlyList<Creature> enemies, bool isBoss, PlayerChoiceContext ctx, Player player, Rng rng)
+    {
+        if (!ForgeConfig.EnemyForgeEnabled && !TestForce) return;
+        double balance = ForgeConfig.BalanceStrength;
+        if (balance <= 0 && !TestForce) return;
+        if (enemies == null || enemies.Count == 0) return;
+
+        // Ordered list of NON-HP contributions (HP curses broadcast separately in ApplyHpCurses).
+        var contribs = new List<KeyValuePair<string, double>>();
+        foreach (var kv in Contributions(player))
+        {
+            var def = RiderSuffix.ByKey(kv.Key);
+            var prefix = def == null ? null : EnemyPrefixTable.ByName(def.PrefixName);
+            if (def == null || prefix == null) continue;
+            if (prefix.Effects.Length > 0 && prefix.Effects.All(e => e.IsHp)) continue;
+            contribs.Add(kv);
+        }
+        if (contribs.Count == 0) return;
+
+        // Round-robin: contribution i → enemy[i % count]. 1 enemy → all on it (champion preserved);
+        // N enemies → spread. Then apply each enemy's assigned share (+ its own nameplate) once.
+        var buckets = new List<KeyValuePair<string, double>>[enemies.Count];
+        for (int i = 0; i < contribs.Count; i++)
+        {
+            int e = i % enemies.Count;
+            (buckets[e] ??= new List<KeyValuePair<string, double>>()).Add(contribs[i]);
+        }
+        for (int e = 0; e < enemies.Count; e++)
+            if (buckets[e] != null)
+                ForgeEnemyWith(enemies[e], isBoss, buckets[e], ctx, player, rng);
+    }
+
+    /// <summary>Apply a SPECIFIC set of rider contributions to one enemy (buffs + nameplate). Guards
+    /// against re-forging an already-tagged enemy; returns the tag, or null if nothing applied.</summary>
+    private static EnemyForgeTag? ForgeEnemyWith(Creature enemy, bool isBoss, List<KeyValuePair<string, double>> contribs, PlayerChoiceContext ctx, Player player, Rng rng)
     {
         if (enemy == null || Tags.TryGetValue(enemy, out _)) return null;
-        if (!ForgeConfig.EnemyForgeEnabled && !TestForce) return null;
         double balance = ForgeConfig.BalanceStrength;
-        if (balance <= 0 && !TestForce) return null;
         double tier = isBoss ? BossTierMult : EliteTierMult;
-
-        var contrib = Contributions(player);
-        if (contrib.Count == 0) return null;
 
         var tag = new EnemyForgeTag();
         var names = new List<string>();
-        foreach (var kv in contrib)
+        foreach (var kv in contribs)
         {
             var def = RiderSuffix.ByKey(kv.Key);
             var prefix = def == null ? null : EnemyPrefixTable.ByName(def.PrefixName);
@@ -262,14 +313,8 @@ internal static class EnemyForge
         {
             try
             {
+                if (eff.IsHp) continue;          // HP curses are applied by ApplyHpCurses, never here
                 double b = eff.RollBase(rng);   // seed-fixed roll within [min, max]
-                if (eff.IsHp)
-                {
-                    int hp = AtLeastOne(enemy.MaxHp * b * mag * tier);
-                    TaskHelper.RunSafely(CreatureCmd.GainMaxHp(enemy, hp));
-                    MainFile.Logger.Info($"[{MainFile.ModId}]   +{hp} MaxHp → {enemy.Name}");
-                    continue;
-                }
                 int amt = AtLeastOne(eff.Raw ? b : b * mag * tier);   // Raw = fixed amount (no scaling)
                 if (eff.Cap > 0 && amt > eff.Cap) amt = eff.Cap;
                 if (eff.Apply == null) continue;
@@ -316,6 +361,62 @@ internal static class EnemyForge
             }
         }
     }
+
+    /// <summary>
+    /// Apply the player's Max-HP curses (Vigor/Girth/Titan/Eternity riders) to EVERY enemy in the
+    /// current fight whose room matches the curse's scope. Unlike the one-enemy nameplate decoration,
+    /// this broadcasts — so "normal-mob HP up" reaches all normal enemies. Each enemy's bonus is the
+    /// summed fraction of its own spawn MaxHp (stacks if multiple HP-curse relics are carried), applied
+    /// once per combat. <see cref="CreatureCmd.GainMaxHp"/> also heals, so they're tankier from turn 1.
+    /// Gated by the same master toggle as the rest of the enemy forge.
+    /// </summary>
+    public static void ApplyHpCurses(ICombatState cs, PlayerChoiceContext ctx, Player player, RoomType room, bool isBoss)
+    {
+        if (!ForgeConfig.EnemyForgeEnabled && !TestForce) return;
+        foreach (var enemy in new List<Creature>(cs.HittableEnemies))
+        {
+            if (enemy == null || HpCursed.TryGetValue(enemy, out _)) continue;
+            double frac = HpFractionFor(player, room, isBoss);
+            if (frac <= 0) continue;
+            int hp = AtLeastOne(enemy.MaxHp * frac);
+            HpCursed.Add(enemy, HpMarker);
+            TaskHelper.RunSafely(CreatureCmd.GainMaxHp(enemy, hp));
+            MainFile.Logger.Info($"[{MainFile.ModId}] HP curse: +{hp} MaxHp ({frac:P0}) → {enemy.Name} (room {room}).");
+        }
+    }
+
+    /// <summary>Sum of the Max-HP fraction the player's HP-curse riders grant in the current room scope.</summary>
+    private static double HpFractionFor(Player player, RoomType room, bool isBoss)
+    {
+        double frac = 0;
+        if (TestForce)   // console preview: apply every HP curse whose scope matches this room
+        {
+            foreach (var p in EnemyPrefixTable.All)
+                foreach (var eff in p.Effects)
+                    if (eff.IsHp && ScopeMatches(p.Scope, room, isBoss)) frac += eff.Base;
+            return frac;
+        }
+        foreach (var relic in player.Relics)
+        {
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec == null || !rec.EnemyRider || rec.EnemyRiderSuffix.Length == 0) continue;
+            var def = RiderSuffix.ByKey(rec.EnemyRiderSuffix);
+            var prefix = def == null ? null : EnemyPrefixTable.ByName(def.PrefixName);
+            if (prefix == null) continue;
+            foreach (var eff in prefix.Effects)
+                if (eff.IsHp && ScopeMatches(prefix.Scope, room, isBoss)) frac += eff.Base;
+        }
+        return frac;
+    }
+
+    private static bool ScopeMatches(HpScope scope, RoomType room, bool isBoss) => scope switch
+    {
+        HpScope.Any    => true,
+        HpScope.Boss   => isBoss || room == RoomType.Boss,
+        HpScope.Elite  => room == RoomType.Elite && !isBoss,
+        HpScope.Normal => !isBoss && room != RoomType.Boss && room != RoomType.Elite,
+        _              => isBoss || room == RoomType.Boss || room == RoomType.Elite,   // EliteBoss
+    };
 
     private static int AtLeastOne(double v)
     {

@@ -41,22 +41,23 @@ internal static class EnemyForgePatch
                 bool eligibleRoom = EnemyForge.TestForce || EnemyForge.TestAsBoss || isBoss || room == RoomType.Elite;
                 MainFile.Logger.Info($"[{MainFile.ModId}] enemy-forge check: room={room} mag={mag:F2} enabled={ForgeConfig.EnemyForgeEnabled} test={EnemyForge.TestForce} eligible={eligibleRoom}");
 
+                // Max-HP curses broadcast to ALL enemies (normal fights included), scope-gated —
+                // independent of the elite/boss-only single-enemy decoration below.
+                if (mag > 0 || EnemyForge.TestForce)
+                    EnemyForge.ApplyHpCurses(combatState, choiceContext, player, room, isBoss);
+
                 if (mag > 0 && eligibleRoom)
                 {
                     var enemies = new List<Creature>(combatState.HittableEnemies);
                     if (enemies.Count > 0)
                     {
-                        // Seed-fixed rng (runSeed, floor) → deterministic & MP-safe. Pick ONE enemy; all
-                        // rider buffs stack on it, amounts rolled within their ranges from this same rng.
+                        // Seed-fixed rng (runSeed, floor) → deterministic & MP-safe. Rider curses are
+                        // DISTRIBUTED across the pack (round-robin); a single enemy still gets them all.
                         uint seed = player.RunState?.Rng.Seed ?? 0;
                         int floor = player.RunState?.TotalFloor ?? 0;
                         var rng = new Rng((uint)((int)seed + floor * 7919 + 4211));
-                        var target = ForgeCombat.PickOne(enemies, rng);   // shared with the prefix path
-                        if (target != null)
-                        {
-                            var tag = EnemyForge.ForgeEnemy(target, isBoss, choiceContext, player, rng);
-                            MainFile.Logger.Info($"[{MainFile.ModId}] enemy-forge: buffed '{target.Name}' ({(tag != null ? "ok" : "none")}) of {enemies.Count} enemies.");
-                        }
+                        EnemyForge.ForgePack(enemies, isBoss, choiceContext, player, rng);
+                        MainFile.Logger.Info($"[{MainFile.ModId}] enemy-forge: distributed rider curses across {enemies.Count} enemies.");
                     }
                 }
             }

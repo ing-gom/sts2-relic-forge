@@ -19,6 +19,7 @@ public class MainFile
     private const string EntryKeyRiderChance = "enemyRiderChance";
     private const string EntryKeyShopCost = "shopReforgeCost";
     private const string EntryKeyForgeAncient = "forgeAncientRelics";
+    private const string EntryKeySelfCurse = "selfCurseChance";
 
     public static readonly MegaCrit.Sts2.Core.Logging.Logger Logger
         = ModBootstrap.CreateLogger(ModId);
@@ -40,19 +41,19 @@ public class MainFile
         // real default. Persisted values are then applied just below.
         ModConfigBridge.For(ModId, "Relic Forge", Logger)
             .Slider(EntryKeyNoPrefix, "No-prefix chance (%)",
-                defaultValue: 60.0,
+                defaultValue: 45.0,
                 onChanged: v => ForgeConfig.NoPrefixChance = v / 100.0)
                 .Range(0f, 100f, 5f, format: "F0")
-                .Description("Chance a relic gets NO prefix and stays vanilla. 60 = only ~40% of relics are enhanced; 0 = every eligible relic gets a prefix. Changing this affects relics forged (or re-derived on load) afterward.")
+                .Description("Chance a relic gets NO prefix and stays vanilla. 45 = ~55% of relics are enhanced; 0 = every eligible relic gets a prefix. Changing this affects relics forged (or re-derived on load) afterward.")
             .Toggle(EntryKeyEnemyForge, "Enemy forge (elites & bosses fight back)",
                 defaultValue: true,
                 onChanged: v => ForgeConfig.EnemyForgeEnabled = v)
                 .Description("Master switch for the enemy-forge mechanic: when ON, some of your forged relics also carry an 'enemy-rider' curse that strengthens elites & bosses. Turn OFF for a pure power fantasy (the relic forging itself is unaffected).")
-            .Slider(EntryKeyRiderChance, "Enemy-rider chance (%)",
+            .Slider(EntryKeyRiderChance, "Curse chance (%)",
                 defaultValue: 33.0,
-                onChanged: v => ForgeConfig.EnemyRiderChance = v / 100.0)
+                onChanged: v => ForgeConfig.CurseChance = v / 100.0)
                 .Range(0f, 100f, 1f, format: "F0")
-                .Description("Chance a freshly-forged relic ALSO strengthens elites & bosses (only when Enemy forge is ON). Stronger relics that roll the curse strengthen enemies more. Shown on the relic's tooltip. Re-forge to re-roll it.")
+                .Description("Reference chance a forged relic carries ONE curse — either an enemy-rider curse (strengthens elites & bosses) OR a self-curse (punishes you on unblocked hits), never both. The real chance SCALES with the prefix's power: a weak prefix is rarely cursed, a Legendary almost always. Which kind is set by 'Self-curse share'. Re-forge to re-roll it.")
             .Slider(EntryKeyBalance, "Enemy balance strength (%)",
                 defaultValue: 100.0,
                 onChanged: v => ForgeConfig.BalanceStrength = v / 100.0)
@@ -67,15 +68,21 @@ public class MainFile
                 defaultValue: true,
                 onChanged: v => ForgeConfig.ForgeAncientRelics = v)
                 .Description("Whether Ancient relics get prefixes like any other relic. Turn OFF to leave Ancient relics as pure vanilla — they skip the pickup forge and are hidden from the reforge picker. Affects relics forged (or re-derived on load) afterward.")
+            .Slider(EntryKeySelfCurse, "Self-curse share (%)",
+                defaultValue: 35.0,
+                onChanged: v => ForgeConfig.SelfCurseShare = v / 100.0)
+                .Range(0f, 100f, 5f, format: "F0")
+                .Description("Of the relics that carry a curse (see 'Curse chance'), the share that get a self-curse — punishes YOU on unblocked hits (Weak/Frail/Vulnerable to self, or a status card) — instead of an enemy-rider curse. 0 = all curses strengthen enemies; 100 = all curses punish you. The two never stack on one relic.")
             .Register();
 
         // Now that the keys are registered, read the saved-or-default values.
-        ForgeConfig.NoPrefixChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyNoPrefix, 60.0) / 100.0;
+        ForgeConfig.NoPrefixChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyNoPrefix, 45.0) / 100.0;
         ForgeConfig.BalanceStrength = ModConfigBridge.GetValue<double>(ModId, EntryKeyBalance, 100.0) / 100.0;
         ForgeConfig.ShopReforgeCost = (int)ModConfigBridge.GetValue<double>(ModId, EntryKeyShopCost, 50.0);
         ForgeConfig.EnemyForgeEnabled = ModConfigBridge.GetValue<bool>(ModId, EntryKeyEnemyForge, true);
-        ForgeConfig.EnemyRiderChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyRiderChance, 33.0) / 100.0;
+        ForgeConfig.CurseChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyRiderChance, 33.0) / 100.0;
         ForgeConfig.ForgeAncientRelics = ModConfigBridge.GetValue<bool>(ModId, EntryKeyForgeAncient, true);
+        ForgeConfig.SelfCurseShare = ModConfigBridge.GetValue<double>(ModId, EntryKeySelfCurse, 35.0) / 100.0;
 
         Logger.Info($"[{ModId}] shop reforge cost {ForgeConfig.ShopReforgeCost}g, no-prefix chance {ForgeConfig.NoPrefixChance:P0}.");
     }

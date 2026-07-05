@@ -9,7 +9,9 @@ using MegaCrit.Sts2.Core.Assets;               // PreloadManager
 using MegaCrit.Sts2.Core.Commands;             // PlayerCmd.LoseGold
 using MegaCrit.Sts2.Core.Entities.Players;     // Player
 using MegaCrit.Sts2.Core.Helpers;              // TaskHelper, StsColors
+using MegaCrit.Sts2.Core.HoverTips;            // HoverTip, IHoverTip
 using MegaCrit.Sts2.Core.Localization;         // LocManager
+using MegaCrit.Sts2.Core.Nodes.HoverTips;      // NHoverTipSet (game's own tooltip)
 using MegaCrit.Sts2.Core.Models;               // RelicModel
 using MegaCrit.Sts2.Core.Nodes.Screens.Shops;  // NMerchantInventory
 using MegaCrit.Sts2.Core.Runs;                 // RunManager
@@ -39,6 +41,8 @@ internal sealed partial class NMerchantReforgeButton : Control
     private Player? _player;
     private bool _busy;
     private TextureButton _icon = null!;
+    private string _tipTitle = "";        // hover-tip title (shown via the game's own NHoverTipSet)
+    private string _tipBody = "";         // hover-tip body describing the button's role
     private Control? _costNode;      // the cloned native "Cost" display (gold icon + label)
     private Tween? _hoverTween;
     private float _contentW = IconSize; // widget content width (computed in LayoutChildren)
@@ -76,9 +80,12 @@ internal sealed partial class NMerchantReforgeButton : Control
             Size = new Vector2(IconSize, IconSize),
         };
         _icon.Pressed += OnPressed;
-        _icon.MouseEntered += () => ScaleWidget(HoverScale);
-        _icon.MouseExited += () => ScaleWidget(1f);
+        _icon.MouseEntered += () => { ScaleWidget(HoverScale); NHoverTipSet.CreateAndShow(_icon, MakeTip(_tipTitle, _tipBody), HoverTipAlignment.Left); };
+        _icon.MouseExited += () => { ScaleWidget(1f); NHoverTipSet.Remove(_icon); };
         AddChild(_icon);
+
+        _tipTitle = Localize("재련", "重铸", "Reforge");
+        _tipBody = Localize("유물을 다시 재련합니다.", "重新锻造遗物。", "Reforge the relic.");
 
         BuildCostDisplay();
         LayoutChildren();
@@ -225,6 +232,25 @@ internal sealed partial class NMerchantReforgeButton : Control
         foreach (var c in n.GetChildren()) SetCostText(c, text, color);
     }
 
+    private static string Localize(string ko, string zh, string en)
+    {
+        string lang = LocManager.Instance?.Language ?? "";
+        if (lang.StartsWith("ko")) return ko;
+        if (lang.StartsWith("zh")) return zh;
+        return en;
+    }
+
+    /// <summary>Build a plain title+body hover tip using the game's own HoverTip (setters are reachable
+    /// because ModKit publicizes sts2), so NHoverTipSet renders it exactly like a native tooltip.</summary>
+    internal static IHoverTip MakeTip(string title, string body)
+    {
+        var t = new HoverTip();
+        t.Title = title;
+        t.Description = body;
+        t.Id = "sts2rf_shop_" + title;
+        return t;
+    }
+
     /// <summary>Set the cost amount and dim/redden when unaffordable or nothing is reforgeable.</summary>
     private void Refresh()
     {
@@ -234,7 +260,8 @@ internal sealed partial class NMerchantReforgeButton : Control
         bool usable = affordable && hasRelics;
 
         if (_costNode != null) SetCostText(_costNode, cost.ToString(), affordable ? StsColors.cream : StsColors.red);
-        _icon.Disabled = !usable;
+        // Gray it out when unusable via modulate only — NOT Disabled, so hover (tooltip) still works.
+        // Clicks are guarded in OnPressed, so a grayed button does nothing when pressed.
         _icon.Modulate = usable ? Colors.White : StsColors.halfTransparentWhite;
     }
 
@@ -278,6 +305,7 @@ internal static class MerchantReforgeButtonPatch
         {
             if (!ReforgeNet.Available()) return; // reforge is SP-only until the networked path lands (ReforgeNet)
             NMerchantReforgeButton.Attach(__instance);
+            NMerchantCleanseButton.Attach(__instance);   // sibling: remove a relic's curse, keep the prefix
         }
         catch (Exception e)
         {

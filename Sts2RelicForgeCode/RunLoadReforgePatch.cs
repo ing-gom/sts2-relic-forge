@@ -39,9 +39,12 @@ internal static class RunLoadReforgePatch
                     // A re-forged relic persisted a count>0; re-derive with the same count, and
                     // guarantee a prefix (reforge never lands "no prefix"), matching Reforge().
                     int rf = RelicForgeService.TakePendingReforgeCount(relic);
+                    bool cleansed = RelicForgeService.TakePendingCleansed(relic);
                     if (RelicForgeService.Forge(relic, seed, relic.FloorAddedToDeck,
                             reforgeCount: rf, guaranteePrefix: rf > 0) != null)
                         count++;
+                    // A shop-cleansed relic re-derived its curse above — strip it again so cleanse sticks.
+                    if (cleansed) RelicForgeService.ApplyCleanse(relic);
                 }
                 foreach (var relic in hosts)
                     RelicForgeService.GrantCompanionIfAny(relic, player);

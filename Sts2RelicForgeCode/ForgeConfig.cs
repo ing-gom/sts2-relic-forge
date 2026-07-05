@@ -26,6 +26,13 @@ internal static class ForgeConfig
     public static int ShopReforgeCost = 50;
 
     /// <summary>
+    /// Fixed gold cost of one shop CLEANSE — remove the curse from a relic, keeping its prefix (see
+    /// <see cref="NMerchantCleanseButton"/>). Costs more than a reforge because it's a guaranteed
+    /// upside (removes a downside without gambling the prefix). Default 150, adjustable in-game; 0 = free.
+    /// </summary>
+    public static int ShopCleanseCost = 150;
+
+    /// <summary>
     /// Master switch for the "enemy forge" mechanic (elites &amp; bosses rolling their own prefixes).
     /// Default ON; turn off for a pure power fantasy. The player-side relic forging is unaffected
     /// either way. See <see cref="EnemyForge"/>.

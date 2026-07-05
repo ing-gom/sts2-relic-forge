@@ -26,10 +26,32 @@ internal static class ReforgeSaveInjectPatch
         try
         {
             int n = RelicForgeService.ReforgeCountOf(__instance);
-            if (n <= 0) return;                       // never re-forged -> nothing to persist
-            __result.Props ??= new SavedProperties();
-            __result.Props.ints ??= new List<SavedProperties.SavedProperty<int>>();
-            __result.Props.ints.Add(new SavedProperties.SavedProperty<int>(RelicForgeService.RfCountKey, n));
+            if (n > 0)                                // re-forged -> persist the count
+            {
+                __result.Props ??= new SavedProperties();
+                __result.Props.ints ??= new List<SavedProperties.SavedProperty<int>>();
+                __result.Props.ints.Add(new SavedProperties.SavedProperty<int>(RelicForgeService.RfCountKey, n));
+            }
+
+            // Compact forge summary ("prefix|rider|self") for the RUN-HISTORY view — history keeps only
+            // the display seed string, so the grade can't be re-derived there; we carry a readable
+            // summary instead. Only relics that actually rolled a prefix or curse get it.
+            var rec = RelicForgeService.RecordFor(__instance);
+            if (rec != null && (rec.Prefix.Length > 0 || rec.EnemyRider || rec.SelfCurse.Length > 0))
+            {
+                __result.Props ??= new SavedProperties();
+                __result.Props.strings ??= new List<SavedProperties.SavedProperty<string>>();
+                string desc = $"{rec.Prefix}|{(rec.EnemyRider ? rec.EnemyRiderSuffix : "")}|{rec.SelfCurse}";
+                __result.Props.strings.Add(new SavedProperties.SavedProperty<string>(RelicForgeService.RfDescKey, desc));
+            }
+
+            // Persist the cleansed flag so a shop-cleansed curse doesn't re-derive from the seed on load.
+            if (rec != null && rec.Cleansed)
+            {
+                __result.Props ??= new SavedProperties();
+                __result.Props.ints ??= new List<SavedProperties.SavedProperty<int>>();
+                __result.Props.ints.Add(new SavedProperties.SavedProperty<int>(RelicForgeService.RfCleansedKey, 1));
+            }
         }
         catch (Exception e)
         {

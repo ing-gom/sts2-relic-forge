@@ -19,13 +19,29 @@ internal static class ReforgeLoadCapturePatch
     {
         try
         {
+            if (__result == null) return;
             var ints = save.Props?.ints;
-            if (ints == null || __result == null) return;
-            foreach (var p in ints)
+            if (ints != null)
+                foreach (var p in ints)
+                {
+                    if (p.name == RelicForgeService.RfCountKey && p.value > 0)
+                        RelicForgeService.SetPendingReforgeCount(__result, p.value);
+                    else if (p.name == RelicForgeService.RfCleansedKey && p.value != 0)
+                        RelicForgeService.SetPendingCleansed(__result);
+                }
+
+            // Run-history view ONLY (flag-gated so a normal run load — which re-derives the real forge
+            // — is never touched): attach a display-only record from the stored forge summary.
+            if (RelicForgeService.InHistoryLoad)
             {
-                if (p.name != RelicForgeService.RfCountKey) continue;
-                if (p.value > 0) RelicForgeService.SetPendingReforgeCount(__result, p.value);
-                break;
+                var strs = save.Props?.strings;
+                if (strs != null)
+                    foreach (var p in strs)
+                    {
+                        if (p.name != RelicForgeService.RfDescKey) continue;
+                        RelicForgeService.RegisterDisplayRecord(__result, p.value);
+                        break;
+                    }
             }
         }
         catch (Exception e)

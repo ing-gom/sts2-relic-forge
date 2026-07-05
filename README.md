@@ -56,6 +56,15 @@ Re-roll a relic's prefix in two places:
 - A **paid gamble** — a penalty prefix can still roll, but you can just pay to re-roll it away.
 - Backing out of the relic pick is free.
 
+### Cleanse (at merchants)
+
+- Right next to reforge, a **Cleanse** service **removes the curse** from a relic while keeping its prefix — a guaranteed upside for a **fixed gold cost** (default 150, adjustable in ModConfig).
+- Only relics that currently carry a curse can be cleansed (unlike reforge, it never touches the prefix).
+
+## Run history
+
+After a run, the **run-history screen** shows the prefix and curse that were forged onto each relic — hover a relic to see what it rolled.
+
 ## How it works
 
 Every relic reads its effect magnitude from the same `DynamicVars` that also feed its tooltip, so scaling the base value updates both the effect and the displayed number in one place — no per-relic code, and modded relics with numeric values are supported automatically. Companion prefixes grant a hidden donor-relic instance whose native hooks fire; penalty and gamble effects apply via combat hooks.

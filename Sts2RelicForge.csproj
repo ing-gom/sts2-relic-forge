@@ -20,5 +20,8 @@
         <Copy SourceFiles="$(MSBuildProjectDirectory)/reforge_shop_icon.png"
               DestinationFolder="$(Sts2ModOutputDir)"
               Condition="Exists('$(MSBuildProjectDirectory)/reforge_shop_icon.png') And !Exists('$(Sts2ModOutputDir)/reforge_shop_icon.png')" />
+        <Copy SourceFiles="$(MSBuildProjectDirectory)/cleanse_shop_icon.png"
+              DestinationFolder="$(Sts2ModOutputDir)"
+              Condition="Exists('$(MSBuildProjectDirectory)/cleanse_shop_icon.png') And !Exists('$(Sts2ModOutputDir)/cleanse_shop_icon.png')" />
     </Target>
 </Project>

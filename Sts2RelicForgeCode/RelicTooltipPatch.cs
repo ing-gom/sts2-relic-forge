@@ -43,11 +43,29 @@ internal static class RelicTooltipPatch
             // DynamicVars so the numbers preview correctly too.
             if (rec is null)
             {
-                RelicModel? clone = RelicForgeService.PreviewCloneFor(__instance);
+                // Cached offer preview (treasure/choose-a-relic), else an ON-DEMAND preview for any
+                // canonical relic hovered during a run — covers all event/reward offer surfaces at once.
+                RelicModel? clone = RelicForgeService.PreviewCloneFor(__instance)
+                                    ?? RelicForgeService.PreviewOnHover(__instance);
                 if (clone != null) { rec = RelicForgeService.RecordFor(clone); descSource = clone; }
             }
 
             if (rec is null || rec.Prefix.Length == 0) return;
+
+            // Run-history reconstruction (see HistoryForgeDisplayPatch): no var deltas were stored, so
+            // just show the prefix name + curse. Bypasses the numeric/bespoke path below.
+            if (rec.DisplayOnly)
+            {
+                if (__result.Title != null)
+                {
+                    string mk = HoverTipTitleTintPatch.Mark.ToString();
+                    string tint = mk + PrefixTable.ColorOf(rec.Prefix).TrimStart('#') + mk;
+                    __result.Title = tint + ForgeText.TitlePrefix(rec) + __result.Title + ForgeText.TitleSuffix(rec);
+                }
+                try { __result.Description = (__result.Description ?? "") + ForgeText.DescriptionBlock(rec); }
+                catch (Exception hde) { MainFile.Logger.Warn($"[{MainFile.ModId}] history desc decorate failed: {hde.Message}"); }
+                return;
+            }
 
             // Bespoke reward relics (LostCoffer/NeowsTalisman): no DynamicVar, so the vanilla
             // description still shows the base counts. Rewrite its [blue]N[/blue] count tokens
@@ -71,7 +89,9 @@ internal static class RelicTooltipPatch
             // stale: suppress the inflated numbers and show an "already granted" footnote instead.
             // count == 0 (never re-forged) still matches what was granted, and the not-yet-owned
             // preview must keep showing the real bonus you're about to get — both untouched.
-            bool owned = __instance.Owner?.Relics?.Contains(__instance) ?? false;
+            // Only OWNED relics are mutable; a canonical (offered) relic throws on .Owner access
+            // (CanonicalModelException), which previously aborted the whole decoration — guard it.
+            bool owned = __instance.IsMutable && (__instance.Owner?.Relics?.Contains(__instance) ?? false);
             bool staleOneTimeBonus = counts != null && rec.ReforgeCount > 0 && owned;
 
             // Title prefix FIRST and on its own, so a description-side failure can never

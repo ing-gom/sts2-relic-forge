@@ -53,6 +53,15 @@ internal sealed class ForgeRecord
     // enemy-rider curse — "Legendary Anchor of Wrath". Localized at display via RiderSuffix.
     public string EnemyRiderSuffix = "";
 
+    // Cleansed: the curse was removed at a shop (see RelicForgeService.Cleanse). Persisted (as
+    // "__rf_cleansed") so the seed-derived curse doesn't come back on load; cleared by a reforge.
+    public bool Cleansed;
+
+    // Display-only: this record was reconstructed for the RUN-HISTORY view from the serialized forge
+    // summary (see RelicForgeService.RegisterDisplayRecord). It has NO var Changes (deltas aren't
+    // stored) — the tooltip shows just the prefix name + curse — and is never re-forged.
+    public bool DisplayOnly;
+
     // Self-curse: an INDEPENDENT player-side "저주" (English key, e.g. "Enfeebling") a forged relic may
     // also carry — it punishes the OWNER on unblocked hits (see SelfCurseTable / UnblockedHitPenaltyPatch).
     // Its own roll dimension: separate from the prefix pool AND the enemy-rider slot, so a relic can carry

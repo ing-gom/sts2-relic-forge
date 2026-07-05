@@ -51,6 +51,62 @@ internal static class RelicForgeService
     /// <summary>The SavedProperty name our reforge count rides on inside a serialized relic.</summary>
     public const string RfCountKey = "__rf_count";
 
+    /// <summary>The SavedProperty (string) name carrying a compact forge summary ("prefix|rider|self")
+    /// for the RUN-HISTORY view, where the real grade can't be re-derived (history keeps only the
+    /// display seed string). See ReforgeSaveInjectPatch / HistoryForgeDisplayPatch.</summary>
+    public const string RfDescKey = "__rf_desc";
+
+    /// <summary>Set ONLY while the run-history screen reconstructs relics (see HistoryForgeDisplayPatch),
+    /// so FromSerializable attaches a display-only record there and NEVER on a normal run load.</summary>
+    public static bool InHistoryLoad;
+
+    /// <summary>The SavedProperty (int, 1) name marking a relic whose curse has been CLEANSED at a shop,
+    /// so the seed-derived curse is stripped again on load. See Cleanse / RunLoadReforgePatch.</summary>
+    public const string RfCleansedKey = "__rf_cleansed";
+
+    // A load-restored relic instance that was cleansed before saving (parked here by
+    // ReforgeLoadCapturePatch, consumed by RunLoadReforgePatch after it re-derives the forge).
+    private static readonly ConditionalWeakTable<RelicModel, StrongBox<bool>> PendingCleansed = new();
+    public static void SetPendingCleansed(RelicModel relic) => PendingCleansed.AddOrUpdate(relic, new StrongBox<bool>(true));
+    public static bool TakePendingCleansed(RelicModel relic)
+    {
+        if (!PendingCleansed.TryGetValue(relic, out _)) return false;
+        PendingCleansed.Remove(relic);
+        return true;
+    }
+
+    /// <summary>True if this relic instance currently carries a cleansed (curse-removed) forge record.</summary>
+    public static bool IsCleansed(RelicModel relic) => Records.TryGetValue(relic, out var rec) && rec.Cleansed;
+
+    /// <summary>
+    /// CLEANSE a relic's curse — remove the enemy-rider or self-curse, keeping the prefix. Sets a
+    /// persisted "cleansed" flag so the seed-derived curse doesn't return on load. A later reforge
+    /// re-rolls everything (fresh record, cleansed cleared). Returns true if a curse was removed.
+    /// </summary>
+    public static bool Cleanse(RelicModel relic)
+    {
+        if (!Records.TryGetValue(relic, out var rec)) return false;
+        if (!rec.EnemyRider && rec.SelfCurse.Length == 0) return false; // nothing to cleanse
+        StripCurse(rec);
+        relic.Flash();
+        MainFile.Logger.Info($"[{MainFile.ModId}] cleansed curse from {relic.Id.Entry}.");
+        return true;
+    }
+
+    /// <summary>Re-apply the cleansed state to a just-re-derived record (load path).</summary>
+    public static void ApplyCleanse(RelicModel relic)
+    {
+        if (Records.TryGetValue(relic, out var rec)) StripCurse(rec);
+    }
+
+    private static void StripCurse(ForgeRecord rec)
+    {
+        rec.EnemyRider = false;
+        rec.EnemyRiderSuffix = "";
+        rec.SelfCurse = "";
+        rec.Cleansed = true;
+    }
+
     /// <summary>The reforge count of a relic instance (0 if never forged / never re-forged).</summary>
     public static int ReforgeCountOf(RelicModel relic)
         => Records.TryGetValue(relic, out var rec) ? rec.ReforgeCount : 0;
@@ -100,6 +156,26 @@ internal static class RelicForgeService
     /// <summary>The forge record for a relic instance, or null if it was never forged.</summary>
     public static ForgeRecord? RecordFor(RelicModel relic)
         => Records.TryGetValue(relic, out var rec) ? rec : null;
+
+    /// <summary>
+    /// Attach a DISPLAY-ONLY forge record to a run-history-reconstructed relic, parsed from the stored
+    /// "prefix|riderSuffix|selfCurse" summary (see <see cref="RfDescKey"/>). No var deltas are stored,
+    /// so the tooltip shows the prefix name + curse only. Skips if a real record already exists.
+    /// </summary>
+    public static void RegisterDisplayRecord(RelicModel relic, string desc)
+    {
+        if (relic == null || string.IsNullOrEmpty(desc) || Records.TryGetValue(relic, out _)) return;
+        var parts = desc.Split('|');
+        string prefix = parts.Length > 0 ? parts[0] : "";
+        string rider  = parts.Length > 1 ? parts[1] : "";
+        string self   = parts.Length > 2 ? parts[2] : "";
+        if (prefix.Length == 0 && rider.Length == 0 && self.Length == 0) return;
+        Records.Add(relic, new ForgeRecord
+        {
+            Rarity = relic.Rarity, Prefix = prefix, DisplayOnly = true,
+            EnemyRider = rider.Length > 0, EnemyRiderSuffix = rider, SelfCurse = self,
+        });
+    }
 
     /// <summary>True if this relic instance is a hidden companion granted by a companion prefix.</summary>
     public static bool IsCompanion(RelicModel relic) => Companions.TryGetValue(relic, out _);
@@ -300,6 +376,23 @@ internal static class RelicForgeService
     /// <summary>The forged preview clone for a currently-offered canonical relic, if any.</summary>
     public static RelicModel? PreviewCloneFor(RelicModel canonical)
         => OfferedPreview.TryGetValue(canonical, out var clone) ? clone : null;
+
+    /// <summary>
+    /// ON-DEMAND forge preview for a CANONICAL relic being hovered during a run — covers every "offered
+    /// relic" surface (event options both inline & factory, treasure, rewards) in one place, so the
+    /// tooltip previews the prefix + curse + numbers without a per-screen hook. Owned relics are mutable
+    /// (handled by the pickup/hover Prefix), so this only ever fires for offered/shared canonicals.
+    /// Returns the (cached) forged clone, or null if not applicable (mutable, or not in a run).
+    /// </summary>
+    public static RelicModel? PreviewOnHover(RelicModel relic)
+    {
+        if (relic == null || relic.IsMutable) return null;
+        if (OfferedPreview.TryGetValue(relic, out var existing)) return existing;
+        var state = RunManager.Instance?.State;
+        if (state == null) return null;
+        OfferPreview(relic, state.Rng.Seed, state.TotalFloor);
+        return PreviewCloneFor(relic);
+    }
 
     public static void ClearOffers() => OfferedPreview.Clear();
 

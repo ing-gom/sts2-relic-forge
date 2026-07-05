@@ -117,6 +117,17 @@ internal static class RestSiteReforgeSupport
 
     public static bool HasReforgeable(Player player) => Reforgeable(player).Any();
 
+    /// <summary>Owned, player-chosen relics that currently carry a curse (enemy-rider OR self-curse) —
+    /// the only relics a shop CLEANSE can act on.</summary>
+    public static IEnumerable<RelicModel> Cleansable(Player player)
+        => Reforgeable(player).Where(r =>
+        {
+            var rec = RelicForgeService.RecordFor(r);
+            return rec != null && (rec.EnemyRider || rec.SelfCurse.Length > 0);
+        });
+
+    public static bool HasCleansable(Player player) => Cleansable(player).Any();
+
     private static string Localize(string ko, string zh, string en)
     {
         string lang = LocManager.Instance?.Language ?? "";

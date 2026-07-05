@@ -2,12 +2,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Entities.RestSite;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace Sts2RelicForge;
 
@@ -49,6 +51,18 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
     public override async Task<bool> OnSelect()
     {
         if (_ended) return false;   // a penalty roll already ended reforging at this campfire
+
+        // CO-OP: RestSiteSynchronizer.ChooseOption runs this OnSelect on EVERY client — the acting
+        // player's choice is replayed on peers via OptionIndexChosenMessage. Our relic picker is a
+        // LOCAL, un-synced UI, so it must open ONLY on the acting player's own machine. On a peer,
+        // do nothing here: the reforge still replicates through the synced rf_sync command the acting
+        // client dispatches (see ReforgeNet.Reforge). Without this gate the picker popped up on
+        // teammates' screens showing — and letting them click — the actor's relics, and a peer's
+        // stray pick double-dispatched the reforge, desyncing the session. SP / fake-MP: Owner is the
+        // local player (IsMe true), so the picker opens exactly as before.
+        var run = RunManager.Instance;
+        if (run != null && !run.IsSingleplayerOrFakeMultiplayer && !LocalContext.IsMe(Owner))
+            return false;
 
         var candidates = RestSiteReforgeSupport.Reforgeable(Owner).ToList();
         if (candidates.Count == 0) return false;

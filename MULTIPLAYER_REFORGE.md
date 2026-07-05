@@ -1,7 +1,20 @@
 # Multiplayer Reforge — design & status
 
-**Status: networked transport WIRED (v0.3.5); co-op smoke test pending.** Reforge (campfire + shop)
-now rides the game's synchronized action queue and is offered in co-op. The dispatch reuses the
+**Status: networked transport WIRED (v0.3.5); co-op picker-scoping bug fixed (post-v0.3.6).**
+
+> **Co-op bug fix (campfire picker leaked to peers).** `RestSiteSynchronizer.ChooseOption` runs
+> `option.OnSelect()` on **every** client (the acting player's choice replays on peers via
+> `OptionIndexChosenMessage`). `ReforgeRestSiteOption.OnSelect` opened the **local, un-synced**
+> `NReforgeRelicPicker` unconditionally, so when one player picked Reforge the picker also popped up on
+> the teammate's screen showing — and letting them click — the actor's relics, and a peer's stray pick
+> double-dispatched the reforge → **desync**. (The game's own Smith avoids this by selecting through the
+> *networked* `CardSelectCmd.FromDeckForUpgrade` and splitting `DoLocalPostSelectVfx` vs
+> `DoRemotePostSelectVfx`.) **Fix:** gate the picker to the acting client —
+> `if (!IsSingleplayerOrFakeMultiplayer && !LocalContext.IsMe(Owner)) return false;`. The mutation still
+> replicates on peers via the synced `rf_sync` command, so no result needs the peer's picker. SP path
+> unchanged. The shop button is inherently local-only (its UI/`_Ready` exist only on the local client).
+
+Reforge (campfire + shop) now rides the game's synchronized action queue and is offered in co-op. The dispatch reuses the
 built-in console-command net action (`ConsoleCmdGameAction` / `NetConsoleCmdGameAction`) so the mod
 adds no new `INetAction` subtype and never perturbs the net type-id ordering — see
 `ReforgeNetConsoleCmd` and `ReforgeNet.DispatchNetworked`. This document is the design record; the

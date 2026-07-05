@@ -28,12 +28,12 @@ internal static class RestSiteReforgeOptionPatch
         {
             if (!ReforgeNet.Available())
             {
-                RestSiteReforgeSupport.Current = null; // ensure KeepReforgeOptionPatch never re-adds a stale option
-                return;                                 // reforge is SP-only until the networked path lands (ReforgeNet)
+                RestSiteReforgeSupport.ByPlayer.Remove(player.NetId); // don't let a stale option be re-added
+                return;                                               // reforge unavailable (e.g. no active run)
             }
             RestSiteReforgeSupport.EnsureLoc();
             var option = new ReforgeRestSiteOption(player);
-            RestSiteReforgeSupport.Current = option; // tracked so it can be re-added after Heal/Smith clears the list
+            RestSiteReforgeSupport.ByPlayer[player.NetId] = option; // per-player, for the synced re-add after Heal/Smith
             __result.Add(option);
         }
         catch (Exception e)

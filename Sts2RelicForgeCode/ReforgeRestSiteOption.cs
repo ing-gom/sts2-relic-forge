@@ -96,10 +96,13 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
 /// <summary>Shared helpers for the reforge rest option: eligibility, localization, and icon reuse.</summary>
 internal static class RestSiteReforgeSupport
 {
-    /// <summary>The reforge option for the current rest site (single-player). Tracked so
-    /// KeepReforgeOptionPatch can re-add it after Heal/Smith clears the option list — reforge is a
-    /// free side-action and should stay available until the player proceeds.</summary>
-    public static ReforgeRestSiteOption? Current;
+    /// <summary>The reforge option instance for each player at the current rest site, keyed by
+    /// NetId. Populated per-player in RestSiteReforgeOptionPatch (during RestSiteOption.Generate,
+    /// which runs for every player on every client), so ReaddReforgeAfterChoosePatch can re-add the
+    /// SAME instance (preserving its penalty-ended state) after Heal/Smith clears a player's option
+    /// list. Keyed per-player — NOT a single static — so co-op peers resolve the correct owner's
+    /// option and the synchronizer's per-player option lists stay identical across clients.</summary>
+    public static readonly Dictionary<ulong, ReforgeRestSiteOption> ByPlayer = new();
 
     /// <summary>
     /// Every owned, player-chosen relic can be reforged — whether it currently has a prefix, rolled

@@ -103,9 +103,15 @@ internal sealed partial class NMerchantReforgeButton : Control
     // time the merchant room exists. IsOpen flips with the shop's Open()/Close().
     public override void _Process(double delta)
     {
-        bool open = _shop.IsOpen;
-        if (Visible != open) Visible = open;
-        if (open) { LayoutChildren(); PositionInShop(); }
+        // Per-frame render path: a disposed shop (screen tearing down) would otherwise throw every
+        // frame straight into the engine's _Process pump. Contain it so the shop can't crash.
+        try
+        {
+            bool open = _shop.IsOpen;
+            if (Visible != open) Visible = open;
+            if (open) { LayoutChildren(); PositionInShop(); }
+        }
+        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] reforge button _Process failed: {e.Message}"); }
     }
 
     /// <summary>Center the cost display directly under the icon, and set the widget's pivot to the

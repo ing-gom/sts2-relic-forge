@@ -39,7 +39,10 @@ internal static class ReaddReforgeAfterChoosePatch
 {
     private static void Postfix(RestSiteSynchronizer __instance, Player player, ref Task<bool> __result)
     {
-        __result = ReaddAfter(__instance, player, __result);
+        // Postfix wrapping the choose-option result: a synchronous throw here would propagate into
+        // RestSiteSynchronizer.ChooseOption. Contain it and leave the original result untouched.
+        try { __result = ReaddAfter(__instance, player, __result); }
+        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] reforge re-add failed: {e.Message}"); }
     }
 
     private static async Task<bool> ReaddAfter(RestSiteSynchronizer sync, Player player, Task<bool> inner)

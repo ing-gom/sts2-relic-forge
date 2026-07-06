@@ -45,9 +45,23 @@ internal static class RelicTooltipPatch
             {
                 // Cached offer preview (treasure/choose-a-relic), else an ON-DEMAND preview for any
                 // canonical relic hovered during a run — covers all event/reward offer surfaces at once.
-                RelicModel? clone = RelicForgeService.PreviewCloneFor(__instance)
-                                    ?? RelicForgeService.PreviewOnHover(__instance);
-                if (clone != null) { rec = RelicForgeService.RecordFor(clone); descSource = clone; }
+                // ISOLATED: forging an on-demand preview (ToMutable + Forge) is the ONLY game-touching
+                // call in this outer block, so if a specific relic ever makes the engine throw (e.g. a
+                // CanonicalModelException from some canonical-only access deep in the offer/clone path),
+                // contain it here — the relic just shows undecorated instead of the whole tooltip
+                // decoration silently failing. The full stack is logged with the relic id so the exact
+                // frame is recoverable if it recurs.
+                try
+                {
+                    RelicModel? clone = RelicForgeService.PreviewCloneFor(__instance)
+                                        ?? RelicForgeService.PreviewOnHover(__instance);
+                    if (clone != null) { rec = RelicForgeService.RecordFor(clone); descSource = clone; }
+                }
+                catch (Exception pe)
+                {
+                    MainFile.Logger.Warn($"[{MainFile.ModId}] preview resolve failed for {__instance.Id.Entry}: {pe}");
+                    return;   // no forged record to show — leave the vanilla tooltip intact
+                }
             }
 
             if (rec is null || rec.Prefix.Length == 0) return;
@@ -136,7 +150,7 @@ internal static class RelicTooltipPatch
         }
         catch (Exception e)
         {
-            MainFile.Logger.Warn($"[{MainFile.ModId}] tooltip decorate failed: {e}");
+            MainFile.Logger.Warn($"[{MainFile.ModId}] tooltip decorate failed for {__instance?.Id.Entry}: {e}");
         }
     }
 }

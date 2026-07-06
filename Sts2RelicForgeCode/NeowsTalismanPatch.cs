@@ -20,17 +20,27 @@ internal static class NeowsTalismanPatch
 {
     private static bool Prefix(NeowsTalisman __instance, ref Task __result)
     {
-        ForgeRecord? rec = RelicForgeService.RecordFor(__instance);
-        double pct = (rec != null && rec.Prefix.Length > 0) ? rec.Percent : 0;
-        int count = BespokeBonus.NeowsTalismanCount(pct);
+        try
+        {
+            ForgeRecord? rec = RelicForgeService.RecordFor(__instance);
+            double pct = (rec != null && rec.Prefix.Length > 0) ? rec.Percent : 0;
+            int count = BespokeBonus.NeowsTalismanCount(pct);
 
-        List<CardModel> basics = PileType.Deck.GetPile(__instance.Owner).Cards
-            .Where(c => c.Rarity == CardRarity.Basic).ToList();
-        UpgradeLast(basics, CardTag.Strike, count);
-        UpgradeLast(basics, CardTag.Defend, count);
+            List<CardModel> basics = PileType.Deck.GetPile(__instance.Owner).Cards
+                .Where(c => c.Rarity == CardRarity.Basic).ToList();
+            UpgradeLast(basics, CardTag.Strike, count);
+            UpgradeLast(basics, CardTag.Defend, count);
 
-        __result = Task.CompletedTask;
-        return false; // replace the original
+            __result = Task.CompletedTask;
+            return false; // replace the original
+        }
+        // This Prefix REPLACES AfterObtained, so a throw here (null owner, empty deck) would crash the
+        // pickup. Fall back to the vanilla effect instead of black-screening on relic obtain.
+        catch (System.Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] NeowsTalisman forge upgrade failed, using vanilla: {e.Message}");
+            return true; // let the original AfterObtained run
+        }
     }
 
     private static void UpgradeLast(List<CardModel> basics, CardTag tag, int count)

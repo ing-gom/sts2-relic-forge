@@ -21,16 +21,22 @@ internal static class EnemyNamePlatePatch
 {
     private static void Postfix(NCreatureStateDisplay __instance)
     {
-        var creature = __instance._creature;
-        var label = __instance._nameplateLabel;
-        if (creature == null || label == null) return;
+        try
+        {
+            var creature = __instance._creature;
+            var label = __instance._nameplateLabel;
+            if (creature == null || label == null) return;
 
-        var tag = EnemyForge.TagOf(creature);
-        if (tag == null) return;
+            var tag = EnemyForge.TagOf(creature);
+            if (tag == null) return;
 
-        // RefreshValues already set the label to the bare name; re-stamp from _creature.Name (not
-        // the label text) so we never double-prefix on repeated calls.
-        label.SetTextAutoSize(tag.Prefix + " " + creature.Name);
-        label.Modulate = Color.FromHtml(tag.Color.TrimStart('#'));
+            // RefreshValues already set the label to the bare name; re-stamp from _creature.Name (not
+            // the label text) so we never double-prefix on repeated calls.
+            label.SetTextAutoSize(tag.Prefix + " " + creature.Name);
+            label.Modulate = Color.FromHtml(tag.Color.TrimStart('#'));
+        }
+        // Combat render path: a freed nameplate node (enemy just died/removed) or a bad color would
+        // otherwise throw straight into NCreatureStateDisplay.RefreshValues and black-screen the fight.
+        catch (System.Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] enemy nameplate stamp failed: {e.Message}"); }
     }
 }

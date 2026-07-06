@@ -37,7 +37,8 @@ internal sealed partial class NMerchantCleanseButton : Control
     private bool _busy;
     private TextureButton _icon = null!;
     private string _tipTitle = "";        // hover-tip title (shown via the game's own NHoverTipSet)
-    private string _tipText = "";         // hover-tip body (role when usable, else the disabled reason)
+    private string _tipBase = "";         // usable description ("Remove the relic's curse")
+    private string _tipText = "";         // live hover-tip body: _tipBase when usable, else the disabled reason (set in Refresh)
     private Control? _costNode;
     private Tween? _hoverTween;
     private float _contentW = IconSize;
@@ -72,7 +73,8 @@ internal sealed partial class NMerchantCleanseButton : Control
         AddChild(_icon);
 
         _tipTitle = Localize("정화", "净化", "Cleanse");
-        _tipText = Localize("유물에 부여된 저주를 제거합니다.", "移除遗物上的诅咒。", "Remove the relic's curse.");
+        _tipBase = Localize("유물에 부여된 저주를 제거합니다.", "移除遗物上的诅咒。", "Remove the relic's curse.");
+        _tipText = _tipBase;
 
         BuildCostDisplay();
         LayoutChildren();
@@ -88,11 +90,17 @@ internal sealed partial class NMerchantCleanseButton : Control
 
     public override void _Process(double delta)
     {
-        bool open = _shop.IsOpen;
-        if (Visible != open) Visible = open;
-        // Keep the enabled state live: unlike reforge (always usable), cleanse only lights up when a
-        // cursed relic is owned, and that can change while the shop is open — so refresh each frame.
-        if (open) { LayoutChildren(); PositionInShop(); Refresh(); }
+        // Per-frame render path: a disposed shop/player (screen tearing down) would otherwise throw
+        // every frame straight into the engine's _Process pump. Contain it so the shop can't crash.
+        try
+        {
+            bool open = _shop.IsOpen;
+            if (Visible != open) Visible = open;
+            // Keep the enabled state live: unlike reforge (always usable), cleanse only lights up when a
+            // cursed relic is owned, and that can change while the shop is open — so refresh each frame.
+            if (open) { LayoutChildren(); PositionInShop(); Refresh(); }
+        }
+        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] cleanse button _Process failed: {e.Message}"); }
     }
 
     private void LayoutChildren()
@@ -228,6 +236,13 @@ internal sealed partial class NMerchantCleanseButton : Control
         // Gray it out when unusable via modulate only — NOT Disabled, so hover (tooltip) still works
         // and can explain WHY it's disabled. Clicks are guarded in OnPressed.
         _icon.Modulate = usable ? Colors.White : StsColors.halfTransparentWhite;
+
+        // Keep the hover-tip body in sync with the live state so a grayed-out button explains WHY.
+        // No cursed relic takes priority over the gold reason (nothing to buy → cost is moot).
+        _tipText = usable ? _tipBase
+            : !hasCursed
+                ? Localize("정화할 저주가 걸린 유물이 없습니다.", "没有可净化诅咒的遗物。", "No cursed relic to cleanse.")
+                : Localize($"골드가 부족합니다. (필요: {cost})", $"金币不足。(需要：{cost})", $"Not enough gold. (need {cost})");
     }
 
     private void OnPressed()

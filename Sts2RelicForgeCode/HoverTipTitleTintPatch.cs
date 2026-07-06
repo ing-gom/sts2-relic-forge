@@ -24,7 +24,13 @@ internal static class HoverTipTitleTintPatch
     private static readonly Regex Marker =
         new("^" + Mark + "([0-9a-fA-F]{6})" + Mark, RegexOptions.Compiled);
 
-    private static void Postfix(NHoverTipSet __instance) => Tint(__instance);
+    private static void Postfix(NHoverTipSet __instance)
+    {
+        // Runs on EVERY tooltip's Init (a UI render path): a freed label node mid-build would
+        // otherwise throw into NHoverTipSet.Init and black-screen whenever a tooltip appears.
+        try { Tint(__instance); }
+        catch (System.Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] title tint failed: {e.Message}"); }
+    }
 
     private static void Tint(Node node)
     {

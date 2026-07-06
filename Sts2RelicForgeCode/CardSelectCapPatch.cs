@@ -29,9 +29,18 @@ internal static class CardSelectCapPatch
                                Player player, bool canSkip, ref Task<CardModel?> __result)
     {
         if (cards == null || cards.Count <= 3) return true; // vanilla 3-card screen
-        MainFile.Logger.Info($"[{MainFile.ModId}] {cards.Count} cards offered; routing to grid picker.");
-        __result = ChooseViaGrid(context, cards, player, canSkip);
-        return false; // skip original (which would throw on > 3)
+        try
+        {
+            MainFile.Logger.Info($"[{MainFile.ModId}] {cards.Count} cards offered; routing to grid picker.");
+            __result = ChooseViaGrid(context, cards, player, canSkip);
+            return false; // skip original (which would throw on > 3)
+        }
+        // If the grid route can't be set up, don't crash the choose-a-card flow — let the original run.
+        catch (System.Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] grid picker route failed, using original screen: {e.Message}");
+            return true;
+        }
     }
 
     private static async Task<CardModel?> ChooseViaGrid(PlayerChoiceContext context,

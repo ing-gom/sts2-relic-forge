@@ -117,11 +117,16 @@ internal static class RestSiteReforgeSupport
 
     public static bool HasReforgeable(Player player) => Reforgeable(player).Any();
 
-    /// <summary>Owned, player-chosen relics that currently carry a curse (enemy-rider OR self-curse) —
-    /// the only relics a shop CLEANSE can act on.</summary>
+    /// <summary>Owned relics that currently carry a curse (enemy-rider OR self-curse) — the only relics a
+    /// shop CLEANSE can act on. Unlike <see cref="Reforgeable"/>, cleanse deliberately does NOT honor the
+    /// ForgeAncientRelics opt-out: that option only blocks ADDING a prefix/curse to Ancient (先古) relics,
+    /// but a curse already sitting on one (forged before the toggle was flipped, or via a forced command)
+    /// must stay removable — otherwise it would be trapped on the relic forever. Hidden companion instances
+    /// are excluded since they carry no curse of their own.</summary>
     public static IEnumerable<RelicModel> Cleansable(Player player)
-        => Reforgeable(player).Where(r =>
+        => player.Relics.Where(r =>
         {
+            if (RelicForgeService.IsCompanion(r)) return false;
             var rec = RelicForgeService.RecordFor(r);
             return rec != null && (rec.EnemyRider || rec.SelfCurse.Length > 0);
         });

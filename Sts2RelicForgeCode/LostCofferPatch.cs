@@ -21,8 +21,17 @@ internal static class LostCofferPatch
 {
     private static bool Prefix(LostCoffer __instance, ref Task __result)
     {
-        __result = Run(__instance);
-        return false; // replace the original
+        try
+        {
+            __result = Run(__instance);
+            return false; // replace the original
+        }
+        // Replaces AfterObtained, so a synchronous throw here would crash the pickup. Fall back to vanilla.
+        catch (Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] LostCoffer forge run failed, using vanilla: {e.Message}");
+            return true; // let the original AfterObtained run
+        }
     }
 
     private static async Task Run(RelicModel relic)

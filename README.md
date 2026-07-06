@@ -16,7 +16,7 @@ A **Slay the Spire 2** mod that gives the relics you find a **Terraria-style pre
   - **Companion** — graft a *weaker* version of another relic's whole effect onto yours. "Thorned" gives Thorns at combat start; works on any relic.
   - **Penalty** — a small curse (a minority of rolls, Terraria-style): a self-debuff or a status card shoved into your deck.
   - **Gamble** — mixed effects that also reach the battlefield: sap an enemy's stats each turn, or hit one enemy / one player with Vulnerable or Weak.
-- **Reforge at campfires & shops** — re-roll a relic's prefix at a rest site (free, but a penalty prefix ends it) or at a merchant (pay gold, unlimited). See [Reforge](#reforge) below.
+- **Reforge at campfires & shops** — re-roll a relic's prefix at a rest site (free, but a penalty prefix ends it) or at a merchant (escalating gold, unlimited). See [Reforge](#reforge) below.
 - **Tier-colored names** — a forged relic's name is tinted by its prefix (Legendary gold, Broken red …), like loot-rarity colors.
 - **Configurable** — a ModConfig slider sets how often a relic gets NO prefix (default 60% vanilla, so ~40% are forged).
 
@@ -52,7 +52,7 @@ Re-roll a relic's prefix in two places:
 
 ### At merchants (for gold)
 
-- The shop offers a **Reforge** service next to the relics: pay a **fixed gold cost** (default 50, adjustable in ModConfig) to re-roll a relic's prefix, as often as you can afford.
+- The shop offers a **Reforge** service next to the relics: pay an **escalating gold cost** — **30** for the first reforge and **+10** for each further reforge in the same shop (it resets to 30 at the next shop) — to re-roll a relic's prefix, as often as you can afford.
 - A **paid gamble** — a penalty prefix can still roll, but you can just pay to re-roll it away.
 - Backing out of the relic pick is free.
 

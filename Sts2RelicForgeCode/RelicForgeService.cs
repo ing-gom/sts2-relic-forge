@@ -93,7 +93,15 @@ internal static class RelicForgeService
         return true;
     }
 
-    /// <summary>Re-apply the cleansed state to a just-re-derived record (load path).</summary>
+    /// <summary>Whether this relic currently carries a curse that <see cref="Cleanse"/> would remove —
+    /// a NON-mutating check. Used by the co-op cleanse seam (<see cref="ReforgeNet.Cleanse"/>) to decide
+    /// whether to charge gold + dispatch, since the actual strip runs on every client via the synced
+    /// command rather than locally here.</summary>
+    public static bool CanCleanse(RelicModel relic)
+        => Records.TryGetValue(relic, out var rec) && (rec.EnemyRider || rec.SelfCurse.Length != 0);
+
+    /// <summary>Re-apply the cleansed state to a just-re-derived record (load path, and the co-op
+    /// per-client apply — see <see cref="ReforgeNet.ApplyCleanseOnClient"/>).</summary>
     public static void ApplyCleanse(RelicModel relic)
     {
         if (Records.TryGetValue(relic, out var rec)) StripCurse(rec);

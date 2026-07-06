@@ -7,6 +7,7 @@ using HarmonyLib;
 using MegaCrit.Sts2.addons.mega_text;          // MegaLabel
 using MegaCrit.Sts2.Core.Assets;               // PreloadManager
 using MegaCrit.Sts2.Core.Commands;             // PlayerCmd.LoseGold
+using MegaCrit.Sts2.Core.Context;              // LocalContext (resolve the local co-op player)
 using MegaCrit.Sts2.Core.Entities.Players;     // Player
 using MegaCrit.Sts2.Core.Helpers;              // TaskHelper, StsColors
 using MegaCrit.Sts2.Core.HoverTips;            // HoverTip, IHoverTip
@@ -21,10 +22,12 @@ namespace Sts2RelicForge;
 /// <summary>
 /// A reforge control embedded in the merchant (shop) screen: the mod's reforge icon plus a gold
 /// cost shown with the shop's OWN gold icon + cost label (cloned from the card-removal slot's
-/// "Cost" node, so it matches vanilla prices exactly). Clicking it pays a fixed gold cost to re-roll
-/// the prefix on one of your relics, reusing the same picker + reforge core as the campfire. Uses
-/// are unlimited (pay each time you can afford it) and a penalty prefix can still roll — a paid
-/// gamble. Gold is charged only once a relic is actually chosen (cancelling the picker is free).
+/// "Cost" node, so it matches vanilla prices exactly). Clicking it pays gold to re-roll the prefix on
+/// one of your relics, reusing the same picker + reforge core as the campfire. Uses are unlimited, but
+/// the cost ESCALATES within a shop visit (base + step per reforge done — see ForgeConfig), so rerolls
+/// are self-limiting; the counter (<see cref="_reforgeCount"/>) lives on this instance and resets at
+/// the next shop. A penalty prefix can still roll — a paid gamble. Gold is charged only once a relic is
+/// actually chosen (cancelling the picker is free).
 ///
 /// Single-player only (like the campfire reforge and its picker), gated in the patch below.
 /// </summary>
@@ -40,6 +43,7 @@ internal sealed partial class NMerchantReforgeButton : Control
     private NMerchantInventory _shop = null!;
     private Player? _player;
     private bool _busy;
+    private int _reforgeCount;      // reforges done in THIS shop visit; each raises the next cost (see ForgeConfig)
     private TextureButton _icon = null!;
     private string _tipTitle = "";        // hover-tip title (shown via the game's own NHoverTipSet)
     private string _tipBody = "";         // hover-tip body describing the button's role
@@ -67,7 +71,12 @@ internal sealed partial class NMerchantReforgeButton : Control
 
         Position = new Vector2(120f, 420f);   // board-local fallback; _Process re-anchors below the grid
 
-        _player = _shop.Inventory?.Player ?? RunManager.Instance.State?.Players.FirstOrDefault();
+        // Resolve the LOCAL player (the one at this client), NOT Players.FirstOrDefault() — in co-op
+        // that is the host, so a client's reforge would list/operate on the host's relics instead of
+        // its own (LocalContext.GetMe matches by the client's own NetId). Fall back only if unresolved.
+        _player = LocalContext.GetMe(RunManager.Instance.State?.Players ?? Enumerable.Empty<Player>())
+                  ?? _shop.Inventory?.Player
+                  ?? RunManager.Instance.State?.Players.FirstOrDefault();
 
         // Reforge icon (loaded from the loose PNG), clickable. Hover scales the WHOLE widget (icon +
         // cost) around the icon centre (see LayoutChildren's PivotOffset), so both grow together.
@@ -85,7 +94,9 @@ internal sealed partial class NMerchantReforgeButton : Control
         AddChild(_icon);
 
         _tipTitle = Localize("재련", "重铸", "Reforge");
-        _tipBody = Localize("유물을 다시 재련합니다.", "重新锻造遗物。", "Reforge the relic.");
+        _tipBody = Localize("유물을 다시 재련합니다. 같은 상점에서 재련할수록 비용이 오릅니다.",
+                            "重新锻造遗物。同一商店中每次重铸费用递增。",
+                            "Reforge the relic. Each reforge in the same shop costs more.");
 
         BuildCostDisplay();
         LayoutChildren();
@@ -260,7 +271,7 @@ internal sealed partial class NMerchantReforgeButton : Control
     /// <summary>Set the cost amount and dim/redden when unaffordable or nothing is reforgeable.</summary>
     private void Refresh()
     {
-        int cost = ForgeConfig.ShopReforgeCost;
+        int cost = ForgeConfig.ShopReforgeCostFor(_reforgeCount);
         bool affordable = _player != null && _player.Gold >= cost;
         bool hasRelics = _player != null && RestSiteReforgeSupport.HasReforgeable(_player);
         bool usable = affordable && hasRelics;
@@ -274,7 +285,7 @@ internal sealed partial class NMerchantReforgeButton : Control
     private void OnPressed()
     {
         if (_busy || _player == null) return;
-        int cost = ForgeConfig.ShopReforgeCost;
+        int cost = ForgeConfig.ShopReforgeCostFor(_reforgeCount);
         if (_player.Gold < cost) return;
         var candidates = RestSiteReforgeSupport.Reforgeable(_player).ToList();
         if (candidates.Count == 0) return;
@@ -293,7 +304,8 @@ internal sealed partial class NMerchantReforgeButton : Control
                 if (cost > 0) await PlayerCmd.LoseGold(cost, _player);
                 ReforgeNet.Reforge(chosen, _player);          // penalty prefix may roll — paid gamble
                 chosen.Flash();
-                MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge: {chosen.Id.Entry} for {cost}g.");
+                _reforgeCount++;                              // next reforge in this shop costs more (see ForgeConfig)
+                MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge #{_reforgeCount}: {chosen.Id.Entry} for {cost}g.");
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] shop reforge failed: {e.Message}"); }

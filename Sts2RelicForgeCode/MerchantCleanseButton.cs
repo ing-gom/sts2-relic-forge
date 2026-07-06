@@ -6,6 +6,7 @@ using Godot;
 using MegaCrit.Sts2.addons.mega_text;          // MegaLabel
 using MegaCrit.Sts2.Core.Assets;               // PreloadManager
 using MegaCrit.Sts2.Core.Commands;             // PlayerCmd.LoseGold
+using MegaCrit.Sts2.Core.Context;              // LocalContext (resolve the local co-op player)
 using MegaCrit.Sts2.Core.Entities.Players;     // Player
 using MegaCrit.Sts2.Core.Helpers;              // TaskHelper, StsColors
 using MegaCrit.Sts2.Core.HoverTips;            // HoverTip, IHoverTip
@@ -57,7 +58,11 @@ internal sealed partial class NMerchantCleanseButton : Control
         MouseFilter = MouseFilterEnum.Ignore;
         Visible = false;
         Position = new Vector2(200f, 420f);
-        _player = _shop.Inventory?.Player ?? RunManager.Instance.State?.Players.FirstOrDefault();
+        // Resolve the LOCAL player (see NMerchantReforgeButton) — in co-op FirstOrDefault() is the host,
+        // so a client would cleanse the host's relics instead of its own.
+        _player = LocalContext.GetMe(RunManager.Instance.State?.Players ?? Enumerable.Empty<Player>())
+                  ?? _shop.Inventory?.Player
+                  ?? RunManager.Instance.State?.Players.FirstOrDefault();
 
         _icon = new TextureButton
         {
@@ -262,7 +267,9 @@ internal sealed partial class NMerchantCleanseButton : Control
         {
             RelicModel? chosen = await NReforgeRelicPicker.Show(candidates);
             // Charge only on a real pick that actually had a curse to remove; re-check gold at purchase.
-            if (chosen != null && _player != null && _player.Gold >= cost && RelicForgeService.Cleanse(chosen))
+            // Route through ReforgeNet so co-op strips the curse on EVERY client (a local-only strip
+            // would desync each peer's re-derived enemy-rider / self-curse effects).
+            if (chosen != null && _player != null && _player.Gold >= cost && ReforgeNet.Cleanse(chosen, _player))
             {
                 if (cost > 0) await PlayerCmd.LoseGold(cost, _player);
                 chosen.Flash();

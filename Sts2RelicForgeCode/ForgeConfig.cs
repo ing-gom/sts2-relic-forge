@@ -1,3 +1,5 @@
+using System;
+
 namespace Sts2RelicForge;
 
 /// <summary>Runtime-tunable settings, backed by ModConfig (see MainFile.RegisterConfig).</summary>
@@ -19,11 +21,24 @@ internal static class ForgeConfig
     public static double BalanceStrength = 1.0;
 
     /// <summary>
-    /// Fixed gold cost of one shop reforge (see <see cref="NMerchantReforgeButton"/>). Uses are
-    /// unlimited per shop, so each reforge charges this amount; a penalty prefix can still roll
-    /// (paid gamble). Default 50, adjustable in-game via ModConfig (0–100); 0 = free.
+    /// Escalating gold cost of shop reforges (see <see cref="NMerchantReforgeButton"/>). Uses are
+    /// unlimited per shop, but each reforge in the SAME shop visit costs more than the last, so
+    /// spamming rerolls is self-limiting. The cost is <see cref="ShopReforgeBaseCost"/> for the first
+    /// reforge and rises by <see cref="ShopReforgeCostStep"/> per reforge done in that shop; it resets
+    /// to the base at the next shop (the counter lives on the button instance — see
+    /// <see cref="NMerchantReforgeButton"/> — so no save persistence is needed). A penalty prefix can
+    /// still roll (paid gamble). Not user-tunable (deliberately fixed).
     /// </summary>
-    public static int ShopReforgeCost = 50;
+    public const int ShopReforgeBaseCost = 30;
+
+    /// <summary>Gold added to the shop reforge cost per reforge already done this shop visit. See
+    /// <see cref="ShopReforgeBaseCost"/>.</summary>
+    public const int ShopReforgeCostStep = 10;
+
+    /// <summary>Gold cost of the next shop reforge given how many have already been done in the current
+    /// shop visit (<paramref name="reforgesThisShop"/> = 0 for the first).</summary>
+    public static int ShopReforgeCostFor(int reforgesThisShop) =>
+        ShopReforgeBaseCost + ShopReforgeCostStep * Math.Max(0, reforgesThisShop);
 
     /// <summary>
     /// Fixed gold cost of one shop CLEANSE — remove the curse from a relic, keeping its prefix (see

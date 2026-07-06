@@ -17,7 +17,6 @@ public class MainFile
     private const string EntryKeyBalance = "enemyBalanceStrength";
     private const string EntryKeyEnemyForge = "enemyForgeEnabled";
     private const string EntryKeyRiderChance = "enemyRiderChance";
-    private const string EntryKeyShopCost = "shopReforgeCost";
     private const string EntryKeyForgeAncient = "forgeAncientRelics";
     private const string EntryKeySelfCurse = "selfCurseChance";
     private const string EntryKeyCleanseCost = "shopCleanseCost";
@@ -60,11 +59,6 @@ public class MainFile
                 onChanged: v => ForgeConfig.BalanceStrength = v / 100.0)
                 .Range(0f, 200f, 10f, format: "F0")
                 .Description("How hard elites & bosses forge back (only when Enemy forge is ON). They always roll their own prefix; forging more at higher Ascension pushes the strength higher. 100 = designed strength.")
-            .Slider(EntryKeyShopCost, "Shop reforge cost (gold)",
-                defaultValue: 50.0,
-                onChanged: v => ForgeConfig.ShopReforgeCost = (int)v)
-                .Range(0f, 100f, 10f, format: "F0")
-                .Description("Gold charged per reforge at a merchant. Unlimited uses per shop (pay each time), and a penalty prefix can still roll — a paid gamble. 0 = free.")
             .Slider(EntryKeyCleanseCost, "Shop cleanse cost (gold)",
                 defaultValue: 150.0,
                 onChanged: v => ForgeConfig.ShopCleanseCost = (int)v)
@@ -84,13 +78,12 @@ public class MainFile
         // Now that the keys are registered, read the saved-or-default values.
         ForgeConfig.NoPrefixChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyNoPrefix, 45.0) / 100.0;
         ForgeConfig.BalanceStrength = ModConfigBridge.GetValue<double>(ModId, EntryKeyBalance, 100.0) / 100.0;
-        ForgeConfig.ShopReforgeCost = (int)ModConfigBridge.GetValue<double>(ModId, EntryKeyShopCost, 50.0);
         ForgeConfig.ShopCleanseCost = (int)ModConfigBridge.GetValue<double>(ModId, EntryKeyCleanseCost, 150.0);
         ForgeConfig.EnemyForgeEnabled = ModConfigBridge.GetValue<bool>(ModId, EntryKeyEnemyForge, true);
         ForgeConfig.CurseChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyRiderChance, 33.0) / 100.0;
         ForgeConfig.ForgeAncientRelics = ModConfigBridge.GetValue<bool>(ModId, EntryKeyForgeAncient, true);
         ForgeConfig.SelfCurseShare = ModConfigBridge.GetValue<double>(ModId, EntryKeySelfCurse, 35.0) / 100.0;
 
-        Logger.Info($"[{ModId}] shop reforge cost {ForgeConfig.ShopReforgeCost}g, no-prefix chance {ForgeConfig.NoPrefixChance:P0}.");
+        Logger.Info($"[{ModId}] shop reforge cost {ForgeConfig.ShopReforgeBaseCost}g +{ForgeConfig.ShopReforgeCostStep}/reforge, no-prefix chance {ForgeConfig.NoPrefixChance:P0}.");
     }
 }

@@ -72,6 +72,60 @@ internal static class ReforgeNet
     }
 
     /// <summary>
+    /// CLEANSE a relic's curse so that EVERY client converges. Single-player (or fake-MP): strip
+    /// locally, unchanged historic behavior, returning whether a curse was actually removed. Real
+    /// co-op: cleanse is a player DECISION (not seed-derivable like a reforge count), so the action
+    /// itself is broadcast — (relicEntry) rides a synchronized command and each client, including the
+    /// initiator, strips its own copy in <see cref="ApplyCleanseOnClient"/>. Idempotent (a flag + curse
+    /// clear), so re-delivery is safe. Returns true when the cleanse was accepted (a curse was present),
+    /// so the shop UI charges gold only on a real cleanse. Mirrors <see cref="Reforge"/>.
+    /// </summary>
+    public static bool Cleanse(RelicModel relic, Player player)
+    {
+        var run = RunManager.Instance;
+        bool coop = run != null && !run.IsSingleplayerOrFakeMultiplayer;
+
+        if (coop && TransportReady)
+        {
+            // The synced handler strips ALL copies (including this client's) uniformly, so we must NOT
+            // also strip locally here — that stays symmetric with the reforge path. Check (without
+            // mutating) that there is a curse to remove so we neither charge nor dispatch a no-op.
+            if (!RelicForgeService.CanCleanse(relic)) return false;
+            DispatchCleanse(player, relic.Id.Entry);
+            return true;
+        }
+
+        // Single-player / fake-MP: strip locally, unchanged historic behavior.
+        return RelicForgeService.Cleanse(relic);
+    }
+
+    /// <summary>
+    /// The synchronized cleanse HANDLER body — runs on EVERY client. Finds the owner's copy of the
+    /// relic and strips its curse via <see cref="RelicForgeService.ApplyCleanse"/> (idempotent: sets the
+    /// cleansed flag + clears the curse fields, so re-delivery and late joins are safe). Mirrors
+    /// <see cref="ApplyReforgeStepOnClient"/>.
+    /// </summary>
+    public static void ApplyCleanseOnClient(Player owner, string relicEntry)
+    {
+        var relic = owner.Relics.FirstOrDefault(
+            r => r.Id.Entry == relicEntry && !RelicForgeService.IsCompanion(r));
+        if (relic == null) return;
+        RelicForgeService.ApplyCleanse(relic);
+    }
+
+    /// <summary>Enqueue the cleanse onto the run's synchronized action stream so it replays on every
+    /// client, reusing the same built-in <c>ConsoleCmdGameAction</c> wire type as the reforge dispatch
+    /// (see <see cref="DispatchNetworked"/>). The synced string is
+    /// "<c><see cref="CleanseNetConsoleCmd.Verb"/> &lt;relicEntry&gt;</c>"; each client replays it and calls
+    /// <see cref="ApplyCleanseOnClient"/>. Never happens in combat (shop only), so inCombat is false.</summary>
+    private static void DispatchCleanse(Player owner, string relicEntry)
+    {
+        string synced = $"{CleanseNetConsoleCmd.Verb} {relicEntry}";
+        RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(
+            new ConsoleCmdGameAction(owner, synced, inCombat: false));
+    }
+
+    /// <summary>
     /// The synchronized command HANDLER body — pure determinism, meant to run on EVERY client. Finds
     /// the owner's copy of the relic and steps its reforge count up to <paramref name="targetCount"/>,
     /// reusing <see cref="RelicForgeService.Reforge"/> (deterministic given seed+id+floor+count).

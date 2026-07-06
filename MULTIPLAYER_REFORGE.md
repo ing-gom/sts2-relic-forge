@@ -61,9 +61,16 @@ through it:
 | Shop button attached? | `IsSingleplayerOrFakeMultiplayer` | `ReforgeNet.Available()` |
 | Campfire reforge | `RelicForgeService.Reforge` | `ReforgeNet.Reforge` |
 | Shop reforge | `RelicForgeService.Reforge` | `ReforgeNet.Reforge` |
+| Shop cleanse | `RelicForgeService.Cleanse` (local) | `ReforgeNet.Cleanse` |
 
-`ReforgeNet.TransportReady` is `false`, so behavior is **byte-identical to SP-only today**. Flipping
-it on is gated behind the one unimplemented method.
+**Status (v0.5.0): the networked transport is LIVE.** `ReforgeNet.TransportReady` is `true`;
+`DispatchNetworked` / `DispatchCleanse` enqueue the synced console-command action
+(`ReforgeNetConsoleCmd` `rf_sync`, `CleanseNetConsoleCmd` `rf_cleanse`) and every client re-derives via
+`ApplyReforgeStepOnClient` / `ApplyCleanseOnClient`. Cleanse was added to the same seam so a co-op peer's
+copy of the curse is stripped in lockstep (a local-only strip desynced each client's re-derived
+enemy-rider / self-curse). The shop reforge/cleanse buttons resolve the **local** player via
+`LocalContext.GetMe` (not `Players.FirstOrDefault()`, which is the host) so a client acts on its own
+relics. The section below is the original design note kept for history.
 
 ## Remaining work (needs the game/ModKit command API)
 

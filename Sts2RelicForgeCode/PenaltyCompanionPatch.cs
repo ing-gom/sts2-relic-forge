@@ -68,6 +68,20 @@ internal static class PenaltyTurnPatch
                     case "Cumbersome" when turn == 1:
                         Fire(relic, PowerCmd.Apply<DexterityPower>(choiceContext, player.Creature, -1m, player.Creature, null));
                         break;
+                    case "Taxing" when turn == 1:
+                    {
+                        // Upkeep bleed: lose 1 gold per card in your deck, once at combat start. The
+                        // bigger (more bloated) your deck, the more it costs — clamped to what you hold.
+                        int deckCount = PileType.Deck.GetPile(player).Cards.Count;
+                        int loss = Math.Min(deckCount, player.Gold);
+                        if (loss > 0)
+                        {
+                            relic.Flash();
+                            TaskHelper.RunSafely(PlayerCmd.LoseGold(loss, player));
+                            MainFile.Logger.Info($"[{MainFile.ModId}] Taxing: -{loss} gold (deck {deckCount}) on turn 1 ({relic.Id.Entry}).");
+                        }
+                        break;
+                    }
                     case "Fickle":
                         var rng = new Rng((uint)((int)seed + turn * 48611 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
                         if (rng.NextFloat() < 0.25)

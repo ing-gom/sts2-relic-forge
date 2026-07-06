@@ -16,7 +16,7 @@ The relic's name gains a `(Cursed)` tag, and its tooltip states the exact effect
 ## How it works
 
 - **Stronger = cursed** — when a relic rolls a prefix, it may also carry a curse. The chance **scales with the prefix's power** — a weak prefix is rarely cursed, while a **Legendary (+60%)** is almost always cursed (reference ~33%, adjustable via a ModConfig slider).
-- **One or the other** — an enemy curse and a self-curse **never appear together**. ModConfig **"Self-curse share"** sets the split between the two (default: 35% of curses are self-curses).
+- **One or the other** — an enemy curse and a self-curse **never appear together**. ModConfig **"Self-curse share"** sets the split between the two (default: 22% of curses are self-curses — the harsher kind is kept the minority).
 - **No penalty prefixes** — a prefix that's already bad (a penalty) never carries a curse.
 - **Deterministic** — which curse lands, and how strong, is fixed by the run seed (same seed = same result, multiplayer-safe). Reforging re-rolls the curse too.
 

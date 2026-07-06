@@ -20,7 +20,7 @@ namespace Sts2RelicForge;
 internal static class HostForgeConfig
 {
     private static bool _received;
-    private static double _noPrefix, _curse, _selfShare, _balance;
+    private static double _noPrefix, _curse, _selfShare;
     private static bool _ancient, _enemyForge;
 
     /// <summary>True only when WE are a real co-op client that has received the host's config: the
@@ -38,20 +38,23 @@ internal static class HostForgeConfig
     public static double NoPrefixChance    => UseHost ? _noPrefix   : ForgeConfig.NoPrefixChance;
     public static double CurseChance       => UseHost ? _curse      : ForgeConfig.CurseChance;
     public static double SelfCurseShare    => UseHost ? _selfShare  : ForgeConfig.SelfCurseShare;
-    public static double BalanceStrength   => UseHost ? _balance    : ForgeConfig.BalanceStrength;
     public static bool   ForgeAncient      => UseHost ? _ancient    : ForgeConfig.ForgeAncientRelics;
     public static bool   EnemyForgeEnabled => UseHost ? _enemyForge : ForgeConfig.EnemyForgeEnabled;
+
+    /// <summary>Enemy-forge strength: a fixed designed constant (the 0–200% slider was removed), so it
+    /// is identical on every client and needs no host broadcast — it never diverges. See <see cref="ForgeConfig.BalanceStrength"/>.</summary>
+    public static double BalanceStrength   => ForgeConfig.BalanceStrength;
 
     /// <summary>Store the host's broadcast values (called on every client by the rf_config command).
     /// Idempotent — re-delivery just refreshes the cache, so re-broadcasts and late joins are safe.</summary>
     public static void ApplyFromHost(double noPrefix, double curse, double selfShare,
-                                     double balance, bool ancient, bool enemyForge)
+                                     bool ancient, bool enemyForge)
     {
         _noPrefix = noPrefix; _curse = curse; _selfShare = selfShare;
-        _balance = balance; _ancient = ancient; _enemyForge = enemyForge;
+        _ancient = ancient; _enemyForge = enemyForge;
         _received = true;
         MainFile.Logger.Info(
             $"[{MainFile.ModId}] host forge config applied: curse {curse:P0}, selfShare {selfShare:P0}, " +
-            $"noPrefix {noPrefix:P0}, ancient {ancient}, enemyForge {enemyForge}, balance {balance:P0}.");
+            $"noPrefix {noPrefix:P0}, ancient {ancient}, enemyForge {enemyForge}.");
     }
 }

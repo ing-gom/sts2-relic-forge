@@ -13,9 +13,10 @@ namespace Sts2RelicForge;
 
 /// <summary>
 /// The "enemy forge" balance mechanism (see <see cref="EnemyForge"/>): on the first player turn of
-/// an ELITE or BOSS fight, every enemy rolls a prefix and gains the matching native buffs, scaled by
-/// how much enemy-rider curse power the player carries. Normal fights and a disabled mechanic are
-/// never touched.
+/// EVERY combat (normal, elite, and boss), the enemies gain the native buffs matching the enemy-rider
+/// curses the player carries, scaled by how much rider power they hold. Bosses get a higher tier
+/// multiplier; normal packs share the same total buff pool spread across the mobs. A disabled mechanic
+/// (master toggle off) is never touched.
 ///
 /// Hooked at <c>Hook.AfterPlayerTurnStart</c> (turn == 1) — the same proven entry point as
 /// <see cref="DelayedCompanionPatch"/>, which hands us a live <see cref="PlayerChoiceContext"/>.
@@ -38,7 +39,12 @@ internal static class EnemyForgePatch
                 double mag = EnemyForge.Magnitude(player);
                 RoomType room = combatState.Encounter?.RoomType ?? RoomType.Unassigned;
                 bool isBoss = room == RoomType.Boss || EnemyForge.TestAsBoss;
-                bool eligibleRoom = EnemyForge.TestForce || EnemyForge.TestAsBoss || isBoss || room == RoomType.Elite;
+                // Rider power-buffs now reach NORMAL fights too (RoomType.Monster), not just elites/bosses —
+                // the pack round-robin spreads the same total buff pool across the (weaker) mobs, so every
+                // combat "fights back". Unassigned covers the `fight` debug entry and event-spawned combats.
+                bool eligibleRoom = EnemyForge.TestForce || EnemyForge.TestAsBoss || isBoss
+                                    || room == RoomType.Elite || room == RoomType.Monster
+                                    || room == RoomType.Unassigned;
                 MainFile.Logger.Info($"[{MainFile.ModId}] enemy-forge check: room={room} mag={mag:F2} enabled={ForgeConfig.EnemyForgeEnabled} test={EnemyForge.TestForce} eligible={eligibleRoom}");
 
                 // Max-HP curses broadcast to ALL enemies (normal fights included), scope-gated —
@@ -51,12 +57,9 @@ internal static class EnemyForgePatch
                     var enemies = new List<Creature>(combatState.HittableEnemies);
                     if (enemies.Count > 0)
                     {
-                        // Seed-fixed rng (runSeed, floor) → deterministic & MP-safe. Rider curses are
-                        // DISTRIBUTED across the pack (round-robin); a single enemy still gets them all.
-                        uint seed = player.RunState?.Rng.Seed ?? 0;
-                        int floor = player.RunState?.TotalFloor ?? 0;
-                        var rng = new Rng((uint)((int)seed + floor * 7919 + 4211));
-                        EnemyForge.ForgePack(enemies, isBoss, choiceContext, player, rng);
+                        // Rider curses are DISTRIBUTED across the pack (round-robin); a single enemy
+                        // (boss) gets them all, and duplicated curses stack. Fixed values, so no rng.
+                        EnemyForge.ForgePack(enemies, choiceContext, player);
                         MainFile.Logger.Info($"[{MainFile.ModId}] enemy-forge: distributed rider curses across {enemies.Count} enemies.");
                     }
                 }

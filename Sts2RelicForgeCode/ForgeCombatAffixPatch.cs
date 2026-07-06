@@ -62,6 +62,8 @@ internal static class ForgeCombatAffixPatch
                     ApplySymmetric(combatState, choiceContext, player, relic, pfx, seed, turn);
                 else if (pfx.RandomDebuff)
                     ApplyRandomDebuff(combatState, choiceContext, player, relic, seed, turn);
+                else if (pfx.GoldStrengthPer > 0 && turn == 1)
+                    ApplyGoldStrength(choiceContext, player, relic, pfx);
             }
         }
         catch (Exception e)
@@ -150,6 +152,21 @@ internal static class ForgeCombatAffixPatch
                 return;
         }
         MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: {pfx.SymPower} {a} to one player + one enemy ({relic.Id.Entry}).");
+    }
+
+    /// <summary>
+    /// Gilded — at combat start, grant Strength scaled by the player's wallet: +1 per
+    /// <see cref="Prefix.GoldStrengthPer"/> gold (e.g. 300g -> +1, 600g -> +2). Read-only on gold
+    /// (a pure boon; the Taxing curse is what drains it). Self-sourced so it reads as a buff.
+    /// </summary>
+    private static void ApplyGoldStrength(PlayerChoiceContext ctx, Player player, RelicModel relic, Prefix pfx)
+    {
+        if (player.Creature == null || pfx.GoldStrengthPer <= 0) return;
+        int str = player.Gold / pfx.GoldStrengthPer;
+        if (str <= 0) return;
+        relic.Flash();
+        TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(ctx, player.Creature, str, player.Creature, null));
+        MainFile.Logger.Info($"[{MainFile.ModId}] Gilded: +{str} Strength from {player.Gold} gold on turn 1 ({relic.Id.Entry}).");
     }
 
 }

@@ -13,12 +13,14 @@ internal static class ForgeConfig
     public static double NoPrefixChance = 0.45;
 
     /// <summary>
-    /// Master multiplier for the "enemy forge" balance mechanism: elites and bosses always roll
-    /// their own Terraria-style prefix (no Ascension or forged relics required). Forging more at
-    /// higher Ascension only pushes the strength above the baseline. 1.0 = 100% (the designed
-    /// strength), 0 = feature OFF, 2.0 = double. See <see cref="EnemyForge"/>.
+    /// Enemy-forge strength multiplier, FIXED at the designed 1.0 (100%). Formerly a 0–200% ModConfig
+    /// slider, removed as a redundant fourth difficulty lever: the master <see cref="EnemyForgeEnabled"/>
+    /// toggle (on/off), <see cref="CurseChance"/> (how many enemy-rider curses you accumulate), the
+    /// hard <c>HeatCap</c>, and the self-inflicted-cost design already bound enemy strength. Kept as a
+    /// code-level constant so the <c>× BalanceStrength</c> sites in <see cref="EnemyForge"/> stay a
+    /// no-op yet remain a single retune anchor. See <see cref="EnemyForge"/>.
     /// </summary>
-    public static double BalanceStrength = 1.0;
+    public const double BalanceStrength = 1.0;
 
     /// <summary>
     /// Escalating gold cost of shop reforges (see <see cref="NMerchantReforgeButton"/>). Uses are
@@ -77,8 +79,11 @@ internal static class ForgeConfig
     /// <summary>
     /// Of the relics that DO carry a curse (see <see cref="CurseChance"/>), the fraction that get a
     /// SELF-CURSE (punishes you on unblocked hits) instead of an enemy-rider curse. The two are
-    /// mutually exclusive per relic. Default 0.50 (half self-curse, half enemy-rider). 0 = all curses
-    /// are enemy-rider; 1 = all curses are self-curse. See <see cref="SelfCurseTable"/>.
+    /// mutually exclusive per relic. Default 0.22 — the self-curse is the harsher, stickier kind
+    /// (a self-Vulnerable/Frail lingers all fight), so it's kept the minority: an occasional "bad
+    /// luck" roll rather than the norm, while the enemy-rider curse (a self-inflicted, cap-scaled
+    /// cost) stays the default. 0 = all curses are enemy-rider; 1 = all curses are self-curse.
+    /// Adjustable in-game via ModConfig. See <see cref="SelfCurseTable"/>.
     /// </summary>
-    public static double SelfCurseShare = 0.35;
+    public static double SelfCurseShare = 0.22;
 }

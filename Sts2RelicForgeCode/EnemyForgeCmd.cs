@@ -56,7 +56,7 @@ public class EnemyForgeCmd : AbstractConsoleCmd
         var log = new StringBuilder("enemyforge:\n");
         string state = !EnemyForge.TestForce ? "off"
             : EnemyForge.TestForcePrefix != null ? $"ON — forcing '{EnemyForge.TestForcePrefix}' on the next combat"
-            : EnemyForge.TestAsBoss ? "ON as BOSS (next combat, ×1.5)"
+            : EnemyForge.TestAsBoss ? "ON as BOSS (next combat, for HP-curse scope)"
             : "ON (next combat gets prefixes)";
         log.Append("  test override: ").Append(state).Append('\n');
 
@@ -72,7 +72,7 @@ public class EnemyForgeCmd : AbstractConsoleCmd
 
         log.Append($"  enemy forge: {(on ? "ON" : "OFF")}  ·  curse chance {ForgeConfig.CurseChance:P0} (enemy-rider share {(1 - ForgeConfig.SelfCurseShare):P0})\n");
         log.Append($"  rider heat: {heat:F2}  (from relics carrying the enemy-rider curse)\n");
-        log.Append($"  balance slider: {ForgeConfig.BalanceStrength:P0}\n");
+        log.Append($"  balance: {ForgeConfig.BalanceStrength:P0} (fixed designed strength)\n");
         log.Append($"  => magnitude: {mag:F2}  {(mag <= 0 ? "(no enemy buff — off or no rider relics)" : "(elites/bosses buffed)")}");
         return new CmdResult(success: true, log.ToString());
     }

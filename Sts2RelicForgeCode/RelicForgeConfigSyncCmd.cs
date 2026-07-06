@@ -23,7 +23,7 @@ public sealed class RelicForgeConfigSyncCmd : AbstractConsoleCmd
     public const string Verb = "rf_config";
 
     public override string CmdName => Verb;
-    public override string Args => "<noPrefix> <curse> <selfShare> <balance> <ancient01> <enemyForge01>";
+    public override string Args => "<noPrefix> <curse> <selfShare> <ancient01> <enemyForge01>";
     public override string Description =>
         "Internal (networked): the host broadcasts its Relic Forge settings so every client derives identically.";
     public override bool IsNetworked => true;   // routes through the synchronized action queue
@@ -31,23 +31,23 @@ public sealed class RelicForgeConfigSyncCmd : AbstractConsoleCmd
 
     public override CmdResult Process(Player? issuingPlayer, string[] args)
     {
-        // Runs on EVERY client. Parse the six host-authoritative settings and cache them; the
+        // Runs on EVERY client. Parse the five host-authoritative settings and cache them; the
         // accessors in HostForgeConfig only consult them while we are a client, so applying them on
-        // the host (which also replays the command) is a harmless no-op.
-        if (args.Length < 6)
-            return new CmdResult(success: false, "Usage: rf_config <noPrefix> <curse> <selfShare> <balance> <ancient01> <enemyForge01>");
+        // the host (which also replays the command) is a harmless no-op. (Enemy balance strength is no
+        // longer broadcast — it is a fixed constant identical on every client, so it never diverges.)
+        if (args.Length < 5)
+            return new CmdResult(success: false, "Usage: rf_config <noPrefix> <curse> <selfShare> <ancient01> <enemyForge01>");
 
         var inv = CultureInfo.InvariantCulture;
         if (!double.TryParse(args[0], NumberStyles.Float, inv, out double noPrefix) ||
             !double.TryParse(args[1], NumberStyles.Float, inv, out double curse) ||
-            !double.TryParse(args[2], NumberStyles.Float, inv, out double selfShare) ||
-            !double.TryParse(args[3], NumberStyles.Float, inv, out double balance))
+            !double.TryParse(args[2], NumberStyles.Float, inv, out double selfShare))
             return new CmdResult(success: false, "rf_config: bad numeric arg.");
 
-        bool ancient = args[4] == "1";
-        bool enemyForge = args[5] == "1";
+        bool ancient = args[3] == "1";
+        bool enemyForge = args[4] == "1";
 
-        HostForgeConfig.ApplyFromHost(noPrefix, curse, selfShare, balance, ancient, enemyForge);
+        HostForgeConfig.ApplyFromHost(noPrefix, curse, selfShare, ancient, enemyForge);
         return new CmdResult(success: true, "rf_config applied.");
     }
 }
@@ -67,12 +67,11 @@ internal static class ForgeConfigBroadcaster
         if (me == null) return;   // no resolvable local player yet — a later trigger will re-broadcast
 
         var inv = CultureInfo.InvariantCulture;
-        string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5} {6}",
+        string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5}",
             Verb(),
             ForgeConfig.NoPrefixChance.ToString("R", inv),
             ForgeConfig.CurseChance.ToString("R", inv),
             ForgeConfig.SelfCurseShare.ToString("R", inv),
-            ForgeConfig.BalanceStrength.ToString("R", inv),
             ForgeConfig.ForgeAncientRelics ? "1" : "0",
             ForgeConfig.EnemyForgeEnabled ? "1" : "0");
 

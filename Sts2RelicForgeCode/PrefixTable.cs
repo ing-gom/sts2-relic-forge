@@ -66,6 +66,11 @@ internal sealed class Prefix
     public bool LossInvert;      // 완강한: an enemy-applied Strength/Dexterity loss becomes a gain
     public int  EnergyDischarge; // 방전의: damage dealt to all enemies per bonus Energy gained (0 = off)
 
+    // --- Run-state affixes (see RunState prefixes below). These graft nothing and scale no host var;
+    //     instead they react to the player's GOLD / DECK / CURSE state rather than combat power events. ---
+    public bool CurseDrawStrength; // 저주먹은: when the player draws a Curse card, gain 1 Strength
+    public int  GoldStrengthPer;   // 황금빛: at combat start, gain 1 Strength per this much gold (0 = off)
+
     // Force the enemy-rider curse on unconditionally (bypasses EnemyRiderChance). Used by 공명의 so
     // its strength always comes bundled with a curse — the mod's own cost, in place of a per-trigger
     // penalty. Ignored on penalty prefixes (which never carry a rider).
@@ -76,7 +81,8 @@ internal sealed class Prefix
     /// scale the host's vars.</summary>
     public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0 || Penalty
                                      || EnemyStrip || SymPower.Length > 0 || RandomDebuff
-                                     || GainAmplify || LossInvert || EnergyDischarge > 0;
+                                     || GainAmplify || LossInvert || EnergyDischarge > 0
+                                     || CurseDrawStrength || GoldStrengthPer > 0;
 
     /// <summary>Name in the game's current language (ko / zh_Hans), else English.</summary>
     public string Display => Localize(Ko, Zh, Name);
@@ -247,6 +253,22 @@ internal static class PrefixTable
             NoteKo = "추가 에너지를 얻을 때마다 모든 적에게 4 피해",
             NoteEn = "Whenever you gain bonus Energy, deal 4 damage to all enemies",
             NoteZh = "每当你获得额外能量时，对所有敌人造成4点伤害" },
+
+        // --- Run-state affixes: react to GOLD / DECK / CURSE state rather than combat power events.
+        //     Cursefed/Gilded are boons (green note); Taxing is a curse (red note). All three scale no
+        //     host var (IsCompanionPrefix). Forceable via `forge <relic> Cursefed|Gilded|Taxing`. ---
+        new Prefix { Name = "Cursefed", Ko = "저주먹은", Zh = "噬咒的", Weight = 5, CurseDrawStrength = true, Color = "#a86fd0",
+            NoteKo = "저주 카드를 뽑으면 힘 또는 민첩 +1 (턴당 1회)",
+            NoteEn = "When you draw a Curse card, gain 1 Strength or Dexterity (once per turn)",
+            NoteZh = "抽到诅咒牌时，获得1点力量或敏捷（每回合1次）" },
+        new Prefix { Name = "Gilded", Ko = "황금빛", Zh = "镀金的", Weight = 4, GoldStrengthPer = 300, Color = "#ffd23f",
+            NoteKo = "전투 시작 시 골드 300당 힘 +1",
+            NoteEn = "At combat start, gain 1 Strength per 300 gold",
+            NoteZh = "战斗开始时，每300金币获得1点力量" },
+        new Prefix { Name = "Taxing", Ko = "과세의", Zh = "征税的", Weight = 6, Penalty = true, Color = "#b0554d",
+            NoteKo = "전투 시작 시 덱의 카드 1장당 골드 1 손실",
+            NoteEn = "At combat start, lose 1 gold per card in your deck",
+            NoteZh = "战斗开始时，每有1张牌失去1金币" },
     };
 
     // Rarities that can receive a prefix at all. Starter/Event/None never do. Ancient is included

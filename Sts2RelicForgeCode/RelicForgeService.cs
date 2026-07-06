@@ -158,7 +158,7 @@ internal static class RelicForgeService
         double boon = prefix.PowerPct > 0 ? prefix.PowerPct
                     : prefix.PowerPct < 0 ? 0.02
                     : CurseRefPower;
-        return Math.Clamp(ForgeConfig.CurseChance * (boon / CurseRefPower), CurseFloor, CurseCap);
+        return Math.Clamp(HostForgeConfig.CurseChance * (boon / CurseRefPower), CurseFloor, CurseCap);
     }
 
     /// <summary>The forge record for a relic instance, or null if it was never forged.</summary>
@@ -429,7 +429,7 @@ internal static class RelicForgeService
         // the automatic pickup forge is gated here — a forced test or deliberate reforge still may
         // touch them — but the reforge picker also hides Ancient relics while this is off, so in
         // normal play they stay untouched end-to-end.
-        if (!test && !guaranteePrefix && !ForgeConfig.ForgeAncientRelics
+        if (!test && !guaranteePrefix && !HostForgeConfig.ForgeAncient
             && relic.Rarity == RelicRarity.Ancient) return null;
 
         string relicId = relic.Id.Entry;               // canonical UPPER_SNAKE id (seed + logs)
@@ -463,7 +463,7 @@ internal static class RelicForgeService
             Prefix rolled = PrefixTable.Roll(rng);
             // Draw the gate roll unconditionally (fixed rng order) but ignore it when
             // guaranteePrefix is set, so a reforge always lands a prefix.
-            prefix = (!guaranteePrefix && gate < ForgeConfig.NoPrefixChance) ? null : rolled;
+            prefix = (!guaranteePrefix && gate < HostForgeConfig.NoPrefixChance) ? null : rolled;
         }
 
         // Enemy-rider roll (a Terraria-style curse): any forged relic MIGHT also strengthen enemies.
@@ -490,7 +490,7 @@ internal static class RelicForgeService
         // SelfCurseShare decides the kind (self-curse vs enemy-rider). Penalty prefixes never carry one.
         if (!prefix.Penalty && (prefix.AlwaysCurse || curseRoll < CurseChanceFor(prefix)))
         {
-            bool self = !prefix.AlwaysCurse && curseTypeRoll < ForgeConfig.SelfCurseShare;
+            bool self = !prefix.AlwaysCurse && curseTypeRoll < HostForgeConfig.SelfCurseShare;
             if (self)
                 record.SelfCurse = SelfCurseTable.Pick(cursePickRoll).En;
             else

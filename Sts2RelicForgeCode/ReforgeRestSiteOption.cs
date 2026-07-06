@@ -113,7 +113,7 @@ internal static class RestSiteReforgeSupport
     /// </summary>
     public static IEnumerable<RelicModel> Reforgeable(Player player)
         => player.Relics.Where(r => !RelicForgeService.IsCompanion(r)
-            && (ForgeConfig.ForgeAncientRelics || r.Rarity != RelicRarity.Ancient));
+            && (HostForgeConfig.ForgeAncient || r.Rarity != RelicRarity.Ancient));
 
     public static bool HasReforgeable(Player player) => Reforgeable(player).Any();
 

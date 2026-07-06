@@ -26,6 +26,10 @@ internal static class RestSiteReforgeOptionPatch
     {
         try
         {
+            // Host: push our forge settings to every client now (rest-site build time), so a client
+            // that reforges here derives the SAME curse the host would — before the picker can be used.
+            ForgeConfigBroadcaster.BroadcastIfHost();
+
             if (!ReforgeNet.Available())
             {
                 RestSiteReforgeSupport.ByPlayer.Remove(player.NetId); // don't let a stale option be re-added

@@ -210,8 +210,8 @@ internal static class EnemyForge
     /// <summary>Intensity = min(cap, rider-heat) × balance. Gated by the master toggle; 0 = no enemy buff.</summary>
     public static double Magnitude(Player player)
     {
-        if (!ForgeConfig.EnemyForgeEnabled && !TestForce) return 0;
-        double balance = ForgeConfig.BalanceStrength;
+        if (!HostForgeConfig.EnemyForgeEnabled && !TestForce) return 0;
+        double balance = HostForgeConfig.BalanceStrength;
         if (balance <= 0) return TestForce ? TestMagnitude : 0;
         double mag = Math.Min(HeatCap, ForgeHeat(player)) * balance;
         return TestForce ? Math.Max(mag, TestMagnitude) : mag;
@@ -227,8 +227,8 @@ internal static class EnemyForge
     /// </summary>
     public static void ForgePack(IReadOnlyList<Creature> enemies, bool isBoss, PlayerChoiceContext ctx, Player player, Rng rng)
     {
-        if (!ForgeConfig.EnemyForgeEnabled && !TestForce) return;
-        double balance = ForgeConfig.BalanceStrength;
+        if (!HostForgeConfig.EnemyForgeEnabled && !TestForce) return;
+        double balance = HostForgeConfig.BalanceStrength;
         if (balance <= 0 && !TestForce) return;
         if (enemies == null || enemies.Count == 0) return;
 
@@ -262,7 +262,7 @@ internal static class EnemyForge
     private static EnemyForgeTag? ForgeEnemyWith(Creature enemy, bool isBoss, List<KeyValuePair<string, double>> contribs, PlayerChoiceContext ctx, Player player, Rng rng)
     {
         if (enemy == null || Tags.TryGetValue(enemy, out _)) return null;
-        double balance = ForgeConfig.BalanceStrength;
+        double balance = HostForgeConfig.BalanceStrength;
         double tier = isBoss ? BossTierMult : EliteTierMult;
 
         var tag = new EnemyForgeTag();
@@ -372,7 +372,7 @@ internal static class EnemyForge
     /// </summary>
     public static void ApplyHpCurses(ICombatState cs, PlayerChoiceContext ctx, Player player, RoomType room, bool isBoss)
     {
-        if (!ForgeConfig.EnemyForgeEnabled && !TestForce) return;
+        if (!HostForgeConfig.EnemyForgeEnabled && !TestForce) return;
         foreach (var enemy in new List<Creature>(cs.HittableEnemies))
         {
             if (enemy == null || HpCursed.TryGetValue(enemy, out _)) continue;

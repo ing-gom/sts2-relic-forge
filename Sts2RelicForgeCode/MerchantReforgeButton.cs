@@ -321,6 +321,10 @@ internal static class MerchantReforgeButtonPatch
     {
         try
         {
+            // Host: push our forge settings to every client on shop open, so a client that reforges
+            // (or buys) here derives the SAME curse the host would — before the button can be clicked.
+            ForgeConfigBroadcaster.BroadcastIfHost();
+
             if (!ReforgeNet.Available()) return; // reforge is SP-only until the networked path lands (ReforgeNet)
             NMerchantReforgeButton.Attach(__instance);
             NMerchantCleanseButton.Attach(__instance);   // sibling: remove a relic's curse, keep the prefix

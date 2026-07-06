@@ -22,7 +22,7 @@ internal static class ForgeText
     /// </summary>
     public static string TitleSuffix(ForgeRecord rec)
     {
-        bool rider = ForgeConfig.EnemyForgeEnabled && rec.EnemyRider && rec.EnemyRiderSuffix.Length > 0;
+        bool rider = HostForgeConfig.EnemyForgeEnabled && rec.EnemyRider && rec.EnemyRiderSuffix.Length > 0;
         bool self = rec.SelfCurse.Length > 0;
         if (!rider && !self) return "";
         // Just a simple "curse" mark on the name — the exact effect(s) are in the tooltip lines.
@@ -73,7 +73,7 @@ internal static class ForgeText
         }
         // Enemy-rider curse: name the SPECIFIC buff this relic grants elites/bosses (only surfaced
         // when the mechanic is enabled). Amber warning so the trade-off is clear.
-        if (rec.EnemyRider && ForgeConfig.EnemyForgeEnabled)
+        if (rec.EnemyRider && HostForgeConfig.EnemyForgeEnabled)
         {
             string effect = RiderSuffix.EffectOf(rec.EnemyRiderSuffix);
             if (effect.Length > 0) sb.Append("\n[color=#e0554d]⚔ ").Append(effect).Append("[/color]");

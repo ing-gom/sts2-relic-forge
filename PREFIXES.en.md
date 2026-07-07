@@ -14,18 +14,18 @@ Scale a relic's numbers up or down; the tooltip shows the change in color (green
 
 | Prefix | Effect | Share |
 |---|---|---:|
-| Legendary | +60% | 0.7% |
-| Godly | +35% | 1.3% |
-| Demonic | +25% | 2.0% |
-| Superior | +18% | 3.0% |
-| Forceful | +12% | 3.9% |
-| Hurtful | +8% | 4.9% |
-| Zealous | +6% | 4.9% |
-| Keen | +4% | 4.9% |
-| Volatile | raises boons AND downsides (high risk / high reward) | 2.0% |
-| Damaged | −12% | 4.6% |
-| Shoddy | −18% | 2.6% |
-| Broken | −25% | 1.6% |
+| Legendary | +60% | 0.6% |
+| Godly | +35% | 1.2% |
+| Demonic | +25% | 1.8% |
+| Superior | +18% | 2.7% |
+| Forceful | +12% | 3.6% |
+| Hurtful | +8% | 4.5% |
+| Zealous | +6% | 4.5% |
+| Keen | +4% | 4.5% |
+| Volatile | raises boons AND downsides (high risk / high reward) | 1.8% |
+| Damaged | −12% | 4.2% |
+| Shoddy | −18% | 2.4% |
+| Broken | −25% | 1.5% |
 
 Exact per-relic numbers are in the interactive [`prefix_dashboard.html`](prefix_dashboard.html).
 
@@ -37,22 +37,22 @@ Instead of scaling numbers, these graft another relic's effect onto yours — bu
 
 | Prefix | Effect | From | Share |
 |---|---|---|---:|
-| Thorned | Thorns 2 at combat start | Bronze Scales | 3.0% |
-| Mighty | Strength +1 on turn 3 | Vajra | 2.0% |
-| Quicksilver | 2 damage to all enemies each turn | Mercury Hourglass | 2.0% |
-| Anchored | Block 6 at combat start | Anchor | 2.3% |
-| Vital | Heal 1 on turn 1 | Blood Vial | 2.6% |
-| Rhythmic | +1 energy every 4 turns | Happy Flower | 1.6% |
-| Insightful | Draw 2 cards when first hit | Centennial Puzzle | 2.3% |
-| Intimidating | Vulnerable 1 to all enemies on turn 2 | Bag of Marbles | 2.6% |
-| Ferocious | Vigor 5 on turn 1 | Akabeko | 1.6% |
-| Bladed | 3 damage to all enemies per 4 skills in one turn | Letter Opener | 2.0% |
-| Relentless | Strength +1 per 4 attacks in one turn | Shuriken | 1.6% |
-| Tempered | Block 4 if you end your turn with no Block | Orichalcum | 2.3% |
-| Gusting | Block 2 per 4 attacks in one turn | Ornamental Fan | 2.3% |
-| Darting | Dexterity +1 per 4 attacks in one turn | Kunai | 2.0% |
-| Supple | Dexterity +1 on turn 2 | Oddly Smooth Stone | 2.3% |
-| Accelerating | +1 energy every 12 attacks | Nunchaku | 1.6% |
+| Thorned | Thorns 2 at combat start | Bronze Scales | 2.7% |
+| Mighty | Strength +1 on turn 3 | Vajra | 1.8% |
+| Quicksilver | 2 damage to all enemies each turn | Mercury Hourglass | 1.8% |
+| Anchored | Block 6 at combat start | Anchor | 2.1% |
+| Vital | Heal 1 on turn 1 | Blood Vial | 2.4% |
+| Rhythmic | +1 energy every 4 turns | Happy Flower | 1.5% |
+| Insightful | Draw 2 cards when first hit | Centennial Puzzle | 2.1% |
+| Intimidating | Vulnerable 1 to all enemies on turn 2 | Bag of Marbles | 2.4% |
+| Ferocious | Vigor 5 on turn 1 | Akabeko | 1.5% |
+| Bladed | 3 damage to all enemies per 4 skills in one turn | Letter Opener | 1.8% |
+| Relentless | Strength +1 per 4 attacks in one turn | Shuriken | 1.5% |
+| Tempered | Block 4 if you end your turn with no Block | Orichalcum | 2.1% |
+| Gusting | Block 2 per 4 attacks in one turn | Ornamental Fan | 2.1% |
+| Darting | Dexterity +1 per 4 attacks in one turn | Kunai | 1.8% |
+| Supple | Dexterity +1 on turn 2 | Oddly Smooth Stone | 2.1% |
+| Accelerating | +1 energy every 12 attacks | Nunchaku | 1.5% |
 
 > More companion prefixes are on the way.
 
@@ -64,14 +64,14 @@ A minority of prefixes are pure downsides (Terraria-style bad rolls) — a small
 
 | Prefix | Downside | Share |
 |---|---|---:|
-| Cursed | Weak 1 to self at combat start | 2.6% |
-| Cumbersome | Dexterity -1 to self on turn 1 | 2.6% |
-| Fickle | 25% each turn: a random debuff to self | 2.0% |
-| Overloaded | Vulnerable 1 to self after 6 cards in one turn | 2.0% |
-| Tainted | Adds a Dazed to your draw pile each turn | 1.6% |
-| Festering | Adds 2 Wounds to your discard at combat start | 1.6% |
-| Smoldering | Adds a Burn to your draw pile at combat start | 1.6% |
-| Hollow | Adds a Void to your draw pile at combat start | 1.6% |
+| Cursed | Weak 1 to self at combat start | 2.4% |
+| Cumbersome | Dexterity -1 to self on turn 1 | 2.4% |
+| Fickle | 25% each turn: a random debuff to self | 1.8% |
+| Overloaded | Vulnerable 1 to self after 6 cards in one turn | 1.8% |
+| Tainted | Adds a Dazed to your draw pile each turn | 1.5% |
+| Festering | Adds 2 Wounds to your discard at combat start | 1.5% |
+| Smoldering | Adds a Burn to your draw pile at combat start | 1.5% |
+| Hollow | Adds a Void to your draw pile at combat start | 1.5% |
 
 ---
 
@@ -81,10 +81,10 @@ Mixed effects that also reach the battlefield — they can help (debuff an enemy
 
 | Prefix | Effect | Share |
 |---|---|---:|
-| Eroding | Each turn, move one enemy power 1 toward zero (buffs and debuffs alike) | 2.0% |
-| Exposing | Vulnerable 1 to one enemy and yourself at combat start | 2.0% |
-| Enervating | Weak 1 to one enemy and yourself at combat start | 2.0% |
-| Chaotic | Each turn, 50% chance: Vulnerable or Weak 1 to one enemy or one player | 2.0% |
+| Eroding | Each turn, move one enemy power 1 toward zero (buffs and debuffs alike) | 1.8% |
+| Exposing | Vulnerable 1 to one enemy and yourself at combat start | 1.8% |
+| Enervating | Weak 1 to one enemy and yourself at combat start | 1.8% |
+| Chaotic | Each turn, 50% chance: Vulnerable or Weak 1 to one enemy or one player | 1.8% |
 
 ---
 
@@ -94,9 +94,63 @@ These react in real time to your power/energy events in combat — the moment yo
 
 | Prefix | Effect | Share |
 |---|---|---:|
-| Resonant | When you gain Strength or Dexterity, gain 1 more of it (up to 3/turn) | 1.6% |
-| Obstinate | When an enemy reduces your Strength or Dexterity, gain that amount instead | 2.0% |
-| Discharging | Whenever you gain bonus Energy, deal 4 damage to all enemies | 2.0% |
+| Resonant | When you gain Strength or Dexterity, gain 1 more of it (up to 3/turn) | 1.5% |
+| Obstinate | When an enemy reduces your Strength or Dexterity, gain that amount instead | 1.8% |
+| Discharging | Whenever you gain bonus Energy, deal 4 damage to all enemies | 1.8% |
+
+---
+
+## 6. Run-state prefixes
+
+React to your RUN state — gold, deck, curses — instead of combat events.
+
+| Prefix | Effect | Share |
+|---|---|---:|
+| Cursefed | When you draw a Curse card, gain 1 Strength or Dexterity (once per turn) | 1.5% |
+| Gilded | At combat start, gain 1 Strength per 300 gold | 1.2% |
+| Taxing *(curse)* | At combat start, lose 1 gold per card in your deck | 1.8% |
+
+---
+
+## 7. Keyword prefixes
+
+Grant or inflict CARD KEYWORDS through the game's own systems — the keyword shows right on the card face.
+
+| Prefix | Effect | Share |
+|---|---|---:|
+| Retaining | At the end of your turn, Retain a random card in your hand | 1.8% |
+| Searing *(curse)* | When you play a card, 25% chance it gains Exhaust (takes effect from its next play) | 1.8% |
+
+---
+
+## 8. Character prefixes
+
+Only roll while you PLAY that character, riding the character's signature mechanic (poison / orbs / summons / stars). Each character gets 3 boons and 2 curses.
+
+| Character | Prefix | Effect | Share |
+|---|---|---|---:|
+| Silent | Envenomed | When you apply Poison to an enemy, 50% chance to apply 1 more | 2.2% |
+| Silent | Flurrying | When you play a Shiv, 25% chance to add a Shiv to your hand | 1.9% |
+| Silent | Cycling | When you discard a card, draw a card | 1.4% |
+| Silent | Toxic *(curse)* | Poison 3 to yourself at combat start | 1.9% |
+| Silent | Dulled *(curse)* | Poison you apply cannot stack an enemy above 6 Poison | 1.9% |
+| Defect | Focused | The first time you gain Focus in combat, gain 1 more Focus | 1.9% |
+| Defect | Amplified | When you Channel an orb, 25% chance to Channel a random orb | 1.6% |
+| Defect | Supercharged | While your orb slots are full, gain 1 Focus (lost while not full) | 1.6% |
+| Defect | Shorted *(curse)* | Focus -2 at combat start | 1.9% |
+| Defect | Polarized *(curse)* | If you end your turn with your orb slots all empty or all full, lose 1 Energy next turn | 1.9% |
+| Necrobinder | Necromantic | When you Summon, gain 3 Block | 2.2% |
+| Necrobinder | Dooming | When you apply Doom to an enemy, apply 1 more | 1.9% |
+| Necrobinder | Bonebound | Summon 1 each turn (grows your Osty) | 1.6% |
+| Necrobinder | Sacrificial *(curse)* | When your summon takes damage, apply Weak / Frail / Vulnerable 1 to yourself (once per turn); 2 when it dies | 1.9% |
+| Necrobinder | Doombound *(curse)* | Each turn, apply 1 Doom to yourself | 1.9% |
+| Regent | Levied *(curse)* | Cards that cost Stars cost 1 more Star | 1.9% |
+| Regent | Starlit | Gain 1 Star each turn | 1.9% |
+| Regent | Reforging | When you Forge, gain 1 Star | 1.6% |
+| Regent | Regal | When you spend Stars, 50% chance to refund 1 Star | 1.6% |
+| Regent | Bankrupt *(curse)* | Every 4 Stars you spend, a random card in your hand becomes Ethereal | 1.9% |
+
+> Character-prefix Share is computed within that character's pool (universal pool + that character's five).
 
 ---
 

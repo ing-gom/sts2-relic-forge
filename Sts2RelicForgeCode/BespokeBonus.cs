@@ -99,14 +99,10 @@ internal static class BespokeBonus
 
     private static string[] LabelsFor(string relicType)
     {
-        string lang = LocManager.Instance?.Language ?? "";
-        bool ko = lang.StartsWith("ko"), zh = lang.StartsWith("zh");
         if (relicType == "LostCoffer")
-            return new[] { ko ? "카드 보상" : zh ? "卡牌奖励" : "Card Reward",
-                           ko ? "포션" : zh ? "药水" : "Potion" };
+            return new[] { ForgeLoc.Ui("BESPOKE_CARD_REWARD"), ForgeLoc.Ui("BESPOKE_POTION") };
         if (relicType == "NeowsTalisman")
-            return new[] { ko ? "강타 강화" : zh ? "打击强化" : "Strike Upgrade",
-                           ko ? "수비 강화" : zh ? "防御强化" : "Defend Upgrade" };
+            return new[] { ForgeLoc.Ui("BESPOKE_STRIKE_UPGRADE"), ForgeLoc.Ui("BESPOKE_DEFEND_UPGRADE") };
         return Array.Empty<string>();
     }
 
@@ -126,11 +122,5 @@ internal static class BespokeBonus
     /// (uncollectable) numbers. Localization-independent gray so it reads as a footnote.
     /// </summary>
     public static string SpentNote()
-    {
-        string lang = LocManager.Instance?.Language ?? "";
-        string text = lang.StartsWith("ko") ? "일회성 효과 · 이미 지급됨"
-                    : lang.StartsWith("zh") ? "一次性效果 · 已发放"
-                    : "One-time effect · already granted";
-        return $"\n[color={SpentMarker}]{text}[/color]";
-    }
+        => $"\n[color={SpentMarker}]{ForgeLoc.Ui("BESPOKE_SPENT")}[/color]";
 }

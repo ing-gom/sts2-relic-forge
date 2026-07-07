@@ -77,8 +77,8 @@ internal sealed partial class NMerchantCleanseButton : Control
         _icon.MouseExited += () => { ScaleWidget(1f); NHoverTipSet.Remove(_icon); };
         AddChild(_icon);
 
-        _tipTitle = Localize("정화", "净化", "Cleanse");
-        _tipBase = Localize("유물에 부여된 저주를 제거합니다.", "移除遗物上的诅咒。", "Remove the relic's curse.");
+        _tipTitle = ForgeLoc.Ui("SHOP_CLEANSE_TITLE");
+        _tipBase = ForgeLoc.Ui("SHOP_CLEANSE_BODY");
         _tipText = _tipBase;
 
         BuildCostDisplay();
@@ -222,14 +222,6 @@ internal sealed partial class NMerchantCleanseButton : Control
         foreach (var c in n.GetChildren()) SetCostText(c, text, color);
     }
 
-    private static string Localize(string ko, string zh, string en)
-    {
-        string lang = LocManager.Instance?.Language ?? "";
-        if (lang.StartsWith("ko")) return ko;
-        if (lang.StartsWith("zh")) return zh;
-        return en;
-    }
-
     private void Refresh()
     {
         int cost = ForgeConfig.ShopCleanseCost;
@@ -246,8 +238,8 @@ internal sealed partial class NMerchantCleanseButton : Control
         // No cursed relic takes priority over the gold reason (nothing to buy → cost is moot).
         _tipText = usable ? _tipBase
             : !hasCursed
-                ? Localize("정화할 저주가 걸린 유물이 없습니다.", "没有可净化诅咒的遗物。", "No cursed relic to cleanse.")
-                : Localize($"골드가 부족합니다. (필요: {cost})", $"金币不足。(需要：{cost})", $"Not enough gold. (need {cost})");
+                ? ForgeLoc.Ui("CLEANSE_NONE")
+                : string.Format(ForgeLoc.Ui("NOT_ENOUGH_GOLD"), cost);
     }
 
     private void OnPressed()

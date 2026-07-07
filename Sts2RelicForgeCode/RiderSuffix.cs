@@ -16,27 +16,12 @@ internal sealed class RiderSuffixDef
     public string PrefixName = "";                 // the EnemyPrefix this grants to enemies (empty for on-hit riders)
     public string EffKo = "", EffEn = "", EffZh = ""; // short "enemies gain X" line
 
-    public string Display
-    {
-        get
-        {
-            string lang = LocManager.Instance?.Language ?? "";
-            if (lang.StartsWith("ko") && Ko.Length > 0) return Ko;
-            if (lang.StartsWith("zh") && Zh.Length > 0) return Zh;
-            return En;
-        }
-    }
+    /// <summary>Stable loc-key base derived from the English name (see <see cref="ForgeLoc"/>).</summary>
+    internal string LocKeyBase => "RIDER_" + ForgeLoc.KeyOf(En);
 
-    public string Effect
-    {
-        get
-        {
-            string lang = LocManager.Instance?.Language ?? "";
-            if (lang.StartsWith("ko") && EffKo.Length > 0) return EffKo;
-            if (lang.StartsWith("zh") && EffZh.Length > 0) return EffZh;
-            return EffEn;
-        }
-    }
+    public string Display => ForgeLoc.Get(LocKeyBase + ".name", En);
+
+    public string Effect => ForgeLoc.Get(LocKeyBase + ".effect", EffEn);
 }
 
 internal static class RiderSuffix

@@ -264,7 +264,7 @@ internal static class RelicForgeService
         //     reforge can prefix even a Starter/Event relic the pickup path would have skipped.
         var runState = player.RunState;
         string? summary = Forge(relic, runState.Rng.Seed, relic.FloorAddedToDeck,
-                                reforgeCount: next, guaranteePrefix: true);
+                                reforgeCount: next, guaranteePrefix: true, character: CharAffix.TitleOf(player));
 
         // (3) If the new prefix is a graft companion, grant it.
         GrantCompanionIfAny(relic, player);
@@ -287,14 +287,15 @@ internal static class RelicForgeService
     /// free reforge on a penalty. It matches what the eventual Reforge produces — both are this same
     /// derivation.
     /// </summary>
-    public static ReforgeOutcome PredictReforgeOutcome(RelicModel relic, uint runSeed, int floor, int reforgeCount)
+    public static ReforgeOutcome PredictReforgeOutcome(RelicModel relic, uint runSeed, int floor, int reforgeCount, string? character = null)
     {
         uint seed = GradeSeed(runSeed, floor, relic.Id.Entry);
         if (reforgeCount > 0)
             seed = SplitMix32(seed + (uint)reforgeCount * 0x9E3779B9u);
         var rng = new Rng(seed);
         rng.NextFloat();                        // gate draw — ignored under guaranteePrefix, kept for rng order
-        Prefix rolled = PrefixTable.Roll(rng);  // the prefix a guaranteed reforge lands
+        string? charTitle = character ?? CharAffix.TitleOf(relic.Owner) ?? CharAffix.LocalTitle();
+        Prefix rolled = PrefixTable.Roll(rng, charTitle);  // the prefix a guaranteed reforge lands
         return rolled.Penalty ? ReforgeOutcome.RolledPenalty : ReforgeOutcome.Reforged;
     }
 
@@ -417,7 +418,7 @@ internal static class RelicForgeService
     /// to re-roll never yields "no prefix"). Returns a log summary or null.
     /// </summary>
     public static string? Forge(RelicModel relic, uint runSeed, int floor, Prefix? forced = null,
-                                int reforgeCount = 0, bool guaranteePrefix = false)
+                                int reforgeCount = 0, bool guaranteePrefix = false, string? character = null)
     {
         if (Records.TryGetValue(relic, out _)) return null; // already processed
 
@@ -459,8 +460,13 @@ internal static class RelicForgeService
         }
         else
         {
+            // Character-gated prefixes only enter the pool for the owning player's character. At
+            // pickup the relic isn't owned yet (relic.Owner is null), so the caller passes the
+            // obtaining player's character explicitly; on load/reforge the owner is set; preview
+            // (offered, unowned) falls back to the local player. Fixed per run → stays deterministic.
+            string? charTitle = character ?? CharAffix.TitleOf(relic.Owner) ?? CharAffix.LocalTitle();
             double gate = rng.NextFloat();
-            Prefix rolled = PrefixTable.Roll(rng);
+            Prefix rolled = PrefixTable.Roll(rng, charTitle);
             // Draw the gate roll unconditionally (fixed rng order) but ignore it when
             // guaranteePrefix is set, so a reforge always lands a prefix.
             prefix = (!guaranteePrefix && gate < HostForgeConfig.NoPrefixChance) ? null : rolled;

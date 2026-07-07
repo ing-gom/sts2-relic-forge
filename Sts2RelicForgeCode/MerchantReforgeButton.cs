@@ -93,10 +93,8 @@ internal sealed partial class NMerchantReforgeButton : Control
         _icon.MouseExited += () => { ScaleWidget(1f); NHoverTipSet.Remove(_icon); };
         AddChild(_icon);
 
-        _tipTitle = Localize("재련", "重铸", "Reforge");
-        _tipBody = Localize("유물을 다시 재련합니다. 같은 상점에서 재련할수록 비용이 오릅니다.",
-                            "重新锻造遗物。同一商店中每次重铸费用递增。",
-                            "Reforge the relic. Each reforge in the same shop costs more.");
+        _tipTitle = ForgeLoc.Ui("SHOP_REFORGE_TITLE");
+        _tipBody = ForgeLoc.Ui("SHOP_REFORGE_BODY");
 
         BuildCostDisplay();
         LayoutChildren();
@@ -247,14 +245,6 @@ internal sealed partial class NMerchantReforgeButton : Control
     {
         if (n is MegaLabel ml) { ml.SetTextAutoSize(text); ml.Modulate = color; }
         foreach (var c in n.GetChildren()) SetCostText(c, text, color);
-    }
-
-    private static string Localize(string ko, string zh, string en)
-    {
-        string lang = LocManager.Instance?.Language ?? "";
-        if (lang.StartsWith("ko")) return ko;
-        if (lang.StartsWith("zh")) return zh;
-        return en;
     }
 
     /// <summary>Build a plain title+body hover tip using the game's own HoverTip (setters are reachable

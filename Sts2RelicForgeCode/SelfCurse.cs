@@ -18,16 +18,11 @@ internal sealed class SelfCurseDef
     public bool OnHitRandom;                        // instead: a random one of Weak / Frail / Vulnerable
     public string EffKo = "", EffEn = "", EffZh = ""; // short "on unblocked hit …" line
 
-    public string Display => Localize(Ko, Zh, En);
-    public string Effect => Localize(EffKo, EffZh, EffEn);
+    /// <summary>Stable loc-key base derived from the English name (see <see cref="ForgeLoc"/>).</summary>
+    internal string LocKeyBase => "SELFCURSE_" + ForgeLoc.KeyOf(En);
 
-    private static string Localize(string ko, string zh, string en)
-    {
-        string lang = LocManager.Instance?.Language ?? "";
-        if (lang.StartsWith("ko") && ko.Length > 0) return ko;
-        if (lang.StartsWith("zh") && zh.Length > 0) return zh;
-        return en;
-    }
+    public string Display => ForgeLoc.Get(LocKeyBase + ".name", En);
+    public string Effect => ForgeLoc.Get(LocKeyBase + ".effect", EffEn);
 }
 
 /// <summary>The self-curse pool (all player-side on-hit penalties) and a uniform deterministic pick.</summary>

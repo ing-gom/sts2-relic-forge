@@ -66,7 +66,7 @@ internal sealed partial class NReforgeRelicPicker : CanvasLayer
         // font size. Fall back to a plain Label if the steal fails; either way it always shows.
         Label banner = StealBannerLabel() is MegaLabel ml ? ml : new Label();
         if (banner is MegaLabel m) m.AutoSizeEnabled = false;
-        banner.Text = Localize("재련할 유물 선택", "选择要重铸的遗物", "Choose a relic to reforge");
+        banner.Text = ForgeLoc.Ui("PICKER_BANNER_REFORGE");
         banner.HorizontalAlignment = HorizontalAlignment.Center;
         banner.AddThemeFontSizeOverride("font_size", 48);
         banner.VerticalAlignment = VerticalAlignment.Center;
@@ -157,7 +157,7 @@ internal sealed partial class NReforgeRelicPicker : CanvasLayer
 
         if (native != null) { row.AddChild(native); return; }
 
-        var skip = new Button { Text = Localize("건너뛰기", "跳过", "Skip") };
+        var skip = new Button { Text = ForgeLoc.Ui("SKIP") };
         skip.AddThemeFontSizeOverride("font_size", 28);
         skip.Pressed += () => Complete(null);
         row.AddChild(skip);
@@ -183,7 +183,7 @@ internal sealed partial class NReforgeRelicPicker : CanvasLayer
 
             if (skip != null)
             {
-                skip._optionName = Localize("건너뛰기", "跳过", "Skip"); // label text, read in its _Ready
+                skip._optionName = ForgeLoc.Ui("SKIP"); // label text, read in its _Ready
                 skip.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => Complete(null)));
             }
             return skip;
@@ -247,11 +247,4 @@ internal sealed partial class NReforgeRelicPicker : CanvasLayer
         QueueFree();
     }
 
-    private static string Localize(string ko, string zh, string en)
-    {
-        string lang = LocManager.Instance?.Language ?? "";
-        if (lang.StartsWith("ko")) return ko;
-        if (lang.StartsWith("zh")) return zh;
-        return en;
-    }
 }

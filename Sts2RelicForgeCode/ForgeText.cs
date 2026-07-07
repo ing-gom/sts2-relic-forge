@@ -26,10 +26,7 @@ internal static class ForgeText
         bool self = rec.SelfCurse.Length > 0;
         if (!rider && !self) return "";
         // Just a simple "curse" mark on the name — the exact effect(s) are in the tooltip lines.
-        string lang = LocManager.Instance?.Language ?? "";
-        if (lang.StartsWith("ko")) return " 〈저주〉";
-        if (lang.StartsWith("zh")) return " 〈诅咒〉";
-        return " (Cursed)";
+        return " " + ForgeLoc.Ui("CURSED_MARK");
     }
 
     /// <summary>

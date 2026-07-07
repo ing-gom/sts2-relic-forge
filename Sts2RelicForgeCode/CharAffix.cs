@@ -1,0 +1,482 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.GameActions.Multiplayer;
+using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Models.Cards;
+using MegaCrit.Sts2.Core.Models.Orbs;
+using MegaCrit.Sts2.Core.Models.Powers;
+using MegaCrit.Sts2.Core.Random;
+using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.ValueProps;
+
+namespace Sts2RelicForge;
+
+/// <summary>
+/// Engine for the CHARACTER-GATED prefix family (see PrefixTable's CharAffix block + CharAffixPatches).
+/// Each prefix rolls only when the owner plays a specific character (RequiredCharacter) and reacts to
+/// that character's signature mechanic:
+///   Silent      — Envenomed (poison +1), Flurrying (shiv on shiv), Cycling (draw on discard), Toxic (self-poison)
+///   Defect      — Focused (first focus +1), Amplified (bonus channel), Supercharged (focus while full), Shorted (focus -1)
+///   Necrobinder — Necromantic (block on summon), Dooming (doom +1), Bonebound (summon each turn), Sacrificial (self-debuff)
+///   Regent      — Starlit (star each turn), Reforging (star on forge), Regal (star refund), Bankrupt (spend cost)
+///
+/// The Harmony patches in <see cref="CharAffixPatches"/> ride the game's per-event Hooks and call the
+/// handlers here. Every mutation routes through a networked/deterministic command (PowerCmd / OrbCmd /
+/// OstyCmd / CreatureCmd / CardPileCmd / PlayerCmd) — the same idiom the reactive/combat affixes already
+/// rely on for co-op consistency. Random decisions are drawn from a seed-deterministic Rng (runSeed +
+/// turn + relic + per-turn occurrence) so every client agrees without extra sync, exactly like
+/// <see cref="ForgeCombatAffixPatch"/>.
+/// </summary>
+internal static class CharAffix
+{
+    /// <summary>Master gate for the whole character-affix family (mirrors ReactiveAffix.Enabled).</summary>
+    internal static readonly bool Enabled = true;
+
+    // ---- Character identity ----
+
+    /// <summary>The owning player's CharacterModel Id.Entry (e.g. "SILENT"), or null if unavailable.
+    /// Used both for the roll gate and — implicitly — at fire time (a char prefix only exists on a
+    /// relic the matching character owns, so no extra fire-time character check is needed).</summary>
+    public static string? TitleOf(Player? player)
+    {
+        try { return player?.Character?.Id.Entry; }
+        catch { return null; }
+    }
+
+    /// <summary>The LOCAL player's character title, for forge PREVIEW of an unowned (offered) relic —
+    /// the previewer is the one who will obtain it, so their character is the right pool. Single-player
+    /// has exactly one player; in co-op the actual obtain re-derives per owner, so a preview mismatch
+    /// (rare) self-corrects on pickup.</summary>
+    public static string? LocalTitle()
+    {
+        try
+        {
+            var players = RunManager.Instance?.State?.Players;
+            return players != null && players.Count > 0 ? TitleOf(players[0]) : null;
+        }
+        catch { return null; }
+    }
+
+    // ---- Per-turn / per-combat state ----
+
+    // Per-relic [turn, occurrence] so deterministic rolls vary within a turn yet reproduce on all
+    // clients. Reset lazily when the turn changes.
+    private static readonly ConditionalWeakTable<RelicModel, int[]> Occ = new();
+
+    // 집속의 / Focused: per-relic [combatEpoch, used] — grant once per combat. Supercharged: per-relic
+    // [granted]. Sacrificial: per-relic [lastFiredTurn]. All lazily reset against the epoch/turn.
+    private static readonly ConditionalWeakTable<RelicModel, int[]> FocusOnce = new();
+    private static readonly ConditionalWeakTable<RelicModel, int[]> Charged = new();
+    private static readonly ConditionalWeakTable<RelicModel, int[]> SacTurn = new();
+
+    // 양극의 / Polarized: per-relic [epochWhenArmed] — armed at turn end (queue all-empty / all-full),
+    // consumed at the next turn start. Keyed on the combat epoch so a flag armed on a combat's final
+    // turn can never leak into the next combat's turn 1.
+    private static readonly ConditionalWeakTable<RelicModel, int[]> PolarizedArmed = new();
+
+    // 파산한 / Bankrupt: per-relic [epoch, accumulatedStarsSpent] — the debt meter. Resets per combat.
+    private static readonly ConditionalWeakTable<RelicModel, int[]> BankruptDebt = new();
+
+    // RelicModel.InvokeDisplayAmountChanged is protected — the relic icon's amount label redraws off
+    // that event, so we raise it via reflection whenever the debt meter moves (counter overlay in
+    // CompanionCounterPatch reads BankruptRemaining).
+    private static readonly System.Reflection.MethodInfo? InvokeDisplayChanged =
+        typeof(RelicModel).GetMethod("InvokeDisplayAmountChanged",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+    private static void NotifyCounter(RelicModel relic)
+    {
+        try { InvokeDisplayChanged?.Invoke(relic, null); } catch { /* display only */ }
+    }
+
+    /// <summary>Stars still to spend before Bankrupt's next trigger on this relic, or -1 when the
+    /// relic doesn't carry the Bankrupt prefix. Outside combat (or before the first spend of a
+    /// combat) this reads as the full threshold — the meter always starts full.</summary>
+    public static int BankruptRemaining(RelicModel relic, string prefix)
+    {
+        if (!string.Equals(prefix, "Bankrupt", StringComparison.Ordinal)) return -1;
+        var debt = BankruptDebt.GetValue(relic, _ => new int[2]);
+        if (debt[0] != _combatEpoch) return BankruptStarsPerTrigger;
+        return BankruptStarsPerTrigger - debt[1];
+    }
+
+    // Bumped once per combat (BeforeCombatStart) so 집속의 resets and Supercharged clears its grant.
+    private static int _combatEpoch;
+
+    // 증폭의 echo suppressor: the extra orb we channel raises AfterOrbChanneled again; swallow that one
+    // echo so a single channel yields at most one bonus. Reset each turn (mirrors ReactiveAffix).
+    private static int _suppressChannel;
+
+    // Depth of OrbCmd.Channel calls in flight (see ChannelBracketPatch). Channeling into a FULL queue
+    // auto-evokes the oldest orb FIRST and enqueues the new one after (decompile-verified), so the
+    // evoke hook sees a transiently non-full queue mid-channel. Reconcile skips those transients; the
+    // bracket patch reconciles once when the channel op settles. Nest-safe for Amplified's bonus
+    // channel — only the outermost completion (depth back to 0) reconciles.
+    private static int _channelDepth;
+
+    /// <summary>OrbCmd.Channel entered (bracket patch prefix).</summary>
+    public static void BeginChannel()
+    {
+        _channelDepth++;
+    }
+
+    /// <summary>OrbCmd.Channel settled (bracket patch, after the wrapped task completes).</summary>
+    public static void EndChannel()
+    {
+        if (_channelDepth > 0) _channelDepth--;
+    }
+
+    /// <summary>New-combat reset (Hook.BeforeCombatStart): bump the epoch so per-combat state re-arms.</summary>
+    public static void OnCombatStart() { _combatEpoch++; _suppressChannel = 0; _channelDepth = 0; }
+
+    /// <summary>Per-turn reset (Hook.AfterPlayerTurnStart): clear the channel echo suppressor.</summary>
+    public static void ResetTurn() { _suppressChannel = 0; }
+
+    private static int TurnOf(Player p) => p.PlayerCombatState?.TurnNumber ?? 0;
+
+    /// <summary>Deterministic float in [0,1) for a per-(relic,turn) occurrence — same on every client.</summary>
+    internal static float Roll(Player player, RelicModel relic, int turn)
+    {
+        var box = Occ.GetValue(relic, _ => new int[2]);
+        if (box[0] != turn) { box[0] = turn; box[1] = 0; }
+        int occ = box[1]++;
+        uint seed = player.RunState.Rng.Seed;
+        var rng = new Rng((uint)((int)seed + turn * 24107 + StringHelper.GetDeterministicHashCode(relic.Id.Entry) + occ * 6151));
+        return rng.NextFloat();
+    }
+
+    /// <summary>Owned, forged relics of <paramref name="player"/> whose rolled prefix name matches.</summary>
+    internal static IEnumerable<RelicModel> Owned(Player player, string prefixName)
+    {
+        foreach (var relic in new List<RelicModel>(player.Relics))
+        {
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec != null && string.Equals(rec.Prefix, prefixName, StringComparison.Ordinal))
+                yield return relic;
+        }
+    }
+
+    private static void Fire(RelicModel relic, Task effect)
+    {
+        relic.Flash();
+        TaskHelper.RunSafely(effect);
+    }
+
+    // ============================ Silent ============================
+
+    /// <summary>Envenomed — the player applied Poison to an enemy; 50% chance to apply 1 more. The +1
+    /// is applied with the enemy as its own applier (the StripOne trick), so it does NOT read as a
+    /// player-applied poison and never re-triggers this handler — no echo counter needed.</summary>
+    public static void OnPoisonApplied(PlayerChoiceContext ctx, Player player, Creature enemy)
+    {
+        if (!Enabled) return;
+        int turn = TurnOf(player);
+        foreach (var relic in Owned(player, "Envenomed"))
+            if (Roll(player, relic, turn) < 0.5f)
+                Fire(relic, PowerCmd.Apply<PoisonPower>(ctx, enemy, 1m, enemy, null));
+    }
+
+    /// <summary>Flurrying — the player played a Shiv; 25% chance to add a Shiv to hand.</summary>
+    public static void OnShivPlayed(Player player, ICombatStateAccess cs)
+    {
+        if (!Enabled) return;
+        int turn = TurnOf(player);
+        foreach (var relic in Owned(player, "Flurrying"))
+            if (Roll(player, relic, turn) < 0.25f)
+                Fire(relic, CardPileCmd.Add(cs.CreateShiv(player), PileType.Hand));
+    }
+
+    /// <summary>Dulled (curse) — poison the player's side applies to an enemy cannot push that enemy's
+    /// poison above this cap. Clamped pre-application (ModifyPowerAmountReceived), so downstream
+    /// handlers see the clamped amount. Note: Envenomed's echo-safe +1 rides applier=enemy and thus
+    /// slips past the player-attribution check — a deliberate crack in the cap, not a bug.</summary>
+    // 6 = the boundary that lets the bread-and-butter singles land whole (Poisoned Stab 3 / Haze 4 /
+    // Deadly Poison 5) while clipping the big hits and all stacking (Snakebite 7, Bubble Bubble 9,
+    // Bouncing Flask 3x3, Catalyst-style scaling) — measured against the current card pool.
+    public const int DulledPoisonCap = 6;
+
+    /// <summary>Clamp a positive enemy-bound poison application for Dulled. Returns the (possibly
+    /// reduced, floor 0) amount; unchanged when the applying player doesn't carry the curse.</summary>
+    public static decimal ClampPoisonForDulled(Creature? giver, Creature target, decimal amount)
+    {
+        if (!Enabled || amount <= 0m || target.Side != CombatSide.Enemy) return amount;
+        Player? applier = giver?.Player ?? giver?.PetOwner;
+        if (applier == null) return amount;
+        bool cursed = false;
+        foreach (var _ in Owned(applier, "Dulled")) { cursed = true; break; }
+        if (!cursed) return amount;
+        decimal current = target.GetPower<PoisonPower>()?.Amount ?? 0;
+        decimal allowed = Math.Max(0m, DulledPoisonCap - current);
+        return Math.Min(amount, allowed);
+    }
+
+    /// <summary>Levied (curse) — true if the player carries the star-cost-increase curse.</summary>
+    public static bool HasLevied(Player player)
+    {
+        foreach (var _ in Owned(player, "Levied")) return true;
+        return false;
+    }
+
+    /// <summary>Cycling — the player discarded a card; draw one. Draw is a no-op when both draw and
+    /// discard piles are empty, so there is no mill/loop risk (discarding a card doesn't draw-then-
+    /// discard).</summary>
+    public static void OnCardDiscarded(PlayerChoiceContext ctx, Player player)
+    {
+        if (!Enabled) return;
+        foreach (var relic in Owned(player, "Cycling"))
+            Fire(relic, CardPileCmd.Draw(ctx, 1m, player));
+    }
+
+    // ============================ Defect ============================
+
+    /// <summary>Focused — the player gained Focus from ANY source; the first gain each combat grants
+    /// +1 more. Source-agnostic on purpose: Supercharged's full-slots grant COUNTS (the two prefixes
+    /// synergize — verified as the expected behavior in play testing), and no loop is possible — the
+    /// echo of Focused's own +1 is blocked by the per-combat once-flag below, and every negative
+    /// (Shorted, Supercharged's revoke) is filtered by the amount &gt; 0 gate in the dispatch patch.</summary>
+    public static void OnFocusGained(PlayerChoiceContext ctx, Player player)
+    {
+        if (!Enabled) return;
+        int turn = TurnOf(player);
+        foreach (var relic in Owned(player, "Focused"))
+        {
+            var box = FocusOnce.GetValue(relic, _ => new int[2]);
+            if (box[0] != _combatEpoch) { box[0] = _combatEpoch; box[1] = 0; }
+            if (box[1] != 0) continue;
+            box[1] = 1;
+            Fire(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, 1m, player.Creature, null));
+        }
+    }
+
+    /// <summary>Amplified — the player channeled an orb; 25% chance to channel a random orb. The bonus
+    /// channel is echo-suppressed so it can't cascade.</summary>
+    public static void OnOrbChanneled(PlayerChoiceContext ctx, Player player)
+    {
+        if (!Enabled) return;
+        if (_suppressChannel > 0) { _suppressChannel--; }   // swallow the echo of our own bonus channel
+        else
+        {
+            int turn = TurnOf(player);
+            foreach (var relic in Owned(player, "Amplified"))
+                if (Roll(player, relic, turn) < 0.25f)
+                {
+                    relic.Flash();
+                    _suppressChannel++;
+                    TaskHelper.RunSafely(ChannelRandom(ctx, player, Roll(player, relic, turn)));
+                }
+        }
+        Reconcile(ctx, player);   // channeling may have filled the slots — refresh Supercharged
+    }
+
+    /// <summary>Polarized (curse) — at each player's turn end (Hook.BeforeFlush), arm the penalty if
+    /// the orb slots are ALL empty or ALL full; the next turn start consumes it (-1 Energy). Capacity
+    /// 0 (no slots at all) never arms — there is no orb state to manage.</summary>
+    public static void OnTurnEndOrbCheck(Player player)
+    {
+        if (!Enabled) return;
+        var q = player.PlayerCombatState?.OrbQueue;
+        if (q == null || q.Capacity <= 0) return;
+        bool allEmpty = q.Orbs.Count == 0;
+        bool allFull = q.Orbs.Count >= q.Capacity;
+        if (!allEmpty && !allFull) return;
+        foreach (var relic in Owned(player, "Polarized"))
+        {
+            PolarizedArmed.GetValue(relic, _ => new int[1])[0] = _combatEpoch;
+        }
+    }
+
+    /// <summary>Polarized — turn start: consume an armed flag from THIS combat's previous turn end.
+    /// Runs after the turn's energy refill, so LoseEnergy lands as a net -1.</summary>
+    public static void OnTurnPolarized(Player player, RelicModel relic)
+    {
+        var box = PolarizedArmed.GetValue(relic, _ => new int[1]);
+        if (box[0] != _combatEpoch) return;
+        box[0] = 0;
+        Fire(relic, PlayerCmd.LoseEnergy(1m, player));
+    }
+
+    /// <summary>Channel one of the four core orbs, chosen by a deterministic roll.</summary>
+    private static Task ChannelRandom(PlayerChoiceContext ctx, Player player, float roll)
+    {
+        int pick = (int)(roll * 4);
+        return pick switch
+        {
+            0 => OrbCmd.Channel<LightningOrb>(ctx, player),
+            1 => OrbCmd.Channel<FrostOrb>(ctx, player),
+            2 => OrbCmd.Channel<DarkOrb>(ctx, player),
+            _ => OrbCmd.Channel<PlasmaOrb>(ctx, player),
+        };
+    }
+
+    /// <summary>Supercharged — reconcile the +1 Focus that applies WHILE the orb slots are full. Called
+    /// on channel / evoke / turn start (any slot-count change). Tracks a per-relic granted flag and
+    /// applies/removes exactly one Focus on the full↔not-full transition. Skips while an OrbCmd.Channel
+    /// is in flight — channeling into a full queue evokes-then-enqueues, and reacting to that transient
+    /// "not full" would flicker the Focus off and back on; the bracket patch reconciles once after the
+    /// channel settles instead.</summary>
+    public static void Reconcile(PlayerChoiceContext ctx, Player player)
+    {
+        if (!Enabled || player.Creature == null) return;
+        if (_channelDepth > 0)
+        {
+            return;
+        }
+        var q = player.PlayerCombatState?.OrbQueue;
+        if (q == null) return;
+        bool full = q.Capacity > 0 && q.Orbs.Count >= q.Capacity;
+        foreach (var relic in Owned(player, "Supercharged"))
+        {
+            var box = Charged.GetValue(relic, _ => new int[1]);
+            if (box[0] != 0 && box[0] != _combatEpoch) box[0] = 0;   // new combat -> clear stale grant
+            bool granted = box[0] == _combatEpoch;
+            if (full && !granted)
+            {
+                box[0] = _combatEpoch;
+                Fire(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, 1m, player.Creature, null));
+            }
+            else if (!full && granted)
+            {
+                box[0] = 0;
+                Fire(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, -1m, player.Creature, null));
+            }
+        }
+    }
+
+    // ============================ Necrobinder ============================
+
+    /// <summary>Necromantic — the player summoned (grew Osty); gain 3 Block.</summary>
+    public static void OnSummon(PlayerChoiceContext ctx, Player player)
+    {
+        if (!Enabled || player.Creature == null) return;
+        foreach (var relic in Owned(player, "Necromantic"))
+            Fire(relic, CreatureCmd.GainBlock(player.Creature, 3m, ValueProp.Unpowered, null));
+    }
+
+    /// <summary>Dooming — the player applied Doom to an enemy; apply 1 more (enemy as its own applier,
+    /// so no echo — same trick as Envenomed).</summary>
+    public static void OnDoomApplied(PlayerChoiceContext ctx, Player player, Creature enemy)
+    {
+        if (!Enabled) return;
+        foreach (var relic in Owned(player, "Dooming"))
+            Fire(relic, PowerCmd.Apply<DoomPower>(ctx, enemy, 1m, enemy, null));
+    }
+
+    /// <summary>Bonebound — per turn, Summon 1 (grows Osty). Fires from the turn-start patch.</summary>
+    public static void OnTurnBonebound(PlayerChoiceContext ctx, Player player, RelicModel relic)
+        => Fire(relic, OstyCmd.Summon(ctx, player, 1m, relic));
+
+    /// <summary>Doombound (curse) — per turn, 1 Doom to YOURSELF. Fires from the turn-start patch.
+    /// Echo-safe: the Dooming handler only reacts to doom on ENEMY-side owners.</summary>
+    public static void OnTurnDoombound(PlayerChoiceContext ctx, Player player, RelicModel relic)
+        => Fire(relic, PowerCmd.Apply<DoomPower>(ctx, player.Creature, 1m, player.Creature, null));
+
+    /// <summary>Sacrificial (curse) — your summon took unblocked damage; apply Weak / Frail /
+    /// Vulnerable 1 to YOURSELF, once per turn per relic. A LETHAL hit (the summon died) applies 2
+    /// and bypasses the once-per-turn gate — the death is a distinct, bigger event than the chip
+    /// hit that may already have fired this turn.</summary>
+    public static void OnSummonDamaged(PlayerChoiceContext ctx, Player owner, bool lethal = false)
+    {
+        if (!Enabled || owner.Creature == null) return;
+        int turn = TurnOf(owner);
+        decimal stacks = lethal ? 2m : 1m;
+        foreach (var relic in Owned(owner, "Sacrificial"))
+        {
+            var box = SacTurn.GetValue(relic, _ => new int[1] { -1 });
+            if (!lethal && box[0] == turn) continue;   // once per turn (death fires regardless)
+            box[0] = turn;
+            int pick = (int)(Roll(owner, relic, turn) * 3);
+            Task t = pick switch
+            {
+                0 => PowerCmd.Apply<WeakPower>(ctx, owner.Creature, stacks, owner.Creature, null),
+                1 => PowerCmd.Apply<FrailPower>(ctx, owner.Creature, stacks, owner.Creature, null),
+                _ => PowerCmd.Apply<VulnerablePower>(ctx, owner.Creature, stacks, owner.Creature, null),
+            };
+            Fire(relic, t);
+        }
+    }
+
+    // ============================ Regent ============================
+
+    /// <summary>Starlit — per turn, gain 1 Star. Fires from the turn-start patch.</summary>
+    public static void OnTurnStarlit(Player player, RelicModel relic)
+        => Fire(relic, PlayerCmd.GainStars(1m, player));
+
+    /// <summary>Reforging — the player forged a card in combat; gain 1 Star.</summary>
+    public static void OnForge(Player player)
+    {
+        if (!Enabled) return;
+        foreach (var relic in Owned(player, "Reforging"))
+            Fire(relic, PlayerCmd.GainStars(1m, player));
+    }
+
+    /// <summary>Every 4th Star spent evaporates an asset (Bankrupt's debt meter, below).</summary>
+    public const int BankruptStarsPerTrigger = 4;
+
+    /// <summary>Regal (refund) + Bankrupt (curse) both trigger on spending Stars. LoseStars/GainStars
+    /// do NOT re-fire AfterStarsSpent (verified), so there is no echo. Bankrupt is a deterministic
+    /// DEBT METER: every <see cref="BankruptStarsPerTrigger"/> Stars spent this combat, a random
+    /// non-Ethereal card in hand becomes Ethereal (CardCmd.ApplyKeyword — the GhostSeed idiom, UI
+    /// refresh included) — play it this turn or watch the asset evaporate. No eligible card in hand
+    /// = that trigger fizzles (the debt is still paid).</summary>
+    public static void OnStarsSpent(Player player, ICombatStateAccess cs, int amount)
+    {
+        if (!Enabled) return;
+        int turn = TurnOf(player);
+
+        foreach (var relic in Owned(player, "Regal"))
+            if (Roll(player, relic, turn) < 0.5f)
+            {
+                Fire(relic, PlayerCmd.GainStars(1m, player));
+            }
+
+        if (amount <= 0) return;
+        foreach (var relic in Owned(player, "Bankrupt"))
+        {
+            var debt = BankruptDebt.GetValue(relic, _ => new int[2]);
+            if (debt[0] != _combatEpoch) { debt[0] = _combatEpoch; debt[1] = 0; }
+            debt[1] += amount;
+            while (debt[1] >= BankruptStarsPerTrigger)
+            {
+                debt[1] -= BankruptStarsPerTrigger;
+                var hand = PileType.Hand.GetPile(player).Cards;
+                var eligible = new List<CardModel>();
+                foreach (var c in hand)
+                    if (!c.Keywords.Contains(CardKeyword.Ethereal)) eligible.Add(c);
+                if (eligible.Count == 0)
+                {
+                    continue;
+                }
+                int pick = (int)(Roll(player, relic, turn) * eligible.Count);
+                if (pick >= eligible.Count) pick = eligible.Count - 1;
+                var card = eligible[pick];
+                relic.Flash();
+                CardCmd.ApplyKeyword(card, CardKeyword.Ethereal);
+            }
+            NotifyCounter(relic);   // redraw the icon's countdown with the settled remainder
+        }
+    }
+
+    // ---- Combat-start curses (fired from the turn-start patch on turn 1) ----
+
+    public static void OnCombatStartToxic(PlayerChoiceContext ctx, Player player, RelicModel relic)
+        => Fire(relic, PowerCmd.Apply<PoisonPower>(ctx, player.Creature, 3m, player.Creature, null));
+
+    public static void OnCombatStartShorted(PlayerChoiceContext ctx, Player player, RelicModel relic)
+        => Fire(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, -2m, player.Creature, null));
+}
+
+/// <summary>Tiny seam over ICombatState's generic CreateCard so the engine can build a Shiv without
+/// the patch layer leaking the combat-state type everywhere. Implemented inline by the patches
+/// (which hold the live ICombatState).</summary>
+internal interface ICombatStateAccess
+{
+    CardModel CreateShiv(Player player);
+}

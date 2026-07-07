@@ -58,16 +58,8 @@ internal sealed class EnemyPrefix
     public HpScope Scope = HpScope.EliteBoss;  // which fights an HP effect on this prefix reaches
     public EnemyEffect[] Effects = Array.Empty<EnemyEffect>();
 
-    public string Display
-    {
-        get
-        {
-            string lang = LocManager.Instance?.Language ?? "";
-            if (lang.StartsWith("ko") && Ko.Length > 0) return Ko;
-            if (lang.StartsWith("zh") && Zh.Length > 0) return Zh;
-            return Name;
-        }
-    }
+    /// <summary>Name in the game's current language via the relic_forge loc table (see <see cref="ForgeLoc"/>).</summary>
+    public string Display => ForgeLoc.Get("ENEMYPREFIX_" + ForgeLoc.KeyOf(Name) + ".name", Name);
 }
 
 /// <summary>The visible decoration stored on a forged enemy (prefix name + tint) for the nameplate.</summary>

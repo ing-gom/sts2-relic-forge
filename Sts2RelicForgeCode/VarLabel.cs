@@ -22,8 +22,9 @@ internal static class VarLabel
 
     private static readonly HashSet<string> KeywordLoc = new() { "Block", "Energy", "Forge" };
 
-    // (en, ko, zh) for terms the game has no standalone loc key for.
-    private static readonly Dictionary<string, (string en, string ko, string zh)> Manual = new()
+    // (en, ko, zh) for terms the game has no standalone loc key for. Internal so ForgeLoc can
+    // mirror these into the relic_forge loc table (keys VAR_<name>) for external translation.
+    internal static readonly Dictionary<string, (string en, string ko, string zh)> Manual = new()
     {
         ["Cards"] = ("Cards", "카드", "卡牌"),
         ["BlockNextTurn"] = ("Next-turn Block", "다음 턴 방어도", "下回合格挡"),
@@ -82,12 +83,7 @@ internal static class VarLabel
             if (s != null) return s;
         }
         if (Manual.TryGetValue(varName, out var t))
-        {
-            string lang = LocManager.Instance?.Language ?? "";
-            if (lang.StartsWith("ko")) return t.ko;
-            if (lang.StartsWith("zh")) return t.zh;
-            return t.en;
-        }
+            return ForgeLoc.Get("VAR_" + varName, t.en);   // relic_forge table (translatable), en fallback
         return Trim(varName);
     }
 

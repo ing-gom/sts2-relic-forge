@@ -24,7 +24,10 @@ internal static class RelicObtainPatch
         try
         {
             var runState = player.RunState;
-            string? summary = RelicForgeService.Forge(relic, runState.Rng.Seed, runState.TotalFloor);
+            // Pass the obtaining player's character explicitly — the relic isn't added yet, so
+            // relic.Owner is still null and the roll can't derive the character on its own.
+            string? summary = RelicForgeService.Forge(relic, runState.Rng.Seed, runState.TotalFloor,
+                                                      character: CharAffix.TitleOf(player));
             if (summary != null)
                 MainFile.Logger.Info($"[{MainFile.ModId}] forged {summary}");
             // If this relic rolled a companion prefix, graft the hidden donor relic now (we

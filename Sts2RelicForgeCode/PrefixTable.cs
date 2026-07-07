@@ -76,27 +76,31 @@ internal sealed class Prefix
     // penalty. Ignored on penalty prefixes (which never carry a rider).
     public bool AlwaysCurse;
 
+    // --- Character-gated behavioral affix (see CharAffix / CharAffixPatches). Only rolls when the
+    //     owning player plays RequiredCharacter, and reacts to that character's signature mechanic
+    //     (poison / orbs / summons / stars …). Grafts nothing and scales no host var, so it's a
+    //     companion-family prefix; dispatched by Name in the patches. RequiredCharacter is a
+    //     CharacterModel Id.Entry (e.g. "SILENT"); "" = universal (every legacy prefix). ---
+    public string RequiredCharacter = "";
+    public bool CharAffix;
+
     /// <summary>True for any companion-family prefix (grafts a relic, delays/strips an effect,
-    /// applies a symmetric/random effect, is a penalty, or is a reactive affix) — none of these
-    /// scale the host's vars.</summary>
+    /// applies a symmetric/random effect, is a penalty, or is a reactive/character affix) — none of
+    /// these scale the host's vars.</summary>
     public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0 || Penalty
                                      || EnemyStrip || SymPower.Length > 0 || RandomDebuff
                                      || GainAmplify || LossInvert || EnergyDischarge > 0
-                                     || CurseDrawStrength || GoldStrengthPer > 0;
+                                     || CurseDrawStrength || GoldStrengthPer > 0 || CharAffix;
 
-    /// <summary>Name in the game's current language (ko / zh_Hans), else English.</summary>
-    public string Display => Localize(Ko, Zh, Name);
+    /// <summary>Stable loc-key base derived from the English name (see <see cref="ForgeLoc"/>).</summary>
+    internal string LocKeyBase => "PREFIX_" + ForgeLoc.KeyOf(Name);
+
+    /// <summary>Name in the game's current language, via the relic_forge loc table (external
+    /// translations honored); English fallback.</summary>
+    public string Display => ForgeLoc.Get(LocKeyBase + ".name", Name);
 
     /// <summary>Grafted-effect note in the current language (companion prefixes only).</summary>
-    public string NoteDisplay => Localize(NoteKo, NoteZh, NoteEn);
-
-    private static string Localize(string ko, string zh, string en)
-    {
-        string lang = LocManager.Instance?.Language ?? "";
-        if (lang.StartsWith("ko") && ko.Length > 0) return ko;
-        if (lang.StartsWith("zh") && zh.Length > 0) return zh;
-        return en;
-    }
+    public string NoteDisplay => ForgeLoc.Get(LocKeyBase + ".note", NoteEn);
 }
 
 /// <summary>
@@ -207,6 +211,16 @@ internal static class PrefixTable
         new Prefix { Name = "Overloaded", Ko = "과부하", Zh = "超载的", Weight = 6, Penalty = true, Color = "#a0605a",
             NoteKo = "한 턴에 카드 6장 사용 시 자신에게 취약 1", NoteEn = "Vulnerable 1 to self after 6 cards in one turn", NoteZh = "一回合内打出6张牌后给予自己1易伤" },
 
+        // --- Keyword family (grants/inflicts card keywords via the game's own systems) ---
+        new Prefix { Name = "Retaining", Ko = "보존의", Zh = "留存的", Weight = 6, Color = "#6ec0d9",
+            NoteKo = "턴 종료 시 손에 든 무작위 카드 1장을 보존한다",
+            NoteEn = "At the end of your turn, Retain a random card in your hand",
+            NoteZh = "回合结束时，随机保留1张手牌" },
+        new Prefix { Name = "Searing", Ko = "불사르는", Zh = "灼焚的", Weight = 6, Penalty = true, Color = "#c0704d",
+            NoteKo = "카드를 낼 때 25% 확률로 그 카드에 소멸이 부여된다 (다음 사용부터 적용)",
+            NoteEn = "When you play a card, 25% chance it gains Exhaust (takes effect from its next play)",
+            NoteZh = "打出卡牌时，25%概率使其获得消耗（下次打出时生效）" },
+
         // --- Card-insertion penalties: shove a status card into a combat pile (see PenaltyCompanionPatch) ---
         new Prefix { Name = "Tainted", Ko = "오염된", Zh = "污秽的", Weight = 5, Penalty = true, Color = "#7a8a5a",
             NoteKo = "매 턴 뽑을 더미에 현기증 1장", NoteEn = "Adds a Dazed to your draw pile each turn", NoteZh = "每回合将1张眩晕加入抽牌堆" },
@@ -269,6 +283,98 @@ internal static class PrefixTable
             NoteKo = "전투 시작 시 덱의 카드 1장당 골드 1 손실",
             NoteEn = "At combat start, lose 1 gold per card in your deck",
             NoteZh = "战斗开始时，每有1张牌失去1金币" },
+
+        // ============================ Character-gated affixes ============================
+        // Each rolls ONLY when the owner plays the named character (CharAffix + RequiredCharacter),
+        // and reacts to that character's signature mechanic. See CharAffix / CharAffixPatches.
+
+        // --- Silent (poison / shivs / discard) ---
+        new Prefix { Name = "Envenomed", Ko = "맹독의", Zh = "剧毒的", Weight = 8, CharAffix = true, RequiredCharacter = "SILENT", Color = "#6ee07a",
+            NoteKo = "적에게 중독을 부여할 때 50% 확률로 중독 1 추가",
+            NoteEn = "When you apply Poison to an enemy, 50% chance to apply 1 more",
+            NoteZh = "对敌人施加中毒时，50%概率额外施加1层" },
+        new Prefix { Name = "Flurrying", Ko = "비수의", Zh = "飞刀的", Weight = 7, CharAffix = true, RequiredCharacter = "SILENT", Color = "#c0c8d8",
+            NoteKo = "시브를 낼 때 25% 확률로 시브 1장을 손에 넣는다",
+            NoteEn = "When you play a Shiv, 25% chance to add a Shiv to your hand",
+            NoteZh = "打出小刀时，25%概率将1张小刀加入手牌" },
+        new Prefix { Name = "Cycling", Ko = "순환의", Zh = "循环的", Weight = 5, CharAffix = true, RequiredCharacter = "SILENT", Color = "#ffd23f",
+            NoteKo = "카드를 버릴 때 카드 1장을 뽑는다",
+            NoteEn = "When you discard a card, draw a card",
+            NoteZh = "弃牌时，抓1张牌" },
+        new Prefix { Name = "Toxic", Ko = "자멸의", Zh = "自毒的", Weight = 7, CharAffix = true, Penalty = true, RequiredCharacter = "SILENT", Color = "#7a8a5a",
+            NoteKo = "전투 시작 시 자신에게 중독 3",
+            NoteEn = "Poison 3 to yourself at combat start",
+            NoteZh = "战斗开始时，给予自己3层中毒" },
+        new Prefix { Name = "Dulled", Ko = "무뎌진", Zh = "钝毒的", Weight = 7, CharAffix = true, Penalty = true, RequiredCharacter = "SILENT", Color = "#5a7a6a",
+            NoteKo = "내가 부여하는 중독으로는 적의 중독이 6을 초과해 쌓이지 않는다",
+            NoteEn = "Poison you apply cannot stack an enemy above 6 Poison",
+            NoteZh = "你施加的中毒无法使敌人的中毒层数超过6" },
+
+        // --- Defect (orbs / focus) ---
+        new Prefix { Name = "Focused", Ko = "집속의", Zh = "集束的", Weight = 7, CharAffix = true, RequiredCharacter = "DEFECT", Color = "#4db8ff",
+            NoteKo = "전투 중 처음으로 밀집을 얻을 때 밀집 1 추가",
+            NoteEn = "The first time you gain Focus in combat, gain 1 more Focus",
+            NoteZh = "战斗中首次获得集中时，额外获得1点集中" },
+        new Prefix { Name = "Amplified", Ko = "증폭의", Zh = "增幅的", Weight = 6, CharAffix = true, RequiredCharacter = "DEFECT", Color = "#c04dff",
+            NoteKo = "오브를 소환할 때 25% 확률로 무작위 오브 1개를 추가 소환",
+            NoteEn = "When you Channel an orb, 25% chance to Channel a random orb",
+            NoteZh = "引导充能球时，25%概率额外引导1个随机充能球" },
+        new Prefix { Name = "Supercharged", Ko = "과충전의", Zh = "过载的", Weight = 6, CharAffix = true, RequiredCharacter = "DEFECT", Color = "#ffd23f",
+            NoteKo = "오브 슬롯이 가득 찼을 때 밀집 1을 얻는다 (슬롯이 차지 않으면 잃는다)",
+            NoteEn = "While your orb slots are full, gain 1 Focus (lost while not full)",
+            NoteZh = "充能球槽位填满时，获得1点集中（未填满则失去）" },
+        new Prefix { Name = "Shorted", Ko = "누전의", Zh = "短路的", Weight = 7, CharAffix = true, Penalty = true, RequiredCharacter = "DEFECT", Color = "#6a5a8a",
+            NoteKo = "전투 시작 시 밀집 2 감소",
+            NoteEn = "Focus -2 at combat start",
+            NoteZh = "战斗开始时，集中-2" },
+        new Prefix { Name = "Polarized", Ko = "양극의", Zh = "两极的", Weight = 7, CharAffix = true, Penalty = true, RequiredCharacter = "DEFECT", Color = "#5a6a8a",
+            NoteKo = "오브 슬롯이 모두 비거나 모두 가득 찬 채 턴을 마치면 다음 턴에 에너지 1을 잃는다",
+            NoteEn = "If you end your turn with your orb slots all empty or all full, lose 1 Energy next turn",
+            NoteZh = "回合结束时充能球槽全空或全满，则下回合失去1点能量" },
+
+        // --- Necrobinder (summon / doom) ---
+        new Prefix { Name = "Necromantic", Ko = "사령술의", Zh = "死灵的", Weight = 8, CharAffix = true, RequiredCharacter = "NECROBINDER", Color = "#7ed957",
+            NoteKo = "소환할 때 블록 3을 얻는다",
+            NoteEn = "When you Summon, gain 3 Block",
+            NoteZh = "召唤时，获得3点格挡" },
+        new Prefix { Name = "Dooming", Ko = "파멸의", Zh = "厄运的", Weight = 7, CharAffix = true, RequiredCharacter = "NECROBINDER", Color = "#a06fd0",
+            NoteKo = "적에게 종말을 부여할 때 종말 1 추가",
+            NoteEn = "When you apply Doom to an enemy, apply 1 more",
+            NoteZh = "对敌人施加厄运时，额外施加1层" },
+        new Prefix { Name = "Bonebound", Ko = "뼈엮인", Zh = "缚骨的", Weight = 6, CharAffix = true, RequiredCharacter = "NECROBINDER", Color = "#d9d9e0",
+            NoteKo = "매 턴 소환 1 (오스티가 성장한다)",
+            NoteEn = "Summon 1 each turn (grows your Osty)",
+            NoteZh = "每回合召唤1（成长你的奥斯提）" },
+        new Prefix { Name = "Sacrificial", Ko = "희생의", Zh = "献祭的", Weight = 7, CharAffix = true, Penalty = true, RequiredCharacter = "NECROBINDER", Color = "#8a6a4a",
+            NoteKo = "소환수가 피해를 입으면 자신에게 약화·손상·취약 중 하나 1 (턴당 1회), 소환수가 죽으면 2",
+            NoteEn = "When your summon takes damage, apply Weak / Frail / Vulnerable 1 to yourself (once per turn); 2 when it dies",
+            NoteZh = "召唤物受到伤害时，给予自己1层虚弱/脆弱/易伤（每回合1次）；召唤物死亡时为2层" },
+        new Prefix { Name = "Doombound", Ko = "잠식된", Zh = "被蚀的", Weight = 7, CharAffix = true, Penalty = true, RequiredCharacter = "NECROBINDER", Color = "#5a4a7a",
+            NoteKo = "매턴 자신에게 종말 1",
+            NoteEn = "Each turn, apply 1 Doom to yourself",
+            NoteZh = "每回合给予自己1层厄运" },
+        new Prefix { Name = "Levied", Ko = "징세의", Zh = "重税的", Weight = 7, CharAffix = true, Penalty = true, RequiredCharacter = "REGENT", Color = "#8a7a4a",
+            NoteKo = "별을 소모하는 카드의 별 소모량 1 증가",
+            NoteEn = "Cards that cost Stars cost 1 more Star",
+            NoteZh = "消耗星星的卡牌，星星费用+1" },
+
+        // --- Regent (stars / forge) ---
+        new Prefix { Name = "Starlit", Ko = "별빛의", Zh = "星耀的", Weight = 7, CharAffix = true, RequiredCharacter = "REGENT", Color = "#ffd23f",
+            NoteKo = "매 턴 별 1을 얻는다",
+            NoteEn = "Gain 1 Star each turn",
+            NoteZh = "每回合获得1颗星" },
+        new Prefix { Name = "Reforging", Ko = "재련의", Zh = "重铸的", Weight = 6, CharAffix = true, RequiredCharacter = "REGENT", Color = "#e0904d",
+            NoteKo = "단조할 때 별 1을 얻는다",
+            NoteEn = "When you Forge, gain 1 Star",
+            NoteZh = "锻造卡牌时，获得1颗星" },
+        new Prefix { Name = "Regal", Ko = "위엄의", Zh = "威严的", Weight = 6, CharAffix = true, RequiredCharacter = "REGENT", Color = "#4dd24d",
+            NoteKo = "별을 소비할 때 50% 확률로 별 1을 돌려받는다",
+            NoteEn = "When you spend Stars, 50% chance to refund 1 Star",
+            NoteZh = "消耗星辰时，50%概率返还1颗星" },
+        new Prefix { Name = "Bankrupt", Ko = "파산한", Zh = "破产的", Weight = 7, CharAffix = true, Penalty = true, RequiredCharacter = "REGENT", Color = "#b0554d",
+            NoteKo = "별을 4개 소비할 때마다 손에 든 무작위 카드 1장에 휘발성이 부여된다",
+            NoteEn = "Every 4 Stars you spend, a random card in your hand becomes Ethereal",
+            NoteZh = "每消耗4颗星，手牌中随机1张牌获得虚无" },
     };
 
     // Rarities that can receive a prefix at all. Starter/Event/None never do. Ancient is included
@@ -278,19 +384,33 @@ internal static class PrefixTable
         RelicRarity.Common, RelicRarity.Uncommon, RelicRarity.Rare, RelicRarity.Shop, RelicRarity.Ancient
     };
 
-    /// <summary>Weighted, deterministic pick from the pool (Terraria reforge style).</summary>
-    public static Prefix Roll(Rng rng)
+    /// <summary>Weighted, deterministic pick from the pool (Terraria reforge style). Character-gated
+    /// prefixes (RequiredCharacter set) are only in the pool when <paramref name="character"/> — the
+    /// owner's CharacterModel Id.Entry — matches; universal prefixes always are. Because the character
+    /// is fixed for a whole run, the filtered pool is stable per run, so the roll stays
+    /// seed-deterministic and reproduces on load.</summary>
+    public static Prefix Roll(Rng rng, string? character = null)
     {
         double total = 0;
-        foreach (var p in All) total += p.Weight;
+        foreach (var p in All) if (InPool(p, character)) total += p.Weight;
         double r = rng.NextFloat() * total;
+        Prefix? last = null;
         foreach (var p in All)
         {
+            if (!InPool(p, character)) continue;
+            last = p;
             r -= p.Weight;
             if (r < 0) return p;
         }
-        return All[All.Length - 1];
+        return last ?? All[All.Length - 1];
     }
+
+    /// <summary>Whether a prefix is eligible for the current character's roll pool: universal (no
+    /// RequiredCharacter) always, character-gated only when the character matches (case-insensitive
+    /// on CharacterModel Id.Entry, e.g. "SILENT").</summary>
+    private static bool InPool(Prefix p, string? character)
+        => p.RequiredCharacter.Length == 0
+           || (character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Find a prefix by name (case-insensitive) for the test console command.</summary>
     public static Prefix? ByName(string name)

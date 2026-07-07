@@ -11,11 +11,15 @@ A **Slay the Spire 2** mod that gives the relics you find a **Terraria-style pre
 ## What it does
 
 - **Prefixes on the relics you find** — most relics from shops, rewards, treasure and events roll a prefix. Seed-locked, so the same run seed always forges a relic the same way, and it survives save/load.
-- **Four kinds of prefix** (see the [Prefix Guide](PREFIXES.md) for the full list):
+- **Eight prefix families** (see the [Prefix Guide](PREFIXES.md) for the full list):
   - **Numeric** — scale a relic's numbers up (or, rarely, down). Legendary Anchor = more Block.
   - **Companion** — graft a *weaker* version of another relic's whole effect onto yours. "Thorned" gives Thorns at combat start; works on any relic.
   - **Penalty** — a small curse (a minority of rolls, Terraria-style): a self-debuff or a status card shoved into your deck.
   - **Gamble** — mixed effects that also reach the battlefield: sap an enemy's stats each turn, or hit one enemy / one player with Vulnerable or Weak.
+  - **Reactive** — respond in real time to your power/energy events.
+  - **Run-state** — respond to your gold, deck and curse cards.
+  - **Keyword** — grant card keywords like Retain and Exhaust.
+  - **Character** — only roll for the character you play; 3 boons + 2 curses each.
 - **Reforge at campfires & shops** — re-roll a relic's prefix at a rest site (free, but a penalty prefix ends it) or at a merchant (escalating gold, unlimited). See [Reforge](#reforge) below.
 - **Tier-colored names** — a forged relic's name is tinted by its prefix (Legendary gold, Broken red …), like loot-rarity colors.
 - **Configurable** — a ModConfig slider sets how often a relic gets NO prefix (default 60% vanilla, so ~40% are forged).
@@ -28,6 +32,10 @@ A single weighted pool — any relic can roll any prefix. Full names, effects an
 - **Companion** — themed prefixes that graft a reduced version of a donor relic's effect (Thorned, Mighty, Anchored, Vital, and more).
 - **Penalty** — Cursed / Cumbersome / Fickle / Overloaded (self-debuffs) and Tainted / Festering / Smoldering / Hollow (curse-card generators).
 - **Gamble** — mixed effects that also touch the battlefield: Eroding (saps an enemy's stats each turn), Exposing / Enervating (Vulnerable / Weak to one enemy + one player at combat start), and Chaotic (each turn, a coin-flip debuff on one enemy or one player).
+- **Reactive** — Resonant (gain 1 more when you gain Strength/Dexterity), Obstinate (enemy stat-shreds become gains), Discharging (AoE damage per bonus Energy).
+- **Run-state** — Cursefed (drawing a Curse card grants Strength/Dexterity), Gilded (Strength per 300 gold), Taxing (lose gold per card in your deck).
+- **Keyword** — Retaining (Retain a random card at turn end), Searing (playing a card has a 25% chance to brand it with Exhaust — effective from its next play).
+- **Character** — Silent / Defect / Necrobinder / Regent each get 3 boons + 2 curses riding their signature mechanic, e.g. Envenomed (bonus poison), Supercharged (Focus while orb slots are full), Bonebound (grow Osty each turn), Bankrupt (every 4 Stars spent, a card in hand turns Ethereal).
 
 **More prefixes are planned.**
 

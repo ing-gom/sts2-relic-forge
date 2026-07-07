@@ -71,6 +71,12 @@ internal sealed class Prefix
     public bool CurseDrawStrength; // 저주먹은: when the player draws a Curse card, gain 1 Strength
     public int  GoldStrengthPer;   // 황금빛: at combat start, gain 1 Strength per this much gold (0 = off)
 
+    // --- Replay-grant affix (see CharAffix.OnTurnEchoing / CharAffixPatches). Grafts nothing and scales
+    //     no host var; each turn it grants Replay 1 (CardModel.BaseReplayCount++, reverted at turn end so
+    //     it never accumulates) to a random non-Curse/Status card in hand, and PLAYING that card costs the
+    //     player Vulnerable 1 + Frail 1. Mixed (amber note): a strong boon with a built-in cost. ---
+    public bool ReplayGrant;
+
     // Force the enemy-rider curse on unconditionally (bypasses EnemyRiderChance). Used by 공명의 so
     // its strength always comes bundled with a curse — the mod's own cost, in place of a per-trigger
     // penalty. Ignored on penalty prefixes (which never carry a rider).
@@ -90,7 +96,8 @@ internal sealed class Prefix
     public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0 || Penalty
                                      || EnemyStrip || SymPower.Length > 0 || RandomDebuff
                                      || GainAmplify || LossInvert || EnergyDischarge > 0
-                                     || CurseDrawStrength || GoldStrengthPer > 0 || CharAffix;
+                                     || CurseDrawStrength || GoldStrengthPer > 0 || CharAffix
+                                     || ReplayGrant;
 
     /// <summary>Stable loc-key base derived from the English name (see <see cref="ForgeLoc"/>).</summary>
     internal string LocKeyBase => "PREFIX_" + ForgeLoc.KeyOf(Name);
@@ -220,6 +227,13 @@ internal static class PrefixTable
             NoteKo = "카드를 낼 때 25% 확률로 그 카드에 소멸이 부여된다 (다음 사용부터 적용)",
             NoteEn = "When you play a card, 25% chance it gains Exhaust (takes effect from its next play)",
             NoteZh = "打出卡牌时，25%概率使其获得消耗（下次打出时生效）" },
+        // Replay-grant (see ReplayGrant): each turn a random hand card gains Replay 1 (single-turn,
+        // reverted at turn end), and playing that card costs the player Vulnerable 1 + Frail 1. A strong
+        // gamble — you don't choose which card, and the boon is paid for on use. Mixed → amber note.
+        new Prefix { Name = "Echoing", Ko = "메아리의", Zh = "回响的", Weight = 3, Mixed = true, ReplayGrant = true, Color = "#a35cff",
+            NoteKo = "매 턴, 손에 든 무작위 카드 1장이 재사용 1을 얻는다. 그 카드를 사용하면 자신에게 취약 1·손상 1",
+            NoteEn = "Each turn, a random card in your hand gains Replay 1. Playing that card gives you Vulnerable 1 and Frail 1",
+            NoteZh = "每回合，手牌中随机1张牌获得1层重演。打出该牌时，给予自己1层易伤和1层脆弱" },
 
         // --- Card-insertion penalties: shove a status card into a combat pile (see PenaltyCompanionPatch) ---
         new Prefix { Name = "Tainted", Ko = "오염된", Zh = "污秽的", Weight = 5, Penalty = true, Color = "#7a8a5a",

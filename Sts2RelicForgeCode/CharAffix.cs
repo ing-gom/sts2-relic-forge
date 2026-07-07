@@ -479,6 +479,77 @@ internal static class CharAffix
 
     public static void OnCombatStartShorted(PlayerChoiceContext ctx, Player player, RelicModel relic)
         => Fire(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, -2m, player.Creature, null));
+
+    // ============================ Echoing (universal) ============================
+    // 메아리의 / Echoing — each turn a random hand card gains Replay 1; playing that card costs the
+    // player Vulnerable 1 + Frail 1. BaseReplayCount is PERMANENT on the card instance (GeneratePlayCount
+    // reads it live and never decrements it — decompile-verified), so a raw ++ every turn would snowball
+    // and even leak across combats. We therefore grant a SINGLE-TURN Replay: bump at turn start, revert
+    // at turn end (and defensively at the next grant, in case a combat-ending turn skipped its flush).
+
+    private sealed class EchoState { public CardModel? Card; public int Turn = -1; public bool Penalized; }
+    private static readonly ConditionalWeakTable<RelicModel, EchoState> Echo = new();
+
+    // Undo exactly the +1 we granted (setter raises ReplayCountChanged → the card face refreshes). Guarded
+    // so we never push a card below its own baseline if some other effect cleared the replay meanwhile.
+    private static void RevertReplay(CardModel? card)
+    {
+        if (card != null && card.BaseReplayCount > 0) card.BaseReplayCount--;
+    }
+
+    /// <summary>Echoing — turn start: revert any lingering grant, then grant Replay 1 to a random
+    /// playable (non-Curse/Status) card in hand. The pick rides the deterministic per-(relic,turn) Roll so
+    /// all clients grant the same card; the hand order is already synced.</summary>
+    public static void OnTurnEchoing(Player player, RelicModel relic, int turn)
+    {
+        if (!Enabled) return;
+        var st = Echo.GetValue(relic, _ => new EchoState());
+        RevertReplay(st.Card);                 // undo a grant a combat-ending turn never flushed
+        st.Card = null; st.Turn = turn; st.Penalized = false;
+
+        var eligible = new List<CardModel>();
+        foreach (var c in PileType.Hand.GetPile(player).Cards)
+            if (c.Type != CardType.Curse && c.Type != CardType.Status && c.Type != CardType.None) eligible.Add(c);
+        if (eligible.Count == 0) return;        // nothing worth doubling → no grant, no cost this turn
+
+        int pick = (int)(Roll(player, relic, turn) * eligible.Count);
+        if (pick >= eligible.Count) pick = eligible.Count - 1;
+        var card = eligible[pick];
+        card.BaseReplayCount++;
+        st.Card = card;
+        relic.Flash();
+    }
+
+    /// <summary>Echoing — a card was played: if it is THIS relic's granted card, pay for the boon with
+    /// Vulnerable 1 + Frail 1 to the player, once. Replay makes the card play as a series, so
+    /// AfterCardPlayed can fire per play — the Penalized flag collapses that to a single charge.</summary>
+    public static void OnCardPlayedEchoing(PlayerChoiceContext ctx, Player player, CardModel card)
+    {
+        if (!Enabled || player.Creature == null) return;
+        int turn = TurnOf(player);
+        foreach (var relic in Owned(player, "Echoing"))
+        {
+            var st = Echo.GetValue(relic, _ => new EchoState());
+            if (st.Penalized || st.Turn != turn || !ReferenceEquals(st.Card, card)) continue;
+            st.Penalized = true;
+            relic.Flash();
+            TaskHelper.RunSafely(PowerCmd.Apply<VulnerablePower>(ctx, player.Creature, 1m, player.Creature, null));
+            TaskHelper.RunSafely(PowerCmd.Apply<FrailPower>(ctx, player.Creature, 1m, player.Creature, null));
+        }
+    }
+
+    /// <summary>Echoing — turn end (BeforeFlush): revert the single-turn Replay so it never accumulates on
+    /// the card instance (played card is now in a pile; unplayed card stays in hand — either way, clear).</summary>
+    public static void OnTurnEndEchoing(Player player)
+    {
+        if (!Enabled) return;
+        foreach (var relic in Owned(player, "Echoing"))
+        {
+            var st = Echo.GetValue(relic, _ => new EchoState());
+            RevertReplay(st.Card);
+            st.Card = null;
+        }
+    }
 }
 
 /// <summary>Tiny seam over ICombatState's generic CreateCard so the engine can build a Shiv without

@@ -173,18 +173,22 @@ internal static class CharAffixPatches
         }
     }
 
-    /// <summary>Shiv played → Flurrying's bonus Shiv.</summary>
+    /// <summary>Shiv played → Flurrying's bonus Shiv; any card played → Echoing's Vulnerable+Frail cost
+    /// if that card was this turn's replay-granted one.</summary>
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterCardPlayed))]
     internal static class CardPlayedPatch
     {
-        private static void Postfix(ICombatState combatState, CardPlay cardPlay)
+        private static void Postfix(ICombatState combatState, PlayerChoiceContext choiceContext, CardPlay cardPlay)
         {
             try
             {
-                if (cardPlay.Card is Shiv && cardPlay.Card.Owner is Player player)
+                var card = cardPlay.Card;
+                if (card?.Owner is not Player player) return;
+                if (card is Shiv)
                     CharAffix.OnShivPlayed(player, new CsAccess(combatState));
+                CharAffix.OnCardPlayedEchoing(choiceContext, player, card);
             }
-            catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char shiv hook failed: {e.Message}"); }
+            catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char card-played hook failed: {e.Message}"); }
         }
     }
 
@@ -293,14 +297,14 @@ internal static class CharAffixPatches
     }
 
     /// <summary>Player's turn ended (pre-flush, after the orb queue's own end-of-turn triggers) →
-    /// Polarized's all-empty / all-full check. BeforeFlush is per-player, so co-op attributes the
-    /// penalty to the right owner.</summary>
+    /// Polarized's all-empty / all-full check, plus Echoing's single-turn Replay revert. BeforeFlush is
+    /// per-player, so co-op attributes both to the right owner.</summary>
     [HarmonyPatch(typeof(Hook), nameof(Hook.BeforeFlush))]
     internal static class FlushPatch
     {
         private static void Postfix(Player player)
         {
-            try { CharAffix.OnTurnEndOrbCheck(player); }
+            try { CharAffix.OnTurnEndOrbCheck(player); CharAffix.OnTurnEndEchoing(player); }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char flush hook failed: {e.Message}"); }
         }
     }
@@ -340,6 +344,7 @@ internal static class CharAffixPatches
                         case "Polarized":                     CharAffix.OnTurnPolarized(player, relic); break;
                         case "Toxic"   when turn == 1:        CharAffix.OnCombatStartToxic(choiceContext, player, relic); break;
                         case "Shorted" when turn == 1:        CharAffix.OnCombatStartShorted(choiceContext, player, relic); break;
+                        case "Echoing":                       CharAffix.OnTurnEchoing(player, relic, turn); break;
                     }
                 }
                 CharAffix.Reconcile(choiceContext, player);   // Supercharged re-eval each turn

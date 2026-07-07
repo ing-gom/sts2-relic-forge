@@ -120,6 +120,7 @@ Grant or inflict CARD KEYWORDS through the game's own systems — the keyword sh
 |---|---|---:|
 | Retaining | At the end of your turn, Retain a random card in your hand | 1.8% |
 | Searing *(curse)* | When you play a card, 25% chance it gains Exhaust (takes effect from its next play) | 1.8% |
+| Echoing | Each turn, a random card in your hand gains Replay 1. Playing that card gives you Vulnerable 1 and Frail 1 | 0.9% |
 
 ---
 

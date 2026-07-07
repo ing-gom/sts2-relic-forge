@@ -264,9 +264,15 @@ internal static class CharAffix
         }
     }
 
-    /// <summary>Amplified — the player channeled an orb; 25% chance to channel a random orb. The bonus
-    /// channel is echo-suppressed so it can't cascade.</summary>
-    public static void OnOrbChanneled(PlayerChoiceContext ctx, Player player)
+    /// <summary>Amplified — the player channeled an orb; 25% chance to channel a random orb. AWAITED
+    /// in-order (ChannelPatch chains this onto Hook.AfterOrbChanneled's Task), NOT fire-and-forget:
+    /// AfterOrbChanneled runs inside OrbCmd.Channel's own await chain, which runs inside the card-play
+    /// (and Replay) series loop in CardModel.OnPlayWrapper. A detached bonus channel raced that series —
+    /// re-entering the shared OrbQueue and desyncing the echo counter against the series' real channels —
+    /// so a replayed Zap/Tempest could stall mid-series (card stuck centered, no orb, no effect) and also
+    /// desync co-op. Awaiting resolves the bonus (and its single echo) depth-first before the series
+    /// advances, and the deterministic order keeps every co-op client in lockstep.</summary>
+    public static async Task OnOrbChanneledAsync(PlayerChoiceContext ctx, Player player)
     {
         if (!Enabled) return;
         if (_suppressChannel > 0) { _suppressChannel--; }   // swallow the echo of our own bonus channel
@@ -277,8 +283,8 @@ internal static class CharAffix
                 if (Roll(player, relic, turn) < 0.25f)
                 {
                     relic.Flash();
-                    _suppressChannel++;
-                    TaskHelper.RunSafely(ChannelRandom(ctx, player, Roll(player, relic, turn)));
+                    _suppressChannel++;                     // consumed by the bonus channel's own AfterOrbChanneled echo
+                    await ChannelRandom(ctx, player, Roll(player, relic, turn));
                 }
         }
         Reconcile(ctx, player);   // channeling may have filled the slots — refresh Supercharged

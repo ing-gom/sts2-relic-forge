@@ -98,13 +98,20 @@ internal static class CharAffixPatches
         }
     }
 
-    /// <summary>Orb channeled → Amplified's bonus channel + Supercharged refresh.</summary>
+    /// <summary>Orb channeled → Amplified's bonus channel + Supercharged refresh. Chains onto the awaited
+    /// hook Task (like DiscardPatch / CurseDrawAffixPatch) so the bonus channel runs IN-ORDER inside
+    /// OrbCmd.Channel's await chain. AfterOrbChanneled fires within the card-play (and Replay) series loop;
+    /// a detached bonus channel raced that series and stalled replayed orb cards (Zap/Tempest) mid-series.</summary>
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterOrbChanneled))]
     internal static class ChannelPatch
     {
-        private static void Postfix(PlayerChoiceContext choiceContext, Player player)
+        private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, Player player)
+            => __result = AmplifyAfter(__result, choiceContext, player);
+
+        private static async Task AmplifyAfter(Task original, PlayerChoiceContext choiceContext, Player player)
         {
-            try { CharAffix.OnOrbChanneled(choiceContext, player); }
+            await original;
+            try { await CharAffix.OnOrbChanneledAsync(choiceContext, player); }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char channel hook failed: {e.Message}"); }
         }
     }

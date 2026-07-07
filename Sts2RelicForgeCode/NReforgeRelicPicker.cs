@@ -35,20 +35,52 @@ internal sealed partial class NReforgeRelicPicker : CanvasLayer
     private readonly TaskCompletionSource<RelicModel?> _tcs = new();
     private bool _done;
 
+    // The room/screen this picker was opened over (rest site or shop). We live on the persistent
+    // SceneTree root — NOT under the room — so a room transition can NOT free us. This is the
+    // watchdog handle: once the room node it points at leaves the tree (player left the rest / shop),
+    // _Process self-closes us, so an opaque overlay can never survive into the next room. Optional;
+    // when null the watchdog is a no-op (SP callers always pass it).
+    private Node? _guard;
+
     // Origin of the hoisted hover-tips container, so we can put it back exactly on close.
     private Node? _tipsParent;
     private int _tipsIndex = -1;
 
-    public static Task<RelicModel?> Show(IReadOnlyList<RelicModel> relics)
+    public static Task<RelicModel?> Show(IReadOnlyList<RelicModel> relics, Node? guard = null)
     {
         if (Engine.GetMainLoop() is not SceneTree tree || tree.Root == null)
             return Task.FromResult<RelicModel?>(null);
-        var picker = new NReforgeRelicPicker { _relics = relics, Layer = 120 };
+        var picker = new NReforgeRelicPicker { _relics = relics, _guard = guard, Layer = 120 };
         tree.Root.CallDeferred(Node.MethodName.AddChild, picker); // deferred: root may be busy this frame
         return picker._tcs.Task;
     }
 
     public override void _Ready()
+    {
+        // The backdrop (below) is a near-opaque, root-parented black CanvasLayer, so a THROW anywhere
+        // in the build would leave it stuck on the root — _tcs never completes, the awaiting OnSelect
+        // hangs forever, and the black overlay follows the player into the NEXT room (the reported
+        // "campfire → next room is black" bug). So build inside a guard: on any failure, tear the
+        // half-built overlay down and complete with null (cancel) instead of leaving a dead screen.
+        try { BuildUi(); }
+        catch (Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] reforge picker build failed: {e}");
+            Complete(null);
+        }
+    }
+
+    /// <summary>Self-close if the room/screen we were opened over is gone. We're parented to the
+    /// persistent root (so we render above everything) which also means a room transition can't free
+    /// us — this watchdog is the fail-safe that guarantees the opaque backdrop never outlives its
+    /// context into the next room, no matter how the picker was left.</summary>
+    public override void _Process(double delta)
+    {
+        if (!_done && _guard != null && !GodotObject.IsInstanceValid(_guard))
+            Complete(null);
+    }
+
+    private void BuildUi()
     {
         Vector2 vp = GetViewport().GetVisibleRect().Size;
 
@@ -97,12 +129,22 @@ internal sealed partial class NReforgeRelicPicker : CanvasLayer
 
         foreach (var relic in _relics)
         {
-            var holder = NRelicBasicHolder.Create(relic);
-            if (holder == null) continue;
-            holder.CustomMinimumSize = new Vector2(100f, 100f); // uniform cells; icon renders inside
-            var captured = relic;
-            holder.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => Select(captured)));
-            grid.AddChild(holder);
+            // Per-relic guard: the reforge candidate list includes relics from OTHER mods, and a
+            // foreign relic that makes NRelicBasicHolder.Create throw would otherwise abort the whole
+            // build (→ stuck black overlay). Skip the one bad relic, log its id, keep the rest usable.
+            try
+            {
+                var holder = NRelicBasicHolder.Create(relic);
+                if (holder == null) continue;
+                holder.CustomMinimumSize = new Vector2(100f, 100f); // uniform cells; icon renders inside
+                var captured = relic;
+                holder.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => Select(captured)));
+                grid.AddChild(holder);
+            }
+            catch (Exception e)
+            {
+                MainFile.Logger.Warn($"[{MainFile.ModId}] reforge picker: skipped relic {relic?.Id.Entry}: {e.Message}");
+            }
         }
 
         AddSkipButton(vp, nativeSkip);

@@ -287,7 +287,7 @@ internal sealed partial class NMerchantReforgeButton : Control
     {
         try
         {
-            RelicModel? chosen = await NReforgeRelicPicker.Show(candidates);
+            RelicModel? chosen = await NReforgeRelicPicker.Show(candidates, this);
             // Charge only on a real pick, and re-check gold at purchase time.
             if (chosen != null && _player != null && _player.Gold >= cost)
             {

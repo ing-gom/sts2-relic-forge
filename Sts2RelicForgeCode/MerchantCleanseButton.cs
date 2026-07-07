@@ -257,7 +257,7 @@ internal sealed partial class NMerchantCleanseButton : Control
     {
         try
         {
-            RelicModel? chosen = await NReforgeRelicPicker.Show(candidates);
+            RelicModel? chosen = await NReforgeRelicPicker.Show(candidates, this);
             // Charge only on a real pick that actually had a curse to remove; re-check gold at purchase.
             // Route through ReforgeNet so co-op strips the curse on EVERY client (a local-only strip
             // would desync each peer's re-derived enemy-rider / self-curse effects).

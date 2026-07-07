@@ -69,7 +69,7 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
 
         // Our own scrolling grid picker (game's screen clips a full inventory into one row). Returns
         // null only if the player cancels with Escape.
-        RelicModel? chosen = await NReforgeRelicPicker.Show(candidates);
+        RelicModel? chosen = await NReforgeRelicPicker.Show(candidates, NRestSiteRoom.Instance);
 
         if (chosen != null)
         {

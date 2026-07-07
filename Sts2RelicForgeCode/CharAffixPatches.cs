@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
@@ -234,12 +235,62 @@ internal static class CharAffixPatches
     /// CreatureCmd.Damage overload (all others funnel into it): snapshot pet→owner up front (death
     /// unattaches the pet, so PetOwner may be gone afterwards), then when the damage task settles fire
     /// the handler for killed pets that lost real HP. The once-per-turn gate in OnSummonDamaged
-    /// dedupes any overlap with DamagePatch (removal-prevented deaths raise both paths).</summary>
-    [HarmonyPatch(typeof(CreatureCmd), nameof(CreatureCmd.Damage),
-        typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(decimal), typeof(ValueProp),
-        typeof(Creature), typeof(CardModel))]
+    /// dedupes any overlap with DamagePatch (removal-prevented deaths raise both paths).
+    ///
+    /// Applied MANUALLY via <see cref="TryApply"/> instead of a [HarmonyPatch] attribute picked up by
+    /// PatchAll: the target is a specific CreatureCmd.Damage overload whose exact parameter tuple can
+    /// shift between game builds, and an unresolved target inside PatchAll throws and aborts the WHOLE
+    /// mod init — taking every later patch AND the ModConfig settings registration down with it (the
+    /// "settings don't show up" symptom). Resolving it best-effort here means a miss disables only this
+    /// one niche feature and logs a warning; the rest of the mod, and its config menu, load normally.</summary>
     internal static class LethalSummonDamagePatch
     {
+        /// <summary>Resolve the core CreatureCmd.Damage overload by SHAPE — a <c>targets</c> parameter
+        /// of type IEnumerable&lt;Creature&gt; plus a Task&lt;IEnumerable&lt;DamageResult&gt;&gt; return —
+        /// rather than a rigid typeof() tuple that breaks the moment an ancillary parameter type changes.
+        /// Then apply the prefix/postfix on a private Harmony instance. Any miss or exception is logged
+        /// and swallowed so mod initialization never fails here.</summary>
+        internal static void TryApply()
+        {
+            try
+            {
+                var target = ResolveDamage();
+                if (target == null)
+                {
+                    MainFile.Logger.Warn($"[{MainFile.ModId}] lethal summon-damage patch skipped: no matching " +
+                        "CreatureCmd.Damage overload found (Sacrificial lethal-hit detection disabled; mod otherwise unaffected).");
+                    return;
+                }
+                new Harmony($"{MainFile.ModId}.LethalSummonDamage").Patch(target,
+                    prefix: new HarmonyMethod(AccessTools.Method(typeof(LethalSummonDamagePatch), nameof(Prefix))),
+                    postfix: new HarmonyMethod(AccessTools.Method(typeof(LethalSummonDamagePatch), nameof(Postfix))));
+            }
+            catch (Exception e)
+            {
+                MainFile.Logger.Warn($"[{MainFile.ModId}] lethal summon-damage patch skipped: {e.Message} " +
+                    "(Sacrificial lethal-hit detection disabled; mod otherwise unaffected).");
+            }
+        }
+
+        private static MethodInfo? ResolveDamage()
+        {
+            var want = typeof(Task<IEnumerable<DamageResult>>);
+            MethodInfo? best = null;
+            foreach (var m in typeof(CreatureCmd).GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
+            {
+                if (m.Name != nameof(CreatureCmd.Damage) || m.ReturnType != want) continue;
+                foreach (var p in m.GetParameters())
+                    if (p.Name == "targets" && p.ParameterType == typeof(IEnumerable<Creature>))
+                    {
+                        // Prefer the fullest overload — the core one every other Damage funnels into.
+                        if (best == null || m.GetParameters().Length > best.GetParameters().Length) best = m;
+                        break;
+                    }
+            }
+            return best;
+        }
+
         private static void Prefix(IEnumerable<Creature> targets, out Dictionary<Creature, Player>? __state)
         {
             __state = null;

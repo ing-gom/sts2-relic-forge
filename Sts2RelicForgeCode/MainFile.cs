@@ -27,6 +27,9 @@ public class MainFile
         ModBootstrap.Run(ModId, Logger, typeof(MainFile).Assembly, body: () =>
         {
             Logger.Info($"[{ModId}] relic-affix prototype active.");
+            // Best-effort manual patch: guarded so a version-sensitive target signature can't abort init
+            // (an unresolved target in PatchAll would otherwise skip the ModConfig settings registration).
+            CharAffixPatches.LethalSummonDamagePatch.TryApply();
             if (Engine.GetMainLoop() is not SceneTree tree) return;
             // Defer so ModConfig has finished its own Initialize before we Register().
             tree.CreateTimer(0.0).Timeout += RegisterConfig;

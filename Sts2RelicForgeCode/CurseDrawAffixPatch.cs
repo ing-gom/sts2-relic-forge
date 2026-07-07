@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Entities.Cards;        // CardType
@@ -21,8 +22,15 @@ namespace Sts2RelicForge;
 /// own curse riders). Rides Hook.AfterCardDrawn, which fires once per card for BOTH the opening hand and
 /// every mid-combat draw. Capped at ONCE PER TURN per relic (same idiom as ReactiveAffix's 공명의 cap):
 /// only the first curse drawn in a turn triggers, so a shuffle-heavy deck can't runaway-stack it. The
-/// Str-vs-Dex pick is deterministic per (runSeed, turn, relic) so a reload reproduces it. Grants via the
-/// networked PowerCmd, so co-op stays consistent with no extra sync.
+/// Str-vs-Dex pick is deterministic per (runSeed, turn, relic) so a reload reproduces it.
+///
+/// CO-OP: the grant must be part of the AWAITED hook chain, not fire-and-forget. AfterCardDrawn runs
+/// inside the opening-hand draw loop of SetupPlayerTurn (fromHandDraw draws), i.e. mid combat-entry. A
+/// detached PowerCmd.Apply (Strength/Dexterity are VISIBLE powers -> they await CustomScaledWait and write
+/// History.PowerReceived) would interleave non-deterministically with the remaining draws and the following
+/// AfterPlayerTurnStart, so host and client produce divergent lockstep checksums and the client fails to
+/// enter the match. Because the static Hook.AfterCardDrawn is an awaited Task, we chain onto its __result
+/// and AWAIT the grant in-order instead — both machines execute it at the same point.
 /// </summary>
 [HarmonyPatch(typeof(Hook), nameof(Hook.AfterCardDrawn))]
 internal static class CurseDrawAffixPatch
@@ -31,8 +39,16 @@ internal static class CurseDrawAffixPatch
     // when the turn changes (no separate turn-start hook needed).
     private static readonly ConditionalWeakTable<RelicModel, int[]> FiredTurn = new();
 
-    private static void Postfix(PlayerChoiceContext choiceContext, CardModel card)
+    // Chain onto the awaited hook Task so the grant runs in-order (see class remarks): reassigning
+    // __result makes the caller's `await Hook.AfterCardDrawn(...)` wait for our deterministic grant.
+    private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, CardModel card)
     {
+        __result = GrantAfter(__result, choiceContext, card);
+    }
+
+    private static async Task GrantAfter(Task original, PlayerChoiceContext choiceContext, CardModel card)
+    {
+        await original; // let every model listener's AfterCardDrawn run first; propagate its result faithfully
         try
         {
             if (card == null || card.Type != CardType.Curse) return;
@@ -61,9 +77,9 @@ internal static class CurseDrawAffixPatch
 
                 relic.Flash();
                 if (dex)
-                    TaskHelper.RunSafely(PowerCmd.Apply<DexterityPower>(choiceContext, player.Creature, 1m, player.Creature, null));
+                    await PowerCmd.Apply<DexterityPower>(choiceContext, player.Creature, 1m, player.Creature, null);
                 else
-                    TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(choiceContext, player.Creature, 1m, player.Creature, null));
+                    await PowerCmd.Apply<StrengthPower>(choiceContext, player.Creature, 1m, player.Creature, null);
                 MainFile.Logger.Info($"[{MainFile.ModId}] Cursefed: +1 {(dex ? "Dexterity" : "Strength")} on drawing {card.Id.Entry} (turn {turn}, {relic.Id.Entry}).");
             }
         }

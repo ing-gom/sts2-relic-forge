@@ -151,15 +151,23 @@ internal static class CharAffixPatches
         }
     }
 
-    /// <summary>Card discarded → Cycling draws one.</summary>
+    /// <summary>Card discarded → Cycling draws one. Chains onto the awaited hook Task (like
+    /// CurseDrawAffixPatch) so the draw runs in-order: AfterCardDiscarded fires inside DiscardAndDraw's
+    /// per-card loop, so a detached draw would race the remaining discards and desync co-op.</summary>
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterCardDiscarded))]
     internal static class DiscardPatch
     {
-        private static void Postfix(PlayerChoiceContext choiceContext, CardModel card)
+        private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, CardModel card)
         {
+            __result = DrawAfter(__result, choiceContext, card);
+        }
+
+        private static async Task DrawAfter(Task original, PlayerChoiceContext choiceContext, CardModel card)
+        {
+            await original;
             try
             {
-                if (card.Owner != null) CharAffix.OnCardDiscarded(choiceContext, card.Owner);
+                if (card?.Owner != null) await CharAffix.OnCardDiscardedAsync(choiceContext, card.Owner);
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char discard hook failed: {e.Message}"); }
         }

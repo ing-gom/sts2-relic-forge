@@ -227,12 +227,20 @@ internal static class CharAffix
 
     /// <summary>Cycling — the player discarded a card; draw one. Draw is a no-op when both draw and
     /// discard piles are empty, so there is no mill/loop risk (discarding a card doesn't draw-then-
-    /// discard).</summary>
-    public static void OnCardDiscarded(PlayerChoiceContext ctx, Player player)
+    /// discard).
+    ///
+    /// CO-OP: AWAITED, not fire-and-forget. AfterCardDiscarded fires inside DiscardAndDraw's per-card
+    /// loop (decompile-verified), exactly like the draw loop that broke Cursefed — a detached Draw would
+    /// interleave non-deterministically with the remaining discards and desync lockstep. The discard
+    /// patch chains this onto the hook's Task so the draw runs in-order on every client.</summary>
+    public static async Task OnCardDiscardedAsync(PlayerChoiceContext ctx, Player player)
     {
         if (!Enabled) return;
         foreach (var relic in Owned(player, "Cycling"))
-            Fire(relic, CardPileCmd.Draw(ctx, 1m, player));
+        {
+            relic.Flash();
+            await CardPileCmd.Draw(ctx, 1m, player);
+        }
     }
 
     // ============================ Defect ============================

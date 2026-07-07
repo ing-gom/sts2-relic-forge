@@ -94,7 +94,14 @@ internal static class RelicTooltipPatch
             // modded relics that expose no scalable DynamicVars, where the prefix scales nothing but
             // the curse still rides along. Without this, the curse line silently never renders.
             bool hasCurse = rec.EnemyRider || rec.SelfCurse.Length > 0;
-            if (!rec.HasChanges && counts is null && !companionFam && !hasCurse) return;
+            // A DELIBERATE reforge (ReforgeCount > 0) is a guaranteed prefix the player paid/gambled
+            // for, so it must never look empty: even a weak numeric roll that scaled nothing (a small
+            // prefix rounding to 0 on a small relic, with no curse riding along) still shows its prefix
+            // name on the title + ⚒ header. Without this, such a roll bails here and the prefix appears
+            // to "vanish" — the exact case reforge should never produce. Pickups (count 0) keep their
+            // honest behavior: a weak auto-forge that changed nothing reads as vanilla.
+            bool reforged = rec.ReforgeCount > 0;
+            if (!rec.HasChanges && counts is null && !companionFam && !hasCurse && !reforged) return;
 
             // A one-time reward relic (LostCoffer/NeowsTalisman) dispenses its bonus ONCE, at
             // AfterObtained. Reforging it at a campfire re-rolls the prefix but can't hand out the

@@ -4,6 +4,8 @@
 
 [English README](README.md)
 
+📊 **[대화형 접두사 대시보드 →](https://ing-gom.github.io/sts2-relic-forge/prefix_dashboard.html)** — 모든 접두사 × 모든 유물의 수치 변화표와 등장 확률. 접속 언어를 자동 감지(한국어 / English / 简体中文)하고 직접 전환할 수 있습니다.
+
 ![Relic Forge tooltip](thumbnail.png)
 
 ---

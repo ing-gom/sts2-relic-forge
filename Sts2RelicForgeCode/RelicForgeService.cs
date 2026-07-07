@@ -153,6 +153,13 @@ internal static class RelicForgeService
     private const double CurseRefPower = 0.15;
     private const double CurseFloor = 0.05;
     private const double CurseCap = 0.85;
+
+    // A GUARANTEED reforge (guaranteePrefix) that lands a numeric prefix should never move nothing.
+    // But a min-1 floor on every relic would over-buff the 62% whose numeric base is <= 3 (there +1 is
+    // a 33-100% gain). So the floor is GATED to a large primary var (base >= this): +1 there is a minor
+    // relative gain (<= ~17%), and small-base relics are left to lean on effect prefixes instead (their
+    // pool share was raised in PrefixTable). Deterministic — no rng draw — so it reproduces on load/co-op.
+    private const decimal ReforgeFloorMinBase = 6m;
     private static double CurseChanceFor(Prefix prefix)
     {
         double boon = prefix.PowerPct > 0 ? prefix.PowerPct
@@ -549,6 +556,34 @@ internal static class RelicForgeService
             {
                 VarName = dv.Name, OldValue = baseVal, NewValue = newVal, Dir = dir
             });
+        }
+
+        // B2 floor: a GUARANTEED reforge that produced no numeric change (a low-tier prefix rounding
+        // to 0) shouldn't feel empty. If the relic has a large-enough primary var, nudge THAT ONE var
+        // by 1 in the prefix's direction. Gated to base >= ReforgeFloorMinBase so small relics are
+        // never over-buffed, to reforge (guaranteePrefix) so pickups keep their honest rounding, and
+        // to non-Amplify numeric prefixes (Amplify is the high-variance gamble — a fizzle stays a fizzle).
+        if (guaranteePrefix && !record.HasChanges && !prefix.Amplify)
+        {
+            DynamicVar? primary = null; decimal bestBase = 0m; var pdir = AffixDir.Increase;
+            foreach (DynamicVar dv in relic.DynamicVars.Values)
+            {
+                if (dv.BaseValue < ReforgeFloorMinBase) continue;
+                var d = AffixPolicy.DirectionFor(policyKey, dv.Name);
+                if (d == AffixDir.Skip) continue;
+                if (dv.BaseValue > bestBase) { bestBase = dv.BaseValue; primary = dv; pdir = d; }
+            }
+            if (primary != null)
+            {
+                decimal baseVal = primary.BaseValue;
+                int signed = pct >= 0 ? 1 : -1;
+                decimal newVal = Math.Max(1m, pdir == AffixDir.Increase ? baseVal + signed : baseVal - signed);
+                if (newVal != baseVal)
+                {
+                    primary.BaseValue = newVal;
+                    record.Changes.Add(new VarChange { VarName = primary.Name, OldValue = baseVal, NewValue = newVal, Dir = pdir });
+                }
+            }
         }
 
         if (!record.HasChanges) return null;

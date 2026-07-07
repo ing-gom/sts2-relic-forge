@@ -4,6 +4,8 @@ A **Slay the Spire 2** mod that gives the relics you find a **Terraria-style pre
 
 [한국어 README](README.ko.md)
 
+📊 **[Interactive Prefix Dashboard →](https://ing-gom.github.io/sts2-relic-forge/prefix_dashboard.html)** — every prefix × every relic with per-stat deltas and roll odds. Auto-detects your language (English / 한국어 / 简体中文) and lets you switch.
+
 ![Relic Forge tooltip](thumbnail.png)
 
 ---

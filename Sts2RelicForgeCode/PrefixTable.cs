@@ -113,10 +113,13 @@ internal sealed class Prefix
 /// <summary>
 /// Single universal prefix pool, adapted from Terraria's item modifiers. Magnitudes track
 /// Terraria's value multipliers, scaled down to fit relics (Legendary is the rare top,
-/// down through Keen). Negatives are included but SOFTENED — low weight (~12% total) and
-/// small magnitude — so a bad roll only slightly weakens a relic. A relic's rarity does
-/// NOT change the pool or magnitude (Terraria-style: any item can roll any prefix); rarity
-/// only gates eligibility (Starter/Event never get a prefix).
+/// down through Keen). This mod's identity is a GAMBLE: downside is intentionally substantial
+/// (~25% of the pool is a pure penalty/curse — magnitude negatives Damaged/Shoddy/Broken plus
+/// the penalty-companion prefixes — with more on the mixed/amber gambles), so a reforge is a
+/// real risk, not a free upgrade. A pickup may still roll no prefix (ForgeConfig.NoPrefixChance),
+/// but a deliberate reforge always lands one (guaranteePrefix) — the gamble you paid for.
+/// A relic's rarity does NOT change the pool or magnitude (Terraria-style: any item can roll any
+/// prefix); rarity only gates the automatic pickup forge (Starter/Event never auto-forge).
 ///
 /// NOTE: names are English Terraria terms for now; localization (incl. Korean) is deferred
 /// until the prefix set is settled.
@@ -132,9 +135,15 @@ internal static class PrefixTable
         new Prefix { Name = "Demonic",   Ko = "악마의",     Zh = "恶魔的",   PowerPct =  0.25, Weight =  6, Color = "#c04dff" },
         new Prefix { Name = "Superior",  Ko = "훌륭한",     Zh = "高级的",   PowerPct =  0.18, Weight =  9, Color = "#4dd24d" },
         new Prefix { Name = "Forceful",  Ko = "강력한",     Zh = "强力的",   PowerPct =  0.12, Weight = 12, Color = "#7ed957" },
-        new Prefix { Name = "Hurtful",   Ko = "고통스러운", Zh = "致伤的",   PowerPct =  0.08, Weight = 15, Color = "#a7e34d" },
-        new Prefix { Name = "Zealous",   Ko = "열성적인",   Zh = "狂热的",   PowerPct =  0.06, Weight = 15, Color = "#4db8ff" },
-        new Prefix { Name = "Keen",      Ko = "날카로운",   Zh = "锐利的",   PowerPct =  0.04, Weight = 15, Color = "#9fd8ff" },
+        // Low-tier magnitude prefixes weighted DOWN (was 15/15/15): a +4~8% bump rounds to +0 on
+        // most relics (62% have a numeric base <= 3), so they were the main source of "empty"
+        // reforges. Cutting their weight raises the RELATIVE share of every effect prefix (companion/
+        // reactive/character) — which do something regardless of base — without touching any magnitude,
+        // so there's zero overbalance risk. See RelicForgeService.Forge (ReforgeFloorMinBase) for the
+        // complementary floor that keeps big relics from ever reforging to a literal 0-change.
+        new Prefix { Name = "Hurtful",   Ko = "고통스러운", Zh = "致伤的",   PowerPct =  0.08, Weight = 10, Color = "#a7e34d" },
+        new Prefix { Name = "Zealous",   Ko = "열성적인",   Zh = "狂热的",   PowerPct =  0.06, Weight =  7, Color = "#4db8ff" },
+        new Prefix { Name = "Keen",      Ko = "날카로운",   Zh = "锐利的",   PowerPct =  0.04, Weight =  5, Color = "#9fd8ff" },
         // amplify — raises EVERY var's raw magnitude (both boons and downsides). On a
         // single-boon relic it's just a strong buff; on a mixed relic (Brimstone: self +
         // enemy strength) it's a high-risk/high-reward trade-off. Power ~= Demonic. Volatile

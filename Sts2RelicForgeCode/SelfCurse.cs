@@ -48,7 +48,8 @@ internal static class SelfCurseTable
         return null;
     }
 
-    /// <summary>Uniform deterministic pick from a 0..1 roll (matches RiderSuffix.Pick).</summary>
+    /// <summary>Uniform deterministic pick from a 0..1 roll. (RiderSuffix.Pick is weighted; self-curses
+    /// stay uniform since none is disproportionately punishing.)</summary>
     public static SelfCurseDef Pick(double roll)
     {
         int i = (int)(roll * All.Length);

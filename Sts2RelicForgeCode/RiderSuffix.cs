@@ -15,6 +15,7 @@ internal sealed class RiderSuffixDef
     public string Color = "#e0554d";               // tint for the enemy nameplate
     public string PrefixName = "";                 // the EnemyPrefix this grants to enemies (empty for on-hit riders)
     public string EffKo = "", EffEn = "", EffZh = ""; // short "enemies gain X" line
+    public int Weight = 10;                        // relative roll weight (see RiderSuffix.Pick); lower = rarer
 
     /// <summary>Stable loc-key base derived from the English name (see <see cref="ForgeLoc"/>).</summary>
     internal string LocKeyBase => "RIDER_" + ForgeLoc.KeyOf(En);
@@ -32,9 +33,9 @@ internal static class RiderSuffix
             EffKo = "적이 힘을 얻습니다",           EffEn = "Enemies gain Strength",    EffZh = "敌人获得力量" },
         new RiderSuffixDef { En = "Malice",     Ko = "악의", Zh = "恶意", Color = "#9fb2c9", PrefixName = "Armored",
             EffKo = "적이 판금을 얻습니다", EffEn = "Enemies gain Plated Armor", EffZh = "敌人获得镀甲" },
-        new RiderSuffixDef { En = "Spite",      Ko = "원한", Zh = "怨恨", Color = "#7ed957", PrefixName = "Spiny",
+        new RiderSuffixDef { En = "Spite",      Ko = "원한", Zh = "怨恨", Color = "#7ed957", PrefixName = "Spiny", Weight = 4,
             EffKo = "적이 가시를 얻습니다",     EffEn = "Enemies gain Thorns",       EffZh = "敌人获得荆棘" },
-        new RiderSuffixDef { En = "the Tyrant", Ko = "폭군", Zh = "暴君", Color = "#ff8000", PrefixName = "Legendary",
+        new RiderSuffixDef { En = "the Tyrant", Ko = "폭군", Zh = "暴君", Color = "#ff8000", PrefixName = "Legendary", Weight = 3,
             EffKo = "적이 힘·판금·가시를 얻습니다", EffEn = "Enemies gain Strength, Plated Armor & Thorns", EffZh = "敌人获得力量·镀甲·荆棘" },
         new RiderSuffixDef { En = "Bloodlust",  Ko = "피",   Zh = "血",   Color = "#c0335a", PrefixName = "Regenerating",
             EffKo = "적이 매 턴 50% 확률로 재생 3을 얻습니다", EffEn = "Enemies gain Regen 3 each turn (50% chance)", EffZh = "敌人每回合有50%概率获得3层再生" },
@@ -58,13 +59,24 @@ internal static class RiderSuffix
             EffKo = "보스가 최대 체력을 얻습니다", EffEn = "Bosses gain Max HP", EffZh = "首领获得最大生命" },
     };
 
-    /// <summary>Deterministic pick from a 0..1 roll; returns the English key stored on the record.</summary>
+    /// <summary>Deterministic WEIGHTED pick from a 0..1 roll; returns the English key stored on the record.
+    /// Thorns-granting riders (Spite, the Tyrant) carry a lower <see cref="RiderSuffixDef.Weight"/> so they
+    /// surface less often — enemy Thorns punishes multi-hit decks far harder than the other riders (it
+    /// scales with the player's hit count and stacks with duplicates), so it must be rarer.</summary>
     public static string Pick(double roll)
     {
-        int i = (int)(roll * All.Length);
-        if (i >= All.Length) i = All.Length - 1;
-        if (i < 0) i = 0;
-        return All[i].En;
+        int total = 0;
+        foreach (var s in All) total += s.Weight;
+        if (total <= 0) return All[0].En;
+        if (roll < 0) roll = 0; else if (roll >= 1) roll = 0.999999;
+        double target = roll * total;
+        double acc = 0;
+        foreach (var s in All)
+        {
+            acc += s.Weight;
+            if (target < acc) return s.En;
+        }
+        return All[All.Length - 1].En;
     }
 
     public static RiderSuffixDef? ByKey(string en)

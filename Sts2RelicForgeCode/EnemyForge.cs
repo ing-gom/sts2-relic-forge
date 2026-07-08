@@ -99,11 +99,11 @@ internal static class EnemyPrefixTable
         new EnemyPrefix { Name = "Armored", Ko = "강철의",   Zh = "钢铁的", Color = "#9fb2c9",
             Effects = new[] { Pow(Plate, 5) } },                                  // Plated Armor 5
         new EnemyPrefix { Name = "Spiny",   Ko = "가시돋친", Zh = "尖刺的", Color = "#7ed957",
-            Effects = new[] { Pow(Thorn, 3) } },                                  // Thorns 3
+            Effects = new[] { Pow(Thorn, 2) } },                                  // Thorns 2 (per curse; stacks)
         new EnemyPrefix { Name = "Regenerating", Ko = "재생하는", Zh = "再生的", Color = "#6ee0a0",
             Effects = new[] { Pow(Regen, 3, period: 1, chance: 0.5) } },          // 50% each turn: Regen 3
         new EnemyPrefix { Name = "Legendary", Ko = "전설적인", Zh = "传奇的", Color = "#ff8000",
-            Effects = new[] { Pow(Str, 1), Pow(Plate, 4), Pow(Thorn, 2) } },      // Strength 1 + Plating 4 + Thorns 2
+            Effects = new[] { Pow(Str, 1), Pow(Plate, 4), Pow(Thorn, 1) } },      // Strength 1 + Plating 4 + Thorns 1
         new EnemyPrefix { Name = "Warded", Ko = "수호받은", Zh = "守护的", Color = "#ffd23f",
             Effects = new[] { Pow(Artif, 1) } },                                  // Artifact 1: negate your debuffs
         new EnemyPrefix { Name = "Shielded", Ko = "보호막의", Zh = "护盾的", Color = "#7ed0ff",
@@ -136,7 +136,7 @@ internal static class EnemyPrefixTable
 /// <summary>
 /// The "enemy forge" balance mechanism: while you carry relics that rolled the enemy-rider curse (see
 /// <see cref="RelicForgeService"/>), the enemies in EVERY fight (normal, elite, boss) gain FIXED native
-/// buffs matching those curses — Strength 2, Thorns 3, Plated Armor 5, Artifact 1, etc. Duplicated
+/// buffs matching those curses — Strength 2, Thorns 2, Plated Armor 5, Artifact 1, etc. Duplicated
 /// curses stack. No random rolls, no magnitude/tier scaling: what the tooltip states is exactly what
 /// enemies get. Everything is deterministic and applied via host-authoritative commands so co-op stays
 /// in sync.

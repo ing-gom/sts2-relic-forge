@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
@@ -9,6 +10,7 @@ using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Hooks;
+using MegaCrit.Sts2.Core.Localization.DynamicVars;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Orbs;
@@ -235,11 +237,37 @@ internal static class CharAffixPatches
     /// unattaches the pet, so PetOwner may be gone afterwards), then when the damage task settles fire
     /// the handler for killed pets that lost real HP. The once-per-turn gate in OnSummonDamaged
     /// dedupes any overlap with DamagePatch (removal-prevented deaths raise both paths).</summary>
-    [HarmonyPatch(typeof(CreatureCmd), nameof(CreatureCmd.Damage),
-        typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(decimal), typeof(ValueProp),
-        typeof(Creature), typeof(CardModel))]
+    [HarmonyPatch]
     internal static class LethalSummonDamagePatch
     {
+        /// <summary>Resolve the batch-damage command at runtime instead of pinning one exact overload
+        /// in the attribute. CreatureCmd.Damage has ~10 overloads and the batch signature has drifted
+        /// across game versions (the CardModel cardSource tail param was added later), so a hard pin
+        /// throws "Undefined target method" on any build whose signature differs — which, before the
+        /// ModKit per-class patching fix, aborted the whole mod init (settings menu vanished). Bind to
+        /// the richest available batch overload (IEnumerable&lt;Creature&gt; targets, returns
+        /// Task&lt;IEnumerable&lt;DamageResult&gt;&gt;); Harmony injects targets/choiceContext/__result by
+        /// name, so any of these tails works. Returns null if none match → the class is cleanly skipped
+        /// by ModBootstrap rather than killing init.</summary>
+        private static MethodBase? TargetMethod()
+        {
+            Type[][] candidates =
+            {
+                // richest first (current SDK) → progressively older / DamageVar variants
+                new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(decimal), typeof(ValueProp), typeof(Creature), typeof(CardModel) },
+                new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(decimal), typeof(ValueProp), typeof(Creature) },
+                new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(DamageVar), typeof(Creature), typeof(CardModel) },
+                new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(DamageVar), typeof(Creature) },
+            };
+            foreach (var sig in candidates)
+            {
+                var m = AccessTools.Method(typeof(CreatureCmd), nameof(CreatureCmd.Damage), sig);
+                if (m != null) return m;
+            }
+            MainFile.Logger.Warn($"[{MainFile.ModId}] LethalSummonDamagePatch: no compatible CreatureCmd.Damage batch overload on this game version — lethal-summon affix path disabled.");
+            return null;
+        }
+
         private static void Prefix(IEnumerable<Creature> targets, out Dictionary<Creature, Player>? __state)
         {
             __state = null;

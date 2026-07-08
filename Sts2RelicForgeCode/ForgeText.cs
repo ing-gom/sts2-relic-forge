@@ -75,6 +75,21 @@ internal static class ForgeText
               .Append(color).Append(']').Append(sign).Append(d)
               .Append("[/").Append(color).Append(']');
         }
+        // Tier tie-break bonus: a positive prefix that rounded to the same delta as the tier below it
+        // carries an extra combat-start chance-of-more (see RelicForgeService.ApplyTierTiebreak). Show it
+        // as its own green line UNDER the numeric delta. The fizzle-SUBSTITUTION case (the prefix IS a
+        // fallback) is already rendered by the note block above, so it's excluded here.
+        if (rec.FallbackPercent > 0 && rec.FallbackStat.Length > 0
+            && !(PrefixTable.ByName(rec.Prefix)?.IsFallback ?? false))
+        {
+            Prefix? fbp = PrefixTable.FallbackByStat(rec.FallbackStat);
+            if (fbp != null)
+            {
+                string note = fbp.NoteDisplay;
+                if (note.Contains("{0}")) { try { note = string.Format(note, rec.FallbackPercent); } catch { /* keep raw */ } }
+                sb.Append("\n[green]").Append(note).Append("[/green]");
+            }
+        }
         // Enemy-rider curse: name the SPECIFIC buff this relic grants elites/bosses (only surfaced
         // when the mechanic is enabled). Amber warning so the trade-off is clear.
         if (rec.EnemyRider && HostForgeConfig.EnemyForgeEnabled)

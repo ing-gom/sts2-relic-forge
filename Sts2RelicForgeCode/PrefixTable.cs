@@ -488,6 +488,36 @@ internal static class PrefixTable
     /// negative magnitude prefix that scaled nothing).</summary>
     public static Prefix PickFallbackPenalty(uint seed) => FallbackPenalties[(int)(seed % (uint)FallbackPenalties.Length)];
 
+    /// <summary>The positive, non-Amplify magnitude tiers' powers, ascending. Used to find the tier
+    /// just below a rolled one for the tie-break check (see RelicForgeService.ApplyTierTiebreak).</summary>
+    private static readonly double[] PositiveTiers = BuildPositiveTiers();
+    private static double[] BuildPositiveTiers()
+    {
+        var list = new List<double>();
+        foreach (var p in All)
+            if (!p.IsCompanionPrefix && !p.Amplify && p.PowerPct > 0) list.Add(p.PowerPct);
+        list.Sort();
+        return list.ToArray();
+    }
+
+    /// <summary>The largest positive magnitude tier strictly below <paramref name="pct"/>, or 0 if it is
+    /// already the lowest tier (nothing below to tie with).</summary>
+    public static double NextLowerTierPct(double pct)
+    {
+        double lower = 0;
+        foreach (double t in PositiveTiers) { if (t < pct - 1e-9) lower = t; else break; }
+        return lower;
+    }
+
+    /// <summary>The fallback prefix that grants a given stat (e.g. "Strength" → Honed), for the tie-break
+    /// tooltip note + amount; null if none.</summary>
+    public static Prefix? FallbackByStat(string stat)
+    {
+        foreach (var p in Fallbacks)
+            if (string.Equals(p.FallbackStat, stat, StringComparison.OrdinalIgnoreCase)) return p;
+        return null;
+    }
+
     /// <summary>Find a prefix by name (case-insensitive) for the test console command.</summary>
     public static Prefix? ByName(string name)
     {

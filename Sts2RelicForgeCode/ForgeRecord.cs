@@ -78,9 +78,15 @@ internal sealed class ForgeRecord
     // companion's counter (e.g. "attacks until next trigger"). Null for delayed/non-graft prefixes.
     public RelicModel? Companion;
 
-    // Fallback substitution: when a magnitude prefix rounded to NO change on this relic, it was
-    // replaced by a fallback prefix (see PrefixTable / RelicForgeService.Forge). This is the chance
-    // (percent) its combat-start buff fires — derived from the fizzled prefix's tier — and is shown
-    // in the tooltip note ({0}). 0 = not a fallback substitution. Re-derived on load (not persisted).
+    // Fallback / tie-break combat-start chance buff (see FallbackBuffPatch). Two producers:
+    //  · SUBSTITUTION — a magnitude prefix that rounded to NO change on this relic was replaced by a
+    //    fallback prefix (Prefix is set to the fallback's name);
+    //  · TIER TIE-BREAK — a positive prefix whose var delta ties the tier just below it keeps its
+    //    prefix name but gains this chance buff to stay strictly better (RelicForgeService.ApplyTierTiebreak).
+    // FallbackPercent is the fire chance; FallbackStat/Amount is what the roll grants at combat start
+    // (Strength/Dexterity/Block/Thorns, or a self-debuff Weak/Frail/Vulnerable for a penalty fallback).
+    // 0 = none. All re-derived on load (not persisted).
     public int FallbackPercent;
+    public string FallbackStat = "";
+    public int FallbackAmount;
 }

@@ -41,6 +41,14 @@ internal static class RelicForgeService
     // are re-derived on load.
     private static readonly ConditionalWeakTable<RelicModel, RelicModel> Companions = new();
 
+    // TEST-ONLY: relic instances whose fallback / tie-break combat-start buff should fire EVERY combat
+    // regardless of its rolled chance — so `forgefallback` verifies the effects reliably WHILE the tooltip
+    // still shows the real (5–60%) odds. Populated by the test command, consulted by FallbackBuffPatch.
+    // Local only (never networked / serialized). ConditionalWeakTable = used as a set, value ignored.
+    private static readonly ConditionalWeakTable<RelicModel, object> ForceFireSet = new();
+    public static void MarkForceFire(RelicModel relic) => ForceFireSet.AddOrUpdate(relic, new object());
+    public static bool IsForceFire(RelicModel relic) => ForceFireSet.TryGetValue(relic, out _);
+
     // Save/load carries the reforge COUNT (the one non-seed-derivable value) as a SavedProperty
     // on the serialized relic. FromSerializable rebuilds a fresh RelicModel instance well before
     // LoadRun re-forges, so the count captured there is parked here, keyed by that instance, and
@@ -174,6 +182,46 @@ internal static class RelicForgeService
     /// far less often than a buff fallback helps. See RelicForgeService.Forge substitution.</summary>
     private static int FallbackPenaltyChanceFor(double pct)
         => pct <= -0.25 ? 20 : pct <= -0.18 ? 15 : 10;
+
+    /// <summary>Scaled vars that map to a combat-grantable stat, so a tier tie-break can grant "a chance
+    /// of +1 more of the same stat". Non-power vars (Gold, Cards, MaxHp…) can't, and get no tie-break.</summary>
+    private static readonly System.Collections.Generic.Dictionary<string, string> VarStat = new()
+    {
+        ["StrengthPower"] = "Strength", ["DexterityPower"] = "Dexterity",
+        ["ThornsPower"] = "Thorns", ["Block"] = "Block",
+    };
+
+    /// <summary>Tier tie-break chance (percent) from the tier's power — higher tier → higher chance, so
+    /// tied tiers still order strictly by expected value. The % maps to the chance, clamped [5,60].</summary>
+    private static int TieChance(double pct) => System.Math.Clamp((int)System.Math.Round(pct * 100), 5, 60);
+
+    /// <summary>Tier tie-break: if <paramref name="prefix"/> scaled the primary var to the SAME integer
+    /// delta the tier just below it would (integer rounding collapses adjacent tiers on small/mid relics),
+    /// give it a small combat-start chance-of-more of that stat so the higher tier is strictly better and
+    /// the tooltip shows the edge. No-op when the tier already stands apart or the var isn't grantable.</summary>
+    private static void ApplyTierTiebreak(string policyKey, Prefix prefix, ForgeRecord record)
+    {
+        VarChange? primary = null;
+        foreach (var c in record.Changes)
+            if (c.Dir == AffixDir.Increase && (primary == null || c.OldValue > primary.OldValue)) primary = c;
+        if (primary == null) return;
+        if (!VarStat.TryGetValue(primary.VarName, out string? stat)) return;   // stat must be combat-grantable
+        Prefix? fb = PrefixTable.FallbackByStat(stat);
+        if (fb == null) return;
+
+        double lowerPct = PrefixTable.NextLowerTierPct(prefix.PowerPct);
+        if (lowerPct <= 0) return;   // already the lowest tier — nothing below to tie with
+
+        double b = AffixPolicy.BoostFor(policyKey, primary.VarName);
+        int deltaThis = (int)System.Math.Abs(primary.NewValue - primary.OldValue);
+        int deltaLower = (int)System.Math.Round(primary.OldValue * (decimal)(lowerPct * b),
+                                                System.MidpointRounding.AwayFromZero);
+        if (deltaLower != deltaThis) return;   // the tier already gives more than the one below — no tie
+
+        record.FallbackPercent = TieChance(prefix.PowerPct);
+        record.FallbackStat = fb.FallbackStat;
+        record.FallbackAmount = fb.FallbackAmount;
+    }
 
     private static double CurseChanceFor(Prefix prefix)
     {
@@ -535,11 +583,17 @@ internal static class RelicForgeService
         if (prefix.IsCompanionPrefix)
         {
             record.CompanionRelic = prefix.CompanionRelic; // null for delayed prefixes
-            // A fallback prefix is normally only reached via substitution below (which sets the chance);
+            // A fallback prefix is normally only reached via substitution below (which sets chance+stat);
             // if one is FORCED directly (test command `forge <relic> Honed`), give it a visible default
             // so it actually fires and previews in-game.
             if (prefix.IsFallback && record.FallbackPercent == 0)
-                record.FallbackPercent = FallbackChanceFor(0.25);
+            {
+                // No fizzled-tier context when FORCED, so show a representative mid-band chance
+                // (buff 35 of 20/35/50; penalty 15 of 10/15/20) rather than a made-up 100%.
+                record.FallbackPercent = prefix.Penalty ? 15 : 35;
+                record.FallbackStat = prefix.FallbackStat;
+                record.FallbackAmount = prefix.FallbackAmount;
+            }
             return $"{prefix.Name} {relicId}: {(prefix.CompanionRelic != null ? "graft " + prefix.CompanionRelic.Name : "delayed t" + prefix.DelayTurn)}";
         }
 
@@ -577,6 +631,12 @@ internal static class RelicForgeService
                 VarName = dv.Name, OldValue = baseVal, NewValue = newVal, Dir = dir
             });
         }
+
+        // Tier tie-break: a positive prefix that rounded to the same var delta as the tier below it gains
+        // a small combat-start chance-of-more so it stays strictly better (see ApplyTierTiebreak). Applies
+        // whenever it actually scaled a grantable stat — pickup, reforge, and load alike.
+        if (pct > 0 && !prefix.Amplify && record.HasChanges)
+            ApplyTierTiebreak(policyKey, prefix, record);
 
         // B2 floor: a GUARANTEED reforge that produced no numeric change (a low-tier prefix rounding
         // to 0) shouldn't feel empty. If the relic has a large-enough primary var, nudge THAT ONE var
@@ -626,6 +686,8 @@ internal static class RelicForgeService
             record.Percent = 0;
             record.Amplify = false;
             record.FallbackPercent = chance;
+            record.FallbackStat = fb.FallbackStat;
+            record.FallbackAmount = fb.FallbackAmount;
             return $"{original}->{fb.Name} {relicId}: {chance}% {fb.FallbackStat} +{fb.FallbackAmount}";
         }
         // Mirror for a NEGATIVE magnitude prefix that scaled nothing: on a PAID reforge only, replace it
@@ -641,6 +703,8 @@ internal static class RelicForgeService
             record.Percent = 0;
             record.Amplify = false;
             record.FallbackPercent = chance;
+            record.FallbackStat = fb.FallbackStat;
+            record.FallbackAmount = fb.FallbackAmount;
             return $"{original}->{fb.Name} {relicId}: {chance}% self {fb.FallbackStat} +{fb.FallbackAmount}";
         }
 

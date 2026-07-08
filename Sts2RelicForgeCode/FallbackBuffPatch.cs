@@ -45,19 +45,21 @@ internal static class FallbackBuffPatch
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
                 var rec = RelicForgeService.RecordFor(relic);
-                if (rec == null || rec.FallbackPercent <= 0) continue;
-                var pfx = PrefixTable.ByName(rec.Prefix);
-                if (pfx == null || !pfx.IsFallback) continue;
+                if (rec == null || rec.FallbackPercent <= 0 || rec.FallbackStat.Length == 0) continue;
 
                 // Deterministic per-(relic, combat) roll — matches ForgeCombatAffixPatch's idiom but
-                // keyed on TotalFloor (not turn) so it re-rolls each combat instead of every turn.
-                var rng = new Rng((uint)((int)runSeed + floor * 68917
-                                         + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
-                if (rng.NextFloat() * 100f >= rec.FallbackPercent) continue;   // didn't fire this combat
+                // keyed on TotalFloor (not turn) so it re-rolls each combat instead of every turn. The
+                // test command can force a relic to always fire WITHOUT touching the displayed chance.
+                if (!RelicForgeService.IsForceFire(relic))
+                {
+                    var rng = new Rng((uint)((int)runSeed + floor * 68917
+                                             + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+                    if (rng.NextFloat() * 100f >= rec.FallbackPercent) continue;   // didn't fire this combat
+                }
 
-                decimal amt = pfx.FallbackAmount;
+                decimal amt = rec.FallbackAmount;
                 relic.Flash();                              // pulse the host (prefixed) relic
-                switch (pfx.FallbackStat)
+                switch (rec.FallbackStat)
                 {
                     case "Strength":
                         TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(choiceContext, creature, amt, creature, null)); break;
@@ -77,7 +79,7 @@ internal static class FallbackBuffPatch
                     default:
                         continue;
                 }
-                MainFile.Logger.Info($"[{MainFile.ModId}] fallback {pfx.Name} fired ({rec.FallbackPercent}% {pfx.FallbackStat} +{pfx.FallbackAmount}) on {relic.Id.Entry}.");
+                MainFile.Logger.Info($"[{MainFile.ModId}] fallback fired ({rec.FallbackPercent}% {rec.FallbackStat} +{rec.FallbackAmount}) on {relic.Id.Entry} [{rec.Prefix}].");
             }
         }
         catch (Exception e)

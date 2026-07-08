@@ -47,6 +47,13 @@ internal static class ForgeText
         {
             Prefix? pfx = PrefixTable.ByName(rec.Prefix);
             string note = pfx?.NoteDisplay ?? "";
+            // Fallback prefixes carry a {0} chance placeholder — fill it with this relic's rolled odds
+            // (derived from the fizzled tier). Guard the format so a translation that drops {0} can't throw.
+            if (pfx is { IsFallback: true } && note.Contains("{0}"))
+            {
+                try { note = string.Format(note, rec.FallbackPercent); }
+                catch { /* malformed placeholder in a translation — leave the raw note */ }
+            }
             if (note.Length > 0)
             {
                 if (pfx!.Mixed)

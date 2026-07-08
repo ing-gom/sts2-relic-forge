@@ -77,4 +77,10 @@ internal sealed class ForgeRecord
     // The granted hidden companion instance (runtime only), so the host icon can mirror the
     // companion's counter (e.g. "attacks until next trigger"). Null for delayed/non-graft prefixes.
     public RelicModel? Companion;
+
+    // Fallback substitution: when a magnitude prefix rounded to NO change on this relic, it was
+    // replaced by a fallback prefix (see PrefixTable / RelicForgeService.Forge). This is the chance
+    // (percent) its combat-start buff fires — derived from the fizzled prefix's tier — and is shown
+    // in the tooltip note ({0}). 0 = not a fallback substitution. Re-derived on load (not persisted).
+    public int FallbackPercent;
 }

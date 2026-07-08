@@ -160,6 +160,15 @@ internal static class RelicForgeService
     // relative gain (<= ~17%), and small-base relics are left to lean on effect prefixes instead (their
     // pool share was raised in PrefixTable). Deterministic — no rng draw — so it reproduces on load/co-op.
     private const decimal ReforgeFloorMinBase = 6m;
+
+    /// <summary>Chance (percent) the FALLBACK buff fires, banded from the fizzled magnitude prefix's
+    /// power tier: the stronger the prefix that scaled nothing, the better the odds of its replacement.
+    /// Host-independent (the raw fractional magnitude isn't used), so var-less relics and base-1 relics
+    /// get a sensible chance instead of a ~4% one. Capped at 50% (a minor buff, never a sure thing).
+    /// Bands: &lt;12% tier → 20, 12–24% → 35, ≥25% → 50. See RelicForgeService.Forge substitution.</summary>
+    private static int FallbackChanceFor(double pct)
+        => pct >= 0.25 ? 50 : pct >= 0.12 ? 35 : 20;
+
     private static double CurseChanceFor(Prefix prefix)
     {
         double boon = prefix.PowerPct > 0 ? prefix.PowerPct
@@ -520,6 +529,11 @@ internal static class RelicForgeService
         if (prefix.IsCompanionPrefix)
         {
             record.CompanionRelic = prefix.CompanionRelic; // null for delayed prefixes
+            // A fallback prefix is normally only reached via substitution below (which sets the chance);
+            // if one is FORCED directly (test command `forge <relic> Honed`), give it a visible default
+            // so it actually fires and previews in-game.
+            if (prefix.IsFallback && record.FallbackPercent == 0)
+                record.FallbackPercent = FallbackChanceFor(0.25);
             return $"{prefix.Name} {relicId}: {(prefix.CompanionRelic != null ? "graft " + prefix.CompanionRelic.Name : "delayed t" + prefix.DelayTurn)}";
         }
 
@@ -584,6 +598,29 @@ internal static class RelicForgeService
                     record.Changes.Add(new VarChange { VarName = primary.Name, OldValue = baseVal, NewValue = newVal, Dir = pdir });
                 }
             }
+        }
+
+        // Fallback substitution: a POSITIVE magnitude prefix (not Amplify, not a companion/effect
+        // prefix) that scaled NOTHING on this relic — too small / var-less, and the floor above couldn't
+        // help — would otherwise show a named prefix that does nothing. Replace it with a host-independent
+        // chance-gated minor combat-start buff (FallbackBuffPatch), whose odds reflect the fizzled tier,
+        // so the prefix always does something and the chance is shown. Scoped to where an empty boon is a
+        // real loss: a PAID reforge, or a relic that also carries a curse (the boon is its counterweight).
+        // A plain uncursed PICKUP keeps its honest rounding (a weak roll reads as vanilla). Negative /
+        // Amplify fizzles are left as-is (a dodged downside / a deliberate high-variance gamble).
+        // Deterministic: the pick uses a derived seed (SplitMix, no main-rng draw), so relics that DID
+        // change stay byte-identical and co-op/load reproduce the same substitution.
+        if (!record.HasChanges && !prefix.IsCompanionPrefix && !prefix.Amplify && pct > 0
+            && (guaranteePrefix || record.EnemyRider || record.SelfCurse.Length > 0))
+        {
+            Prefix fb = PrefixTable.PickFallback(SplitMix32(seed ^ 0x5F356495u));
+            int chance = FallbackChanceFor(pct);
+            string original = prefix.Name;
+            record.Prefix = fb.Name;   // same record instance in Records — downstream reads the fallback
+            record.Percent = 0;
+            record.Amplify = false;
+            record.FallbackPercent = chance;
+            return $"{original}->{fb.Name} {relicId}: {chance}% {fb.FallbackStat} +{fb.FallbackAmount}";
         }
 
         if (!record.HasChanges) return null;

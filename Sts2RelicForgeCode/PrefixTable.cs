@@ -90,14 +90,24 @@ internal sealed class Prefix
     public string RequiredCharacter = "";
     public bool CharAffix;
 
+    // --- Fallback prefix (see RelicForgeService.Forge substitution + FallbackBuffPatch). NOT in the
+    //     normal roll pool (PrefixTable.InPool excludes it): a magnitude prefix that rounded to NO
+    //     change on a relic (too small / var-less) is REPLACED by one of these — a host-independent,
+    //     CHANCE-gated minor combat-start buff. The chance is derived from the fizzled prefix's tier
+    //     (RelicForgeService.FallbackChanceFor) and stored on the record (ForgeRecord.FallbackPercent),
+    //     so the note shows the real odds. FallbackStat names the power granted; scales no host var. ---
+    public string FallbackStat = "";   // "" = not a fallback; else "Strength"/"Dexterity"/"Block"/"Thorns"
+    public int FallbackAmount;          // how much of the stat the combat-start roll grants
+    public bool IsFallback => FallbackStat.Length > 0;
+
     /// <summary>True for any companion-family prefix (grafts a relic, delays/strips an effect,
-    /// applies a symmetric/random effect, is a penalty, or is a reactive/character affix) — none of
-    /// these scale the host's vars.</summary>
+    /// applies a symmetric/random effect, is a penalty, is a reactive/character affix, or is a
+    /// fallback buff) — none of these scale the host's vars.</summary>
     public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0 || Penalty
                                      || EnemyStrip || SymPower.Length > 0 || RandomDebuff
                                      || GainAmplify || LossInvert || EnergyDischarge > 0
                                      || CurseDrawStrength || GoldStrengthPer > 0 || CharAffix
-                                     || ReplayGrant;
+                                     || ReplayGrant || IsFallback;
 
     /// <summary>Stable loc-key base derived from the English name (see <see cref="ForgeLoc"/>).</summary>
     internal string LocKeyBase => "PREFIX_" + ForgeLoc.KeyOf(Name);
@@ -307,6 +317,20 @@ internal static class PrefixTable
             NoteEn = "At combat start, lose 1 gold per card in your deck",
             NoteZh = "战斗开始时，每有1张牌失去1金币" },
 
+        // --- Fallback prefixes (NOT rolled normally — InPool excludes them; Weight 0). A magnitude
+        //     prefix that rounded to no change on a relic is REPLACED by one of these (see
+        //     RelicForgeService.Forge). A host-independent, chance-gated minor combat-start buff whose
+        //     chance ({0}) is filled from the fizzled prefix's tier — so a reforge/cursed pickup always
+        //     does something and the odds are shown. Green (a boon), never Mixed/Penalty. ---
+        new Prefix { Name = "Honed", Ko = "벼려진", Zh = "磨砺的", Weight = 0, FallbackStat = "Strength", FallbackAmount = 1, Color = "#7ed957",
+            NoteKo = "전투 시작 시 {0}% 확률로 힘 +1", NoteEn = "At combat start, {0}% chance to gain 1 Strength", NoteZh = "战斗开始时，{0}%概率获得1点力量" },
+        new Prefix { Name = "Bulwarked", Ko = "굳건한", Zh = "坚壁的", Weight = 0, FallbackStat = "Block", FallbackAmount = 3, Color = "#4db8ff",
+            NoteKo = "전투 시작 시 {0}% 확률로 블록 3", NoteEn = "At combat start, {0}% chance to gain 3 Block", NoteZh = "战斗开始时，{0}%概率获得3点格挡" },
+        new Prefix { Name = "Nimble", Ko = "날렵한", Zh = "敏捷的", Weight = 0, FallbackStat = "Dexterity", FallbackAmount = 1, Color = "#6ed9c0",
+            NoteKo = "전투 시작 시 {0}% 확률로 민첩 +1", NoteEn = "At combat start, {0}% chance to gain 1 Dexterity", NoteZh = "战斗开始时，{0}%概率获得1点敏捷" },
+        new Prefix { Name = "Barbed", Ko = "미늘의", Zh = "倒刺的", Weight = 0, FallbackStat = "Thorns", FallbackAmount = 2, Color = "#a7e34d",
+            NoteKo = "전투 시작 시 {0}% 확률로 가시 2", NoteEn = "At combat start, {0}% chance to gain 2 Thorns", NoteZh = "战斗开始时，{0}%概率获得2荆棘" },
+
         // ============================ Character-gated affixes ============================
         // Each rolls ONLY when the owner plays the named character (CharAffix + RequiredCharacter),
         // and reacts to that character's signature mechanic. See CharAffix / CharAffixPatches.
@@ -428,12 +452,24 @@ internal static class PrefixTable
         return last ?? All[All.Length - 1];
     }
 
-    /// <summary>Whether a prefix is eligible for the current character's roll pool: universal (no
-    /// RequiredCharacter) always, character-gated only when the character matches (case-insensitive
+    /// <summary>Whether a prefix is eligible for the current character's roll pool: fallback prefixes
+    /// are NEVER rolled (they only appear via substitution — see RelicForgeService.Forge); universal
+    /// (no RequiredCharacter) always, character-gated only when the character matches (case-insensitive
     /// on CharacterModel Id.Entry, e.g. "SILENT").</summary>
     private static bool InPool(Prefix p, string? character)
-        => p.RequiredCharacter.Length == 0
-           || (character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase));
+        => !p.IsFallback
+           && (p.RequiredCharacter.Length == 0
+               || (character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>The fallback-buff prefixes (out of the normal roll pool), used to REPLACE a magnitude
+    /// prefix that scaled nothing on a relic. Order is stable (source order), so the deterministic
+    /// pick below reproduces across peers/loads.</summary>
+    private static readonly Prefix[] Fallbacks = Array.FindAll(All, p => p.IsFallback);
+
+    /// <summary>Deterministically pick one fallback prefix from a (mixed) seed. No RNG object / no
+    /// stream consumption — a pure index off the seed — so substituting one relic never perturbs any
+    /// other relic's roll, and co-op/load reproduce the same choice.</summary>
+    public static Prefix PickFallback(uint seed) => Fallbacks[(int)(seed % (uint)Fallbacks.Length)];
 
     /// <summary>Find a prefix by name (case-insensitive) for the test console command.</summary>
     public static Prefix? ByName(string name)

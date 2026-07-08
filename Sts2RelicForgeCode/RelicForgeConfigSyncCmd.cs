@@ -77,6 +77,9 @@ internal static class ForgeConfigBroadcaster
 
         // Never in combat (shop / rest / menu only), so inCombat is false — matches the reforge dispatch.
         run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, synced, inCombat: false));
+        // Breadcrumb for the "black screen on event/room entry" report: this networked enqueue is the ONLY
+        // mod code that fires per-room in co-op, so a hang right after this line in a client's log pins it.
+        MainFile.Logger.Info($"[{MainFile.ModId}] host broadcast rf_config to clients.");
     }
 
     private static string Verb() => RelicForgeConfigSyncCmd.Verb;

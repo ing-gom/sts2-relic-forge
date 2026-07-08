@@ -19,6 +19,7 @@ public class MainFile
     private const string EntryKeyForgeAncient = "forgeAncientRelics";
     private const string EntryKeySelfCurse = "selfCurseChance";
     private const string EntryKeyCleanseCost = "shopCleanseCost";
+    private const string EntryKeyRoomBroadcast = "roomBroadcastEnabled";
 
     public static readonly MegaCrit.Sts2.Core.Logging.Logger Logger
         = ModBootstrap.CreateLogger(ModId);
@@ -67,6 +68,10 @@ public class MainFile
                 onChanged: v => { ForgeConfig.SelfCurseShare = v / 100.0; ForgeConfigBroadcaster.BroadcastIfHost(); })
                 .Range(0f, 100f, 5f, format: "F0")
                 .Description("Of the relics that carry a curse (see 'Curse chance'), the share that get a self-curse — punishes YOU on unblocked hits (Weak/Frail/Vulnerable to self, or a status card) — instead of an enemy-rider curse. 0 = all curses strengthen enemies; 100 = all curses punish you. The two never stack on one relic.")
+            .Toggle(EntryKeyRoomBroadcast, "Sync forge config every room (co-op)",
+                defaultValue: true,
+                onChanged: v => ForgeConfig.RoomBroadcastEnabled = v)
+                .Description("Co-op only: the host re-sends its forge settings to clients on every room entry so event/reward/treasure relics derive identically. Default ON — leave it on for normal play. Turn OFF only if you get a BLACK SCREEN entering rooms/events in co-op: shop & rest still sync, so only combat-reward/event/treasure curse rolls may differ per client until the next shop/rest. Single-player is unaffected either way.")
             .Register();
 
         // Now that the keys are registered, read the saved-or-default values.
@@ -76,6 +81,7 @@ public class MainFile
         ForgeConfig.CurseChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyRiderChance, 33.0) / 100.0;
         ForgeConfig.ForgeAncientRelics = ModConfigBridge.GetValue<bool>(ModId, EntryKeyForgeAncient, true);
         ForgeConfig.SelfCurseShare = ModConfigBridge.GetValue<double>(ModId, EntryKeySelfCurse, 22.0) / 100.0;
+        ForgeConfig.RoomBroadcastEnabled = ModConfigBridge.GetValue<bool>(ModId, EntryKeyRoomBroadcast, true);
 
         Logger.Info($"[{ModId}] shop reforge cost {ForgeConfig.ShopReforgeBaseCost}g +{ForgeConfig.ShopReforgeCostStep}/reforge, no-prefix chance {ForgeConfig.NoPrefixChance:P0}.");
     }

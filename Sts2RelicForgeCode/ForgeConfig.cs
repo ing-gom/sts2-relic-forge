@@ -86,4 +86,15 @@ internal static class ForgeConfig
     /// Adjustable in-game via ModConfig. See <see cref="SelfCurseTable"/>.
     /// </summary>
     public static double SelfCurseShare = 0.22;
+
+    /// <summary>
+    /// DIAGNOSTIC / co-op: whether the host re-broadcasts its forge config on EVERY room entry
+    /// (<see cref="RoomEnterConfigBroadcastPatch"/>). Default ON — unchanged behavior. Turn OFF only to
+    /// diagnose a co-op "black screen on room/event entry" hang: the shop/rest broadcasts remain, so the
+    /// host config still reaches clients before shop/rest reforges; only combat-reward / event / treasure
+    /// obtains lose the pre-broadcast, which can let their CURSE kind (not the prefix or its numbers)
+    /// re-derive per-client until the next shop/rest broadcast. Single-player is unaffected either way —
+    /// the broadcast is a no-op off a real co-op host. See <see cref="ForgeConfigBroadcaster.BroadcastIfHost"/>.
+    /// </summary>
+    public static bool RoomBroadcastEnabled = true;
 }

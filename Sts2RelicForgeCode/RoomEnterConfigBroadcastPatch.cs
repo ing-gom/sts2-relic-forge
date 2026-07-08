@@ -20,6 +20,9 @@ internal static class RoomEnterConfigBroadcastPatch
 {
     private static void Prefix()
     {
+        // Diagnostic kill-switch (co-op only): lets an affected player stop the per-room re-broadcast
+        // if it turns out to be the "black screen on event/room entry" hang. No-op in single-player.
+        if (!ForgeConfig.RoomBroadcastEnabled) return;
         try { ForgeConfigBroadcaster.BroadcastIfHost(); }
         catch (Exception e)
         {

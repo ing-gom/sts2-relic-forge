@@ -293,6 +293,84 @@ internal static class RelicForgeService
         MainFile.Logger.Info($"[{MainFile.ModId}] grafted {companion.Id.Entry} onto {host.Id.Entry} ({rec.Prefix}).");
     }
 
+    /// <summary>
+    /// COMBAT-START self-heal for one owned relic. The forge grade lives ONLY on the in-memory
+    /// DynamicVarSet + the <see cref="Records"/> table (keyed by instance) — it is never serialized,
+    /// and is normally re-derived by just two hooks: pickup (Obtain) and <see cref="RunLoadReforgePatch"/>
+    /// (NGame.LoadRun). A foreign "restart combat" feature (e.g. Better Spire 2's double-R retry) restores
+    /// run/combat state through a path that NEVER calls LoadRun, so the affix is silently lost:
+    ///   · the restart swapped in a FRESH relic instance -> no record, canonical BaseValues (prefix vanishes);
+    ///   · or it kept the instance but reset its DynamicVars to canonical (effect vanishes).
+    /// This runs at every combat start (idempotent) and repairs BOTH cases before combat reads any value:
+    ///   · record present -> re-assert the stored enhanced BaseValues (a cheap no-op when already applied);
+    ///   · record absent  -> re-derive the SAME seed-deterministic grade LoadRun would, consuming any parked
+    ///     reforge-count / cleansed flag, and re-graft companions.
+    /// Deterministic per (seed, floor, id, count) and identical on every peer, so it is co-op safe.
+    /// </summary>
+    public static void HealForge(RelicModel relic, Player player)
+    {
+        if (relic == null || player == null) return;
+        if (IsCompanion(relic)) return;                 // hidden donors are never forged themselves
+
+        if (Records.TryGetValue(relic, out var rec))
+        {
+            if (rec.DisplayOnly) return;                // history-view stub — no live var deltas to assert
+            // Instance kept, but a foreign restart may have reset BaseValues to canonical -> put them back.
+            // Gate on "== OldValue" (the canonical value forge captured): that is the exact signal the var
+            // was reset. If it holds NewValue we're already forged (no-op); if it holds anything ELSE the
+            // game legitimately changed it mid-run, so we must NOT clobber it back to the forged number.
+            foreach (var c in rec.Changes)
+                if (relic.DynamicVars.TryGetValue(c.VarName, out var dv) && dv.BaseValue == c.OldValue)
+                    dv.BaseValue = c.NewValue;
+            EnsureCompanion(relic, player, rec);   // a hover may have re-derived the record WITHOUT grafting
+            return;
+        }
+
+        // No record: the restart swapped in a fresh instance. Re-derive exactly like LoadRun does —
+        // a re-forged relic persisted a count>0 (parked on FromSerializable) and guarantees a prefix.
+        uint seed = player.RunState.Rng.Seed;
+        int rf = TakePendingReforgeCount(relic);
+        bool cleansed = TakePendingCleansed(relic);
+        string? summary = Forge(relic, seed, relic.FloorAddedToDeck,
+              reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(player));
+        // Non-eligible relics (Starter/Event) never get a record — Forge returned null without adding one.
+        // Don't log or graft for them: they'd otherwise spam this line every single combat.
+        var rec2 = RecordFor(relic);
+        if (rec2 == null) return;
+        if (cleansed) ApplyCleanse(relic);
+        EnsureCompanion(relic, player, rec2);
+        // A relic that reached combat WITHOUT its forge record was restored by a LoadRun-bypassing restart
+        // (e.g. BetterSpire2 Reset Round) — re-derived here from its pickup floor + reforge count.
+        MainFile.Logger.Info($"[{MainFile.ModId}] combat-start heal restored {relic.Id.Entry} -> '{rec2.Prefix}'"
+            + $"{(rf > 0 ? $" (reforge #{rf})" : "")} [{summary ?? "no numeric change"}]");
+    }
+
+    /// <summary>Grant the record's graft companion if it wants one but it is missing (never granted, or the
+    /// hidden instance was dropped by a restart). No-op for non-graft prefixes or an already-owned companion.
+    /// Called at combat start (HealForge) — where both co-op peers run deterministically — NOT from the hover
+    /// preview path, so a per-client hover never adds a hidden relic on only one peer.</summary>
+    private static void EnsureCompanion(RelicModel relic, Player player, ForgeRecord rec)
+    {
+        if (rec.CompanionRelic == null) return;                                   // not a graft prefix
+        if (rec.CompanionGranted && rec.Companion != null
+            && player.Relics.Contains(rec.Companion)) return;                     // already present
+        // A re-derived record lost the reference (Companion == null) while the donor instance may still
+        // be owned. ADOPT that existing companion rather than granting a SECOND one — a duplicate leaves
+        // this peer with one more hidden relic than the others and desyncs co-op. Only adopt the matching
+        // donor type; a wrong-type leftover is purged on the next reforge (RemoveCompanions).
+        var existing = player.Relics.FirstOrDefault(
+            r => IsCompanion(r) && HostOf(r) == relic && r.GetType() == rec.CompanionRelic);
+        if (existing != null)
+        {
+            rec.Companion = existing;
+            rec.CompanionGranted = true;
+            return;
+        }
+        rec.CompanionGranted = false;                                            // stale/missing -> allow re-grant
+        rec.Companion = null;
+        GrantCompanionIfAny(relic, player);
+    }
+
     /// <summary>Result of a reforge attempt: the prefix was re-rolled, or the relic broke and was destroyed.</summary>
     /// <summary>Result of a reforge: a normal re-roll, or one that landed a PENALTY prefix
     /// (the campfire caller ends its reforge action on a penalty — the gamble's cost).</summary>
@@ -323,7 +401,9 @@ internal static class RelicForgeService
         //     record below is enough. Numeric prefixes just restore each changed var to OldValue.
         if (rec != null)
         {
-            RemoveCompanion(rec, player);
+            // Scan-based purge (not the stored reference) so a re-derived record can never strand an
+            // orphaned companion — the co-op relic-count divergence that black-screens at a campfire.
+            RemoveCompanions(relic, rec, player);
             foreach (var c in rec.Changes)
                 if (relic.DynamicVars.TryGetValue(c.VarName, out var dv))
                     dv.BaseValue = c.OldValue; // setter also ResetToBase() -> tooltip reverts
@@ -369,28 +449,36 @@ internal static class RelicForgeService
         return rolled.Penalty ? ReforgeOutcome.RolledPenalty : ReforgeOutcome.Reforged;
     }
 
-    /// <summary>Remove the hidden companion instance a graft prefix granted, if any (safe if none).</summary>
-    private static void RemoveCompanion(ForgeRecord rec, Player player)
+    /// <summary>
+    /// Remove EVERY hidden companion grafted onto <paramref name="host"/>, found by SCANNING the player's
+    /// relic list — deliberately NOT by the record's stored <c>Companion</c> reference.
+    ///
+    /// A record can be re-derived (LoadRun, combat-start <see cref="HealForge"/>, or a foreign "restart
+    /// combat" feature) which resets <c>Companion</c> to null while the OLD donor instance is still owned.
+    /// A reference-based removal would then STRAND that orphan; in co-op it strands on only the peer that
+    /// re-derived, so the two clients' relic lists differ by one hidden relic — the exact 3-vs-2 count
+    /// divergence that fails the game checksum on "Exiting rest site room" and drops the session (black
+    /// screen). Scanning removes every companion of this host on every peer identically, so a reforge
+    /// always reconverges: after this the host owns no companion, and the new prefix grafts the right one.
+    /// </summary>
+    private static void RemoveCompanions(RelicModel host, ForgeRecord? rec, Player player)
     {
-        var companion = rec.Companion;
-        if (companion == null) return;
-
-        // Mirror the grant path in reverse: unsubscribe the host-mirror handler, then drop the
-        // hidden instance from the player so its hooks stop firing.
-        if (HostOf(companion) is RelicModel host)
-            companion.DisplayAmountChanged -= host.InvokeDisplayAmountChanged;
-        try
+        // Snapshot: we mutate player.Relics while iterating.
+        foreach (var companion in player.Relics.Where(r => IsCompanion(r) && HostOf(r) == host).ToList())
         {
-            if (player.Relics.Contains(companion))
-                player.RemoveRelicInternal(companion, silent: true);
+            companion.DisplayAmountChanged -= host.InvokeDisplayAmountChanged; // mirror the grant in reverse
+            try
+            {
+                if (player.Relics.Contains(companion))
+                    player.RemoveRelicInternal(companion, silent: true);
+            }
+            catch (Exception e)
+            {
+                MainFile.Logger.Warn($"[{MainFile.ModId}] reforge un-graft failed: {e.Message}");
+            }
+            Companions.Remove(companion);
         }
-        catch (Exception e)
-        {
-            MainFile.Logger.Warn($"[{MainFile.ModId}] reforge un-graft failed: {e.Message}");
-        }
-        Companions.Remove(companion);
-        rec.Companion = null;
-        rec.CompanionGranted = false;
+        if (rec != null) { rec.Companion = null; rec.CompanionGranted = false; }
     }
 
     // A grafted effect should be a WEAKER version of owning the real relic. Reduce each
@@ -432,6 +520,28 @@ internal static class RelicForgeService
     {
         if (!relic.IsMutable) return;                   // never mutate ModelDb templates
         if (Records.TryGetValue(relic, out _)) return;  // already forged
+        // An OWNED relic can momentarily lose its forge record when a foreign combat-restart (e.g.
+        // BetterSpire2 double-tap R) swaps its instance without re-forging. Hovering it then reached here
+        // and re-forged it against the CURRENT TotalFloor — a DIFFERENT floor than pickup — rolling a
+        // different (wrong) prefix that STUCK (e.g. Insightful -> Fickle). Route owned relics through the
+        // SAME load/heal derivation (FloorAddedToDeck + reforge count + owner character + companion regraft),
+        // so a hover RESTORES the correct affix instead of corrupting it. Only a genuinely OFFERED (unowned)
+        // relic previews against the current floor — which is correct, since its pickup floor is the current one.
+        if (relic.Owner is Player owner)
+        {
+            // DISPLAY-only record re-derive against the REAL pickup floor (+ reforge count + character), so
+            // the tooltip shows the correct prefix. Deliberately does NOT graft the companion / apply combat
+            // effects: a hover is a LOCAL, per-client action, and mutating shared state (adding a hidden
+            // relic) on hover would desync co-op. The authoritative companion graft happens at combat start
+            // in HealForge (which both peers run). Uses FloorAddedToDeck — NOT TotalFloor — so the derived
+            // prefix matches pickup instead of the current floor (the Insightful->Fickle corruption bug).
+            int rf = TakePendingReforgeCount(relic);
+            bool cleansed = TakePendingCleansed(relic);
+            Forge(relic, owner.RunState.Rng.Seed, relic.FloorAddedToDeck,
+                  reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(owner));
+            if (cleansed) ApplyCleanse(relic);
+            return;
+        }
         var state = RunManager.Instance.State;
         if (state == null) return;                      // not in a run
         Forge(relic, state.Rng.Seed, state.TotalFloor);

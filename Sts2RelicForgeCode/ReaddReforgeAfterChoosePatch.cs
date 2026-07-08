@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Context;              // LocalContext
@@ -45,29 +46,55 @@ internal static class ReaddReforgeAfterChoosePatch
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] reforge re-add failed: {e.Message}"); }
     }
 
-    private static async Task<bool> ReaddAfter(RestSiteSynchronizer sync, Player player, Task<bool> inner)
+    // We wrap EVERY rest option's choose-task (Heal/Smith/any other mod's option). Chain the re-add
+    // onto ChooseOption's OWN task via ContinueWith + Unwrap — NOT by awaiting it inside our own async
+    // method. The returned task then MIRRORS `inner` exactly: if the chosen option's handling faults
+    // (vanilla's index-guard InvalidOperationException, or another mod's rest-option OnSelect), that
+    // fault propagates with its ORIGINAL stack trace and THIS patch never appears in it — so we are no
+    // longer mis-blamed for a crash we merely observed. (An async `await inner` wrapper, by contrast,
+    // splices this method's frame into that trace.) We still log the true origin, and behavior is
+    // otherwise identical to the no-mod path. ExecuteSynchronously runs the continuation inline on the
+    // thread that completed `inner` — in Godot that is the main thread (awaits resume on the game's
+    // SynchronizationContext), so the node/list touch below stays on the main thread as before.
+    private static Task<bool> ReaddAfter(RestSiteSynchronizer sync, Player player, Task<bool> inner)
     {
-        bool result = await inner; // let ChooseOption finish (OnSelect + any Clear/RemoveAt) first
-        try
+        return inner.ContinueWith(t =>
         {
-            if (player != null
-                && RestSiteReforgeSupport.ByPlayer.TryGetValue(player.NetId, out var reforge)
-                && RestSiteReforgeSupport.HasReforgeable(player)
-                && sync.GetOptionsForPlayer(player) is List<RestSiteOption> opts
-                && !opts.Contains(reforge))
+            if (t.Status == TaskStatus.RanToCompletion)
             {
-                // Runs on every client for this player, so all copies of the list stay identical
-                // (index-based selection therefore stays consistent). Only refresh the button UI on
-                // the client actually viewing this player's rest site.
-                opts.Add(reforge);
-                if (LocalContext.IsMe(player))
-                    NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
+                try
+                {
+                    if (player != null
+                        && RestSiteReforgeSupport.ByPlayer.TryGetValue(player.NetId, out var reforge)
+                        && RestSiteReforgeSupport.HasReforgeable(player)
+                        && sync.GetOptionsForPlayer(player) is List<RestSiteOption> opts
+                        && !opts.Contains(reforge))
+                    {
+                        // Runs on every client for this player, so all copies of the list stay identical
+                        // (index-based selection therefore stays consistent). Only refresh the button UI
+                        // on the client actually viewing this player's rest site.
+                        opts.Add(reforge);
+                        if (LocalContext.IsMe(player))
+                            NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
+                    }
+                }
+                catch (Exception e)
+                {
+                    // A fault HERE genuinely is our re-add (list mutation / room refresh).
+                    MainFile.Logger.Warn(
+                        $"[{MainFile.ModId}] re-add reforge option failed (our path): {e.GetType().Name}: {e.Message}\n{e.StackTrace}");
+                }
             }
-        }
-        catch (Exception e)
-        {
-            MainFile.Logger.Warn($"[{MainFile.ModId}] re-add reforge option failed: {e.Message}");
-        }
-        return result;
+            else if (t.IsFaulted)
+            {
+                // The chosen option's own handling faulted — log the TRUE origin so this patch isn't
+                // mis-attributed. We do not swallow it: Unwrap re-propagates `t` unchanged below.
+                var e = t.Exception?.GetBaseException();
+                MainFile.Logger.Warn(
+                    $"[{MainFile.ModId}] rest-option select faulted BEFORE our re-add (origin is the chosen "
+                    + $"option, not this patch): {e?.GetType().Name}: {e?.Message}\n{e?.StackTrace}");
+            }
+            return t; // Unwrap flattens to a Task<bool> that mirrors `inner` (result OR original fault)
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).Unwrap();
     }
 }

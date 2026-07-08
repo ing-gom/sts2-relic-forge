@@ -67,6 +67,13 @@ internal static class FallbackBuffPatch
                         TaskHelper.RunSafely(PowerCmd.Apply<ThornsPower>(choiceContext, creature, amt, creature, null)); break;
                     case "Block":
                         TaskHelper.RunSafely(CreatureCmd.GainBlock(creature, amt, ValueProp.Unpowered, null)); break;
+                    // Penalty fallbacks — a self-debuff (applier = self, so it never reads as an enemy hit).
+                    case "Weak":
+                        TaskHelper.RunSafely(PowerCmd.Apply<WeakPower>(choiceContext, creature, amt, creature, null)); break;
+                    case "Frail":
+                        TaskHelper.RunSafely(PowerCmd.Apply<FrailPower>(choiceContext, creature, amt, creature, null)); break;
+                    case "Vulnerable":
+                        TaskHelper.RunSafely(PowerCmd.Apply<VulnerablePower>(choiceContext, creature, amt, creature, null)); break;
                     default:
                         continue;
                 }

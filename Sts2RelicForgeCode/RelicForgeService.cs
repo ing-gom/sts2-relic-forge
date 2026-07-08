@@ -169,6 +169,12 @@ internal static class RelicForgeService
     private static int FallbackChanceFor(double pct)
         => pct >= 0.25 ? 50 : pct >= 0.12 ? 35 : 20;
 
+    /// <summary>Chance (percent) the PENALTY fallback fires, banded from the fizzled NEGATIVE prefix's
+    /// tier. Deliberately LOW (10/15/20) — a fizzled downside on a paid reforge keeps a little bite, but
+    /// far less often than a buff fallback helps. See RelicForgeService.Forge substitution.</summary>
+    private static int FallbackPenaltyChanceFor(double pct)
+        => pct <= -0.25 ? 20 : pct <= -0.18 ? 15 : 10;
+
     private static double CurseChanceFor(Prefix prefix)
     {
         double boon = prefix.PowerPct > 0 ? prefix.PowerPct
@@ -621,6 +627,21 @@ internal static class RelicForgeService
             record.Amplify = false;
             record.FallbackPercent = chance;
             return $"{original}->{fb.Name} {relicId}: {chance}% {fb.FallbackStat} +{fb.FallbackAmount}";
+        }
+        // Mirror for a NEGATIVE magnitude prefix that scaled nothing: on a PAID reforge only, replace it
+        // with a low-chance combat-start self-debuff so a fizzled downside keeps a little of the gamble's
+        // bite. Plain uncursed pickups keep their dodged-downside luck (honest rounding). Same derived-seed
+        // determinism as the buff branch.
+        else if (!record.HasChanges && !prefix.IsCompanionPrefix && !prefix.Amplify && pct < 0 && guaranteePrefix)
+        {
+            Prefix fb = PrefixTable.PickFallbackPenalty(SplitMix32(seed ^ 0x2545F491u));
+            int chance = FallbackPenaltyChanceFor(pct);
+            string original = prefix.Name;
+            record.Prefix = fb.Name;
+            record.Percent = 0;
+            record.Amplify = false;
+            record.FallbackPercent = chance;
+            return $"{original}->{fb.Name} {relicId}: {chance}% self {fb.FallbackStat} +{fb.FallbackAmount}";
         }
 
         if (!record.HasChanges) return null;

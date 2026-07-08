@@ -331,6 +331,17 @@ internal static class PrefixTable
         new Prefix { Name = "Barbed", Ko = "미늘의", Zh = "倒刺的", Weight = 0, FallbackStat = "Thorns", FallbackAmount = 2, Color = "#a7e34d",
             NoteKo = "전투 시작 시 {0}% 확률로 가시 2", NoteEn = "At combat start, {0}% chance to gain 2 Thorns", NoteZh = "战斗开始时，{0}%概率获得2荆棘" },
 
+        // Penalty fallbacks: the mirror of the buff fallbacks above. A NEGATIVE magnitude prefix
+        // (Damaged/Shoddy/Broken) that rounds to no change on a relic is replaced (on a reforge) by
+        // one of these — a LOW-chance combat-start self-debuff, so a fizzled downside still keeps a
+        // little of the gamble's bite instead of vanishing. Penalty = true → red note. Out of pool.
+        new Prefix { Name = "Sapped", Ko = "무기력한", Zh = "虚弱的", Weight = 0, FallbackStat = "Weak", FallbackAmount = 1, Penalty = true, Color = "#b0554d",
+            NoteKo = "전투 시작 시 {0}% 확률로 자신에게 약화 1", NoteEn = "At combat start, {0}% chance to gain 1 Weak", NoteZh = "战斗开始时，{0}%概率给予自己1虚弱" },
+        new Prefix { Name = "Wilted", Ko = "시든", Zh = "枯萎的", Weight = 0, FallbackStat = "Frail", FallbackAmount = 1, Penalty = true, Color = "#a0605a",
+            NoteKo = "전투 시작 시 {0}% 확률로 자신에게 손상 1", NoteEn = "At combat start, {0}% chance to gain 1 Frail", NoteZh = "战斗开始时，{0}%概率给予自己1脆弱" },
+        new Prefix { Name = "Exposed", Ko = "허술한", Zh = "破绽的", Weight = 0, FallbackStat = "Vulnerable", FallbackAmount = 1, Penalty = true, Color = "#9a6b8f",
+            NoteKo = "전투 시작 시 {0}% 확률로 자신에게 취약 1", NoteEn = "At combat start, {0}% chance to gain 1 Vulnerable", NoteZh = "战斗开始时，{0}%概率给予自己1易伤" },
+
         // ============================ Character-gated affixes ============================
         // Each rolls ONLY when the owner plays the named character (CharAffix + RequiredCharacter),
         // and reacts to that character's signature mechanic. See CharAffix / CharAffixPatches.
@@ -461,15 +472,21 @@ internal static class PrefixTable
            && (p.RequiredCharacter.Length == 0
                || (character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase)));
 
-    /// <summary>The fallback-buff prefixes (out of the normal roll pool), used to REPLACE a magnitude
-    /// prefix that scaled nothing on a relic. Order is stable (source order), so the deterministic
-    /// pick below reproduces across peers/loads.</summary>
-    private static readonly Prefix[] Fallbacks = Array.FindAll(All, p => p.IsFallback);
+    /// <summary>The fallback prefixes (out of the normal roll pool), used to REPLACE a magnitude prefix
+    /// that scaled nothing on a relic — BUFF fallbacks for a positive prefix, PENALTY fallbacks for a
+    /// negative one. Order is stable (source order), so the deterministic picks below reproduce across
+    /// peers/loads.</summary>
+    private static readonly Prefix[] Fallbacks = Array.FindAll(All, p => p.IsFallback && !p.Penalty);
+    private static readonly Prefix[] FallbackPenalties = Array.FindAll(All, p => p.IsFallback && p.Penalty);
 
-    /// <summary>Deterministically pick one fallback prefix from a (mixed) seed. No RNG object / no
-    /// stream consumption — a pure index off the seed — so substituting one relic never perturbs any
-    /// other relic's roll, and co-op/load reproduce the same choice.</summary>
+    /// <summary>Deterministically pick one BUFF fallback from a (mixed) seed. No RNG object / no stream
+    /// consumption — a pure index off the seed — so substituting one relic never perturbs any other
+    /// relic's roll, and co-op/load reproduce the same choice.</summary>
     public static Prefix PickFallback(uint seed) => Fallbacks[(int)(seed % (uint)Fallbacks.Length)];
+
+    /// <summary>Deterministically pick one PENALTY fallback (mirror of <see cref="PickFallback"/>, for a
+    /// negative magnitude prefix that scaled nothing).</summary>
+    public static Prefix PickFallbackPenalty(uint seed) => FallbackPenalties[(int)(seed % (uint)FallbackPenalties.Length)];
 
     /// <summary>Find a prefix by name (case-insensitive) for the test console command.</summary>
     public static Prefix? ByName(string name)

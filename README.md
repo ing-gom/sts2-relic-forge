@@ -22,7 +22,7 @@ A **Slay the Spire 2** mod that gives the relics you find a **Terraria-style pre
   - **Run-state** — respond to your gold, deck and curse cards.
   - **Keyword** — grant card keywords like Retain and Exhaust.
   - **Character** — only roll for the character you play; 3 boons + 2 curses each.
-- **Reforge at campfires & shops** — re-roll a relic's prefix at a rest site (free, but a penalty prefix ends it) or at a merchant (escalating gold, unlimited). See [Reforge](#reforge) below.
+- **Reforge at campfires & shops** — re-roll a relic's prefix at a rest site (free) or at a merchant (escalating gold). Unlimited re-rolls, but rolling a **curse ends it** — a curse can't be re-rolled away, only Cleansed. See [Reforge](#reforge) below.
 - **Tier-colored names** — a forged relic's name is tinted by its prefix (Legendary gold, Broken red …), like loot-rarity colors.
 - **Configurable** — a ModConfig slider sets how often a relic gets NO prefix (default 60% vanilla, so ~40% are forged).
 
@@ -47,7 +47,9 @@ A forged relic can also roll **one curse** — and a stronger prefix is far more
 
 - **Enemy curses** — **enemies grow stronger** while you own the relic: Strength/Plated Armor/Thorns (of Wrath, Malice, Spite, the Tyrant…), Regen, Frenzy, and **Max HP** curses (of Vigor/Girth/the Titan/Eternity). In multi-enemy fights the curses **spread across the pack**.
 - **Self-curses** — **you** take a penalty on each **unblocked** hit, proportional to the hit count: Enfeebling (Weak), Cracking (Frail), Vulnerating (Vulnerable), Bewildering (a Dazed), Wretched (random). Block well and they never fire.
-- **ON by default** — controlled by **"Enemy forge"** in ModConfig. Turn it off for a pure power fantasy.
+- **Penalty prefixes are curses too** — the unified downside. A penalty prefix (Cursed, Cumbersome, Tainted…) counts as a curse: it ends a reforge and is removed by Cleanse, just like an enemy-rider / self-curse.
+- **A curse can't be re-rolled away** — rolling any curse **ends** the reforge (campfire and shop alike); the only way to shed one is **Cleanse**. See [Reforge](#reforge) and [Cleanse](#cleanse-at-merchants).
+- **ON by default** — controlled by **"Enemy forge"** in ModConfig. Turn it off for a pure power fantasy (penalty prefixes still apply — they're part of the prefix pool, not the enemy-forge toggle).
 - Tunable via ModConfig: **"Curse chance"**, **"Self-curse share"** (enemy-vs-self split), and **"Enemy balance strength"**.
 
 ## Reforge
@@ -58,18 +60,18 @@ Re-roll a relic's prefix in two places:
 
 - Pick one of your relics and re-roll its prefix — even a relic that rolled "no prefix" or was never eligible on pickup will land one.
 - It's **free and repeatable** (doesn't consume your rest), and stays available even after you Heal or Smith.
-- The catch: if a reforge rolls a **penalty** prefix, an ill aura settles on the relic and the Reforge option ends for that campfire — so pushing your luck has a cost.
+- The catch: if a reforge rolls a **curse** — a penalty prefix, or an enemy-rider / self-curse — the forge goes cold and the Reforge option ends for that campfire. A curse **can't be re-rolled away**; pushing your luck has a real cost.
 
 ### At merchants (for gold)
 
 - The shop offers a **Reforge** service next to the relics: pay an **escalating gold cost** — **30** for the first reforge and **+10** for each further reforge in the same shop (it resets to 30 at the next shop) — to re-roll a relic's prefix, as often as you can afford.
-- A **paid gamble** — a penalty prefix can still roll, but you can just pay to re-roll it away.
+- **A curse ends it here too** — exactly like the campfire, rolling a curse stops reforging for that shop visit. You can't buy your way out of a curse with a cheap re-roll; shed it with Cleanse, or reforge again at the next shop.
 - Backing out of the relic pick is free.
 
 ### Cleanse (at merchants)
 
-- Right next to reforge, a **Cleanse** service **removes the curse** from a relic while keeping its prefix — a guaranteed upside for a **fixed gold cost** (default 150, adjustable in ModConfig).
-- Only relics that currently carry a curse can be cleansed (unlike reforge, it never touches the prefix).
+- Right next to reforge, a **Cleanse** service **removes the curse** from a relic — a guaranteed upside for a **fixed gold cost** (default 100, adjustable in ModConfig). An enemy-rider / self-curse is stripped while the prefix is kept; a **penalty prefix** (which *is* the curse) is purged, reverting the relic to no prefix.
+- Only relics that currently carry a curse can be cleansed. Since a curse now ends reforging, Cleanse is the intended way to shed one — the risk/reward pivot the reforge loop turns on.
 
 ## Run history
 

@@ -26,8 +26,10 @@ namespace Sts2RelicForge;
 /// one of your relics, reusing the same picker + reforge core as the campfire. Uses are unlimited, but
 /// the cost ESCALATES within a shop visit (base + step per reforge done — see ForgeConfig), so rerolls
 /// are self-limiting; the counter (<see cref="_reforgeCount"/>) lives on this instance and resets at
-/// the next shop. A penalty prefix can still roll — a paid gamble. Gold is charged only once a relic is
-/// actually chosen (cancelling the picker is free).
+/// the next shop. A CURSE can roll (a penalty prefix, or an enemy-rider / self-curse) — and like the
+/// campfire, a curse ENDS reforging for this shop visit (<see cref="_ended"/>): it can't be re-rolled
+/// away for cheap gold, only removed with the sibling Cleanse. Gold is charged only once a relic is
+/// actually chosen (cancelling the picker is free); the counter + ended state reset at the next shop.
 ///
 /// Single-player only (like the campfire reforge and its picker), gated in the patch below.
 /// </summary>
@@ -43,6 +45,7 @@ internal sealed partial class NMerchantReforgeButton : Control
     private NMerchantInventory _shop = null!;
     private Player? _player;
     private bool _busy;
+    private bool _ended;            // a curse roll ended reforging for THIS shop visit (fresh instance per shop resets it)
     private int _reforgeCount;      // reforges done in THIS shop visit; each raises the next cost (see ForgeConfig)
     private TextureButton _icon = null!;
     private string _tipTitle = "";        // hover-tip title (shown via the game's own NHoverTipSet)
@@ -264,17 +267,19 @@ internal sealed partial class NMerchantReforgeButton : Control
         int cost = ForgeConfig.ShopReforgeCostFor(_reforgeCount);
         bool affordable = _player != null && _player.Gold >= cost;
         bool hasRelics = _player != null && RestSiteReforgeSupport.HasReforgeable(_player);
-        bool usable = affordable && hasRelics;
+        bool usable = affordable && hasRelics && !_ended;
 
         if (_costNode != null) SetCostText(_costNode, cost.ToString(), affordable ? StsColors.cream : StsColors.red);
         // Gray it out when unusable via modulate only — NOT Disabled, so hover (tooltip) still works.
         // Clicks are guarded in OnPressed, so a grayed button does nothing when pressed.
         _icon.Modulate = usable ? Colors.White : StsColors.halfTransparentWhite;
+        // When a curse ended reforging, swap the hover body to say so (cleanse remains available).
+        _tipBody = _ended ? ForgeLoc.Ui("SHOP_REFORGE_ENDED") : ForgeLoc.Ui("SHOP_REFORGE_BODY");
     }
 
     private void OnPressed()
     {
-        if (_busy || _player == null) return;
+        if (_busy || _player == null || _ended) return;
         int cost = ForgeConfig.ShopReforgeCostFor(_reforgeCount);
         if (_player.Gold < cost) return;
         var candidates = RestSiteReforgeSupport.Reforgeable(_player).ToList();
@@ -292,10 +297,12 @@ internal sealed partial class NMerchantReforgeButton : Control
             if (chosen != null && _player != null && _player.Gold >= cost)
             {
                 if (cost > 0) await PlayerCmd.LoseGold(cost, _player);
-                ReforgeNet.Reforge(chosen, _player);          // penalty prefix may roll — paid gamble
+                var outcome = ReforgeNet.Reforge(chosen, _player);   // a curse may roll — the paid gamble
                 chosen.Flash();
                 _reforgeCount++;                              // next reforge in this shop costs more (see ForgeConfig)
-                MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge #{_reforgeCount}: {chosen.Id.Entry} for {cost}g.");
+                // A curse ends reforging for this shop visit — it can't be re-rolled away, only Cleansed.
+                if (outcome == RelicForgeService.ReforgeOutcome.RolledCurse) _ended = true;
+                MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge #{_reforgeCount}: {chosen.Id.Entry} for {cost}g{(_ended ? " [CURSE — reforge ended]" : "")}.");
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] shop reforge failed: {e.Message}"); }

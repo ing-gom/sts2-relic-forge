@@ -29,8 +29,9 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
 
     public override string OptionId => Id;
 
-    // Set once a reforge lands a PENALTY prefix: this campfire's reforge action is over (the forge
-    // "goes cold"). Only THIS option ends — heal/smith and the rest continue as normal.
+    // Set once a reforge lands a CURSE (a penalty prefix, or an enemy-rider / self-curse): this
+    // campfire's reforge action is over (the forge "goes cold"). Only THIS option ends — heal/smith
+    // and the rest continue as normal. A curse can't be re-rolled away — only Cleansed at a shop.
     private bool _ended;
 
     // Icon (res://images/ui/rest_site/option_reforge.png) ships in the mod's .pck, so the base
@@ -50,7 +51,7 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
 
     public override async Task<bool> OnSelect()
     {
-        if (_ended) return false;   // a penalty roll already ended reforging at this campfire
+        if (_ended) return false;   // a curse roll already ended reforging at this campfire
 
         // CO-OP: RestSiteSynchronizer.ChooseOption runs this OnSelect on EVERY client — the acting
         // player's choice is replayed on peers via OptionIndexChosenMessage. Our relic picker is a
@@ -75,7 +76,7 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
         {
             var outcome = ReforgeNet.Reforge(chosen, Owner);
             chosen.Flash();                                  // pulse the re-forged relic for feedback
-            if (outcome == RelicForgeService.ReforgeOutcome.RolledPenalty)
+            if (outcome == RelicForgeService.ReforgeOutcome.RolledCurse)
             {
                 // Gambled once too often: the forge goes cold. End THIS action only (return false —
                 // rest not consumed, fire stays lit, heal/smith remain). IsEnabled now returns false;
@@ -117,19 +118,14 @@ internal static class RestSiteReforgeSupport
 
     public static bool HasReforgeable(Player player) => Reforgeable(player).Any();
 
-    /// <summary>Owned relics that currently carry a curse (enemy-rider OR self-curse) — the only relics a
-    /// shop CLEANSE can act on. Unlike <see cref="Reforgeable"/>, cleanse deliberately does NOT honor the
-    /// ForgeAncientRelics opt-out: that option only blocks ADDING a prefix/curse to Ancient (先古) relics,
-    /// but a curse already sitting on one (forged before the toggle was flipped, or via a forced command)
-    /// must stay removable — otherwise it would be trapped on the relic forever. Hidden companion instances
-    /// are excluded since they carry no curse of their own.</summary>
+    /// <summary>Owned relics that currently carry a curse — the merged concept: a penalty prefix (the
+    /// prefix IS the curse), OR an enemy-rider / self-curse. These are the only relics a shop CLEANSE can
+    /// act on. Unlike <see cref="Reforgeable"/>, cleanse deliberately does NOT honor the ForgeAncientRelics
+    /// opt-out: that option only blocks ADDING a prefix/curse to Ancient (先古) relics, but a curse already
+    /// sitting on one (forged before the toggle was flipped, or via a forced command) must stay removable —
+    /// otherwise it would be trapped on the relic forever. Hidden companion instances are excluded.</summary>
     public static IEnumerable<RelicModel> Cleansable(Player player)
-        => player.Relics.Where(r =>
-        {
-            if (RelicForgeService.IsCompanion(r)) return false;
-            var rec = RelicForgeService.RecordFor(r);
-            return rec != null && (rec.EnemyRider || rec.SelfCurse.Length > 0);
-        });
+        => player.Relics.Where(r => !RelicForgeService.IsCompanion(r) && RelicForgeService.CanCleanse(r));
 
     public static bool HasCleansable(Player player) => Cleansable(player).Any();
 
@@ -151,16 +147,16 @@ internal static class RestSiteReforgeSupport
         {
             ["OPTION_REFORGE.name"] = Localize("재련", "重铸", "Reforge"),
             ["OPTION_REFORGE.description"] =
-                Localize("유물 하나를 선택해 재련합니다. 휴식을 소모하지 않아 여러 번 할 수 있습니다. 유물에 안좋은 기운이 서리면 재련이 불가능해집니다.",
-                         "选择一件遗物进行重铸。不消耗休息，可多次使用。但若遗物沾染不祥之气，将无法再重铸。",
-                         "Pick a relic and reforge it. Doesn't use up your rest — repeatable. But if an ill aura settles on a relic, you can no longer reforge here."),
+                Localize("유물 하나를 선택해 재련합니다. 휴식을 소모하지 않아 여러 번 할 수 있습니다. 재련으로 저주가 뜨면 재련이 끝나며, 저주는 상점의 정화로만 없앨 수 있습니다.",
+                         "选择一件遗物进行重铸。不消耗休息，可多次使用。但若重铸出诅咒，重铸即结束；诅咒只能在商店净化，无法再重铸覆盖。",
+                         "Pick a relic and reforge it. Doesn't use up your rest — repeatable. But if a reforge rolls a curse, reforging ends; a curse can't be re-rolled away, only Cleansed at a shop."),
             ["OPTION_REFORGE.descriptionDisabled"] =
                 Localize("재련할 강화된 유물이 없습니다.", "没有可重铸的已强化遗物。",
                          "You have no forged relic to reforge."),
             ["OPTION_REFORGE.descriptionEnded"] =
-                Localize("유물에 안좋은 기운이 서려 대장간의 불이 식었습니다. 이번 휴식에선 더 재련할 수 없습니다.",
-                         "遗物沾染了不祥之气，炉火已冷。本次休息无法再重铸。",
-                         "An ill aura settles over the relic and the forge goes cold — no more reforging at this rest."),
+                Localize("저주가 서려 대장간의 불이 식었습니다. 이번 휴식에선 더 재련할 수 없습니다.",
+                         "诅咒缠身，炉火已冷。本次休息无法再重铸。",
+                         "A curse settles over the relic and the forge goes cold — no more reforging at this rest."),
         });
     }
 }

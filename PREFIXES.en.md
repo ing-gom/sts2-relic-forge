@@ -37,19 +37,19 @@ Instead of scaling numbers, these graft another relic's effect onto yours — bu
 
 | Prefix | Effect | From | Share |
 |---|---|---|---:|
-| Thorned | Thorns 2 at combat start | Bronze Scales | 2.7% |
+| Thorned | Thorns 1 at combat start | Bronze Scales | 2.7% |
 | Mighty | Strength +1 on turn 3 | Vajra | 1.8% |
-| Quicksilver | 2 damage to all enemies each turn | Mercury Hourglass | 1.8% |
-| Anchored | Block 6 at combat start | Anchor | 2.1% |
+| Quicksilver | 1 damage to all enemies each turn | Mercury Hourglass | 1.8% |
+| Anchored | Block 4 at combat start | Anchor | 2.1% |
 | Vital | Heal 1 on turn 1 | Blood Vial | 2.4% |
 | Rhythmic | +1 energy every 4 turns | Happy Flower | 1.5% |
-| Insightful | Draw 2 cards when first hit | Centennial Puzzle | 2.1% |
+| Insightful | Draw 1 card when first hit | Centennial Puzzle | 2.1% |
 | Intimidating | Vulnerable 1 to all enemies on turn 2 | Bag of Marbles | 2.4% |
-| Ferocious | Vigor 5 on turn 1 | Akabeko | 1.5% |
-| Bladed | 3 damage to all enemies per 4 skills in one turn | Letter Opener | 1.8% |
+| Ferocious | Vigor 3 on turn 1 | Akabeko | 1.5% |
+| Bladed | 2 damage to all enemies per 4 skills in one turn | Letter Opener | 1.8% |
 | Relentless | Strength +1 per 4 attacks in one turn | Shuriken | 1.5% |
-| Tempered | Block 4 if you end your turn with no Block | Orichalcum | 2.1% |
-| Gusting | Block 2 per 4 attacks in one turn | Ornamental Fan | 2.1% |
+| Tempered | Block 2 if you end your turn with no Block | Orichalcum | 2.1% |
+| Gusting | Block 1 per 4 attacks in one turn | Ornamental Fan | 2.1% |
 | Darting | Dexterity +1 per 4 attacks in one turn | Kunai | 1.8% |
 | Supple | Dexterity +1 on turn 2 | Oddly Smooth Stone | 2.1% |
 | Accelerating | +1 energy every 12 attacks | Nunchaku | 1.5% |
@@ -58,9 +58,9 @@ Instead of scaling numbers, these graft another relic's effect onto yours — bu
 
 ---
 
-## 3. Penalty prefixes
+## 3. Penalty prefixes = curses
 
-A minority of prefixes are pure downsides (Terraria-style bad rolls) — a small curse on the relic, no upside. Low roll rate.
+A minority of prefixes are pure downsides (Terraria-style bad rolls) — a small curse on the relic, no upside. Low roll rate. **These count as curses** (the merged concept): rolling one **ends the reforge** (campfire *and* shop — a curse can't be re-rolled away for cheap gold), and the only way to shed it is to **Cleanse** at a merchant, which reverts the relic to no prefix. See the [Curse Guide](CURSES.en.md).
 
 | Prefix | Downside | Share |
 |---|---|---:|

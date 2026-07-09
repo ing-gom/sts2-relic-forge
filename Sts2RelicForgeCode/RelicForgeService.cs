@@ -276,6 +276,22 @@ internal static class RelicForgeService
     public static ForgeRecord? RecordFor(RelicModel relic)
         => Records.TryGetValue(relic, out var rec) ? rec : null;
 
+    /// <summary>The forge record to DISPLAY for a hovered relic: the relic's own (owned) record, else the
+    /// record on its offered/preview clone — a canonical offer (treasure/reward/event) forges onto a clone,
+    /// so RecordFor(__instance) is null but the preview record lives on the clone. Null if unforged. Used by
+    /// the tooltip patches so owned AND offered relics both surface the prefix/curse panels.</summary>
+    public static ForgeRecord? RecordForHover(RelicModel relic)
+    {
+        var rec = RecordFor(relic);
+        if (rec != null) return rec;
+        try
+        {
+            var clone = PreviewCloneFor(relic) ?? PreviewOnHover(relic);
+            return clone != null ? RecordFor(clone) : null;
+        }
+        catch { return null; }   // preview forge on a canonical can throw — treat as "nothing to show"
+    }
+
     /// <summary>
     /// Attach a DISPLAY-ONLY forge record to a run-history-reconstructed relic, parsed from the stored
     /// "prefix|riderSuffix|selfCurse" summary (see <see cref="RfDescKey"/>). No var deltas are stored,

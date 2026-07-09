@@ -33,6 +33,7 @@ internal static class ForgeLoc
     internal static readonly Dictionary<string, (string en, string ko, string zh)> UiStrings = new()
     {
         ["UI.CURSED_MARK"] = ("(Cursed)", "〈저주〉", "〈诅咒〉"),
+        ["UI.CURSE_TITLE"] = ("Curse", "저주", "诅咒"),
         ["UI.PICKER_BANNER_REFORGE"] = ("Choose a relic to reforge", "재련할 유물 선택", "选择要重铸的遗物"),
         ["UI.SKIP"] = ("Skip", "건너뛰기", "跳过"),
         ["UI.SHOP_REFORGE_TITLE"] = ("Reforge", "재련", "重铸"),

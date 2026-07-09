@@ -189,6 +189,13 @@ internal static class RelicForgeService
     private const double CurseFloor = 0.05;
     private const double CurseCap = 0.85;
 
+    // A NO-PREFIX forged relic (the ~45% NoPrefixChance "dud") can still land a curse ON ITS OWN — a
+    // "curse-only" relic: pure downside, no boon, the outcome that replaces the old penalty prefixes.
+    // It is deliberately RARER than a curse riding a boon (a dud that turns actively bad should be the
+    // occasional unlucky roll, not common), so the reference chance is scaled by this factor. Reforge
+    // never produces one (guaranteePrefix always lands a prefix), so curse-only comes only from pickups.
+    private const double CurseOnlyFactor = 0.5;
+
     // A GUARANTEED reforge (guaranteePrefix) that lands a numeric prefix should never move nothing.
     // But a min-1 floor on every relic would over-buff the 62% whose numeric base is <= 3 (there +1 is
     // a 33-100% gain). So the floor is GATED to a large primary var (base >= this): +1 there is a minor
@@ -257,6 +264,12 @@ internal static class RelicForgeService
                     : CurseRefPower;
         return Math.Clamp(HostForgeConfig.CurseChance * (boon / CurseRefPower), CurseFloor, CurseCap);
     }
+
+    /// <summary>Chance a NO-PREFIX relic is nonetheless cursed (a "curse-only" pure-downside result) —
+    /// the reference (zero-power) curse chance scaled down by <see cref="CurseOnlyFactor"/>. Same host-
+    /// authoritative CurseChance knob as everything else, so it stays co-op consistent and user-tunable.</summary>
+    private static double CurseOnlyChance()
+        => Math.Clamp(HostForgeConfig.CurseChance * CurseOnlyFactor, CurseFloor, CurseCap);
 
     /// <summary>The forge record for a relic instance, or null if it was never forged.</summary>
     public static ForgeRecord? RecordFor(RelicModel relic)
@@ -713,9 +726,27 @@ internal static class RelicForgeService
 
         if (prefix == null)
         {
-            // No prefix (stays vanilla). Record it anyway so the relic isn't re-rolled.
-            Records.Add(relic, new ForgeRecord { Rarity = relic.Rarity, Prefix = "", Percent = 0, ReforgeCount = reforgeCount });
-            return null;
+            // No prefix — but a curse may still land ON ITS OWN: a "curse-only" relic (pure downside, no
+            // boon), the outcome that replaces the old penalty prefixes. Uses the already-drawn curse rolls
+            // (no new rng, no stream shift) at the reduced CurseOnlyChance. Record it either way so the
+            // relic isn't re-rolled.
+            var bare = new ForgeRecord { Rarity = relic.Rarity, Prefix = "", Percent = 0, ReforgeCount = reforgeCount };
+            if (curseRoll < CurseOnlyChance())
+            {
+                // Same kind split as a boon+curse, incl. the enemy-forge-off self-forcing (a real curse,
+                // not an inert rider). One curse only.
+                bool self = !HostForgeConfig.EnemyForgeEnabled || curseTypeRoll < HostForgeConfig.SelfCurseShare;
+                if (self)
+                    bare.SelfCurse = SelfCurseTable.PickCombined(cursePickRoll, charTitle);
+                else
+                {
+                    bare.EnemyRider = true;
+                    bare.EnemyRiderSuffix = RiderSuffix.Pick(cursePickRoll);
+                }
+            }
+            Records.Add(relic, bare);
+            return bare.SelfCurse.Length > 0 ? $"curse-only: {bare.SelfCurse}"
+                 : bare.EnemyRider ? $"curse-only: rider {bare.EnemyRiderSuffix}" : null;
         }
 
         double pct = prefix.PowerPct;

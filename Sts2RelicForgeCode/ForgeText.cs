@@ -14,7 +14,7 @@ namespace Sts2RelicForge;
 internal static class ForgeText
 {
     /// <summary>Localized prefix + space, prepended to the relic title (plain text).</summary>
-    public static string TitlePrefix(ForgeRecord rec) => PrefixTable.Localize(rec.Prefix) + " ";
+    public static string TitlePrefix(ForgeRecord rec) => rec.Prefix.Length == 0 ? "" : PrefixTable.Localize(rec.Prefix) + " ";
 
     /// <summary>
     /// Localized enemy-rider SUFFIX, appended to the relic title (plain text) — e.g. " of Wrath" /
@@ -37,14 +37,17 @@ internal static class ForgeText
     public static string DescriptionBlock(ForgeRecord rec)
     {
         var sb = new StringBuilder();
-        // Prefix header tinted by tier (MegaRichTextLabel renders [color=#hex]).
-        string headerColor = PrefixTable.ColorOf(rec.Prefix);
-        sb.Append("\n\n[color=").Append(headerColor).Append("]⚒ ")
-          .Append(PrefixTable.Localize(rec.Prefix)).Append("[/color]");
-        // Companion-family prefix (grafted / delayed / penalty): no var deltas — show the effect
-        // note instead. Boons are green; penalties (curses) are red. Only companion-family
-        // prefixes carry a note, so a non-empty note is the signal.
+        // A curse-only relic (no prefix — just a curse) has no prefix header or note; skip straight to
+        // the curse line(s) below. Otherwise render the tier-tinted header and any companion/penalty note.
+        if (rec.Prefix.Length > 0)
         {
+            // Prefix header tinted by tier (MegaRichTextLabel renders [color=#hex]).
+            string headerColor = PrefixTable.ColorOf(rec.Prefix);
+            sb.Append("\n\n[color=").Append(headerColor).Append("]⚒ ")
+              .Append(PrefixTable.Localize(rec.Prefix)).Append("[/color]");
+            // Companion-family prefix (grafted / delayed / penalty): no var deltas — show the effect
+            // note instead. Boons are green; penalties (curses) are red. Only companion-family
+            // prefixes carry a note, so a non-empty note is the signal.
             Prefix? pfx = PrefixTable.ByName(rec.Prefix);
             string note = pfx?.NoteDisplay ?? "";
             // Fallback prefixes carry a {0} chance placeholder — fill it with this relic's rolled odds

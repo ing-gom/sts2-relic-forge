@@ -192,9 +192,10 @@ internal static class RelicForgeService
     // A NO-PREFIX forged relic (the ~45% NoPrefixChance "dud") can still land a curse ON ITS OWN — a
     // "curse-only" relic: pure downside, no boon, the outcome that replaces the old penalty prefixes.
     // It is deliberately RARER than a curse riding a boon (a dud that turns actively bad should be the
-    // occasional unlucky roll, not common), so the reference chance is scaled by this factor. Reforge
-    // never produces one (guaranteePrefix always lands a prefix), so curse-only comes only from pickups.
-    private const double CurseOnlyFactor = 0.5;
+    // occasional unlucky roll, not common), so the reference chance is scaled by this factor. At the
+    // default CurseChance (33%) this is 33% × 0.7 ≈ 23% of no-prefix relics, i.e. ~10% of all forges.
+    // Reforge never produces one (guaranteePrefix always lands a prefix), so curse-only is pickup-only.
+    private const double CurseOnlyFactor = 0.7;
 
     // A GUARANTEED reforge (guaranteePrefix) that lands a numeric prefix should never move nothing.
     // But a min-1 floor on every relic would over-buff the 62% whose numeric base is <= 3 (there +1 is

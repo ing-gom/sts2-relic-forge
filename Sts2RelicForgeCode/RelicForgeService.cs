@@ -87,14 +87,28 @@ internal static class RelicForgeService
     public static bool IsCleansed(RelicModel relic) => Records.TryGetValue(relic, out var rec) && rec.Cleansed;
 
     /// <summary>
-    /// CLEANSE a relic's curse — remove the enemy-rider or self-curse, keeping the prefix. Sets a
-    /// persisted "cleansed" flag so the seed-derived curse doesn't return on load. A later reforge
-    /// re-rolls everything (fresh record, cleansed cleared). Returns true if a curse was removed.
+    /// Unified "curse" test on a record: a relic is CURSED if its prefix is itself a penalty prefix
+    /// (a self-downside like Cursed/Cumbersome/Tainted…), OR it carries an enemy-rider / self-curse.
+    /// This is the merged concept — a single word for every downside — that both the reforge-ends-on-curse
+    /// rule (campfire + shop) and Cleanse act on. Rider/self curses count regardless of the enemy-forge
+    /// toggle here so a curse can never be trapped uncleansable; the reforge-termination check gates them
+    /// on the toggle instead (see <see cref="RolledCurseForReforge"/>).
+    /// </summary>
+    public static bool IsCursedRecord(ForgeRecord rec)
+        => (PrefixTable.ByName(rec.Prefix)?.Penalty ?? false)
+           || rec.EnemyRider || rec.SelfCurse.Length != 0;
+
+    /// <summary>
+    /// CLEANSE a relic's curse. Removes the enemy-rider or self-curse and keeps the prefix; if the
+    /// prefix ITSELF is the curse (a penalty prefix), purges it so the relic falls back to un-prefixed
+    /// (a penalty prefix has no upside to keep). Sets a persisted "cleansed" flag so the seed-derived
+    /// curse doesn't return on load. A later reforge re-rolls everything (fresh record, cleansed
+    /// cleared). Returns true if a curse was removed.
     /// </summary>
     public static bool Cleanse(RelicModel relic)
     {
         if (!Records.TryGetValue(relic, out var rec)) return false;
-        if (!rec.EnemyRider && rec.SelfCurse.Length == 0) return false; // nothing to cleanse
+        if (!IsCursedRecord(rec)) return false; // nothing to cleanse
         StripCurse(rec);
         relic.Flash();
         MainFile.Logger.Info($"[{MainFile.ModId}] cleansed curse from {relic.Id.Entry}.");
@@ -106,7 +120,7 @@ internal static class RelicForgeService
     /// whether to charge gold + dispatch, since the actual strip runs on every client via the synced
     /// command rather than locally here.</summary>
     public static bool CanCleanse(RelicModel relic)
-        => Records.TryGetValue(relic, out var rec) && (rec.EnemyRider || rec.SelfCurse.Length != 0);
+        => Records.TryGetValue(relic, out var rec) && IsCursedRecord(rec);
 
     /// <summary>Re-apply the cleansed state to a just-re-derived record (load path, and the co-op
     /// per-client apply — see <see cref="ReforgeNet.ApplyCleanseOnClient"/>).</summary>
@@ -120,6 +134,19 @@ internal static class RelicForgeService
         rec.EnemyRider = false;
         rec.EnemyRiderSuffix = "";
         rec.SelfCurse = "";
+        // Merged curse: when the PREFIX is the curse (a penalty prefix), cleansing purges it — the relic
+        // reverts to un-prefixed (penalty prefixes graft nothing and scale no host var, so clearing the
+        // name is enough to disable the combat hooks that read it; there is no upside to preserve).
+        if (PrefixTable.ByName(rec.Prefix)?.Penalty ?? false)
+        {
+            rec.Prefix = "";
+            rec.Percent = 0;
+            rec.Amplify = false;
+            rec.CompanionRelic = null;
+            rec.FallbackStat = "";
+            rec.FallbackAmount = 0;
+            rec.FallbackPercent = 0;
+        }
         rec.Cleansed = true;
     }
 
@@ -371,10 +398,19 @@ internal static class RelicForgeService
         GrantCompanionIfAny(relic, player);
     }
 
-    /// <summary>Result of a reforge attempt: the prefix was re-rolled, or the relic broke and was destroyed.</summary>
-    /// <summary>Result of a reforge: a normal re-roll, or one that landed a PENALTY prefix
-    /// (the campfire caller ends its reforge action on a penalty — the gamble's cost).</summary>
-    public enum ReforgeOutcome { Reforged, RolledPenalty }
+    /// <summary>Result of a reforge: a normal re-roll, or one that landed a CURSE — a penalty prefix
+    /// OR (while enemy-forge is on) an enemy-rider / self-curse. Both the campfire AND the shop caller
+    /// end their reforge action on a curse (the gamble's cost): a curse can no longer be re-rolled away
+    /// for cheap gold — only removed by Cleanse. See <see cref="RolledCurseForReforge"/>.</summary>
+    public enum ReforgeOutcome { Reforged, RolledCurse }
+
+    /// <summary>Whether a freshly re-forged record counts as a CURSE for the reforge-ends-on-curse rule:
+    /// a penalty prefix always does; an enemy-rider / self-curse does only while enemy-forge is enabled
+    /// (a recorded rider is inert when the toggle is off, so it would be confusing to end a reforge on an
+    /// invisible curse — with the toggle off only self-downside penalty prefixes end it, the old behavior).</summary>
+    private static bool RolledCurseForReforge(ForgeRecord rec)
+        => (PrefixTable.ByName(rec.Prefix)?.Penalty ?? false)
+           || (HostForgeConfig.EnemyForgeEnabled && (rec.EnemyRider || rec.SelfCurse.Length != 0));
 
     /// <summary>
     /// Re-roll a relic's prefix. Works on ANY owned relic — one that already has a prefix (the
@@ -419,23 +455,23 @@ internal static class RelicForgeService
         // (3) If the new prefix is a graft companion, grant it.
         GrantCompanionIfAny(relic, player);
 
-        // (4) Did this roll land a PENALTY prefix? The campfire caller uses this to end its
-        //     reforge action (the risk that balances unlimited free re-rolls).
-        bool penalty = Records.TryGetValue(relic, out var newRec)
-                       && (PrefixTable.ByName(newRec.Prefix)?.Penalty ?? false);
-        MainFile.Logger.Info($"[{MainFile.ModId}] reforge #{next} {relic.Id.Entry}: {summary ?? "(no numeric change)"}{(penalty ? " [PENALTY]" : "")}");
-        return penalty ? ReforgeOutcome.RolledPenalty : ReforgeOutcome.Reforged;
+        // (4) Did this roll land a CURSE (penalty prefix, or an active enemy-rider / self-curse)? Both
+        //     the campfire AND shop callers use this to END their reforge action — a curse can't be
+        //     re-rolled away, only Cleansed (the risk that gives the gamble teeth).
+        bool cursed = Records.TryGetValue(relic, out var newRec) && RolledCurseForReforge(newRec);
+        MainFile.Logger.Info($"[{MainFile.ModId}] reforge #{next} {relic.Id.Entry}: {summary ?? "(no numeric change)"}{(cursed ? " [CURSE]" : "")}");
+        return cursed ? ReforgeOutcome.RolledCurse : ReforgeOutcome.Reforged;
     }
 
     /// <summary>
-    /// Predict the outcome (Reforged vs RolledPenalty) a reforge to <paramref name="reforgeCount"/>
+    /// Predict the outcome (Reforged vs RolledCurse) a reforge to <paramref name="reforgeCount"/>
     /// would produce, WITHOUT mutating anything. Pure function of (seed, id, floor, count): it rebuilds
-    /// the same seeded RNG and draws the prefix in the exact fixed order <see cref="Forge"/> uses under
-    /// a guaranteed reforge (gate draw, then <see cref="PrefixTable.Roll"/>), then reports whether that
-    /// prefix is a penalty. The co-op path uses this because the real mutation lands asynchronously via
-    /// the synchronized command, yet the initiator's campfire UI needs the outcome up front to end its
-    /// free reforge on a penalty. It matches what the eventual Reforge produces — both are this same
-    /// derivation.
+    /// the same seeded RNG and draws in the exact fixed order <see cref="Forge"/> uses under a guaranteed
+    /// reforge — gate draw, <see cref="PrefixTable.Roll"/>, then the curse roll — then reports whether the
+    /// result is a curse (a penalty prefix, or an active enemy-rider / self-curse). The co-op path uses
+    /// this because the real mutation lands asynchronously via the synchronized command, yet the initiator's
+    /// reforge UI needs the outcome up front to end its reforge on a curse. It matches what the eventual
+    /// Reforge produces — both are this same derivation, reading the same host-authoritative config.
     /// </summary>
     public static ReforgeOutcome PredictReforgeOutcome(RelicModel relic, uint runSeed, int floor, int reforgeCount, string? character = null)
     {
@@ -446,7 +482,14 @@ internal static class RelicForgeService
         rng.NextFloat();                        // gate draw — ignored under guaranteePrefix, kept for rng order
         string? charTitle = character ?? CharAffix.TitleOf(relic.Owner) ?? CharAffix.LocalTitle();
         Prefix rolled = PrefixTable.Roll(rng, charTitle);  // the prefix a guaranteed reforge lands
-        return rolled.Penalty ? ReforgeOutcome.RolledPenalty : ReforgeOutcome.Reforged;
+        if (rolled.Penalty) return ReforgeOutcome.RolledCurse;   // a penalty prefix is always a curse
+        // Replicate Forge's FIRST curse draw (fixed rng order) to see whether an enemy-rider / self-curse
+        // rides this prefix. It only ends the reforge while enemy-forge is on (matches Reforge()); an
+        // AlwaysCurse prefix (e.g. Resonant) carries its rider unconditionally.
+        double curseRoll = rng.NextFloat();
+        bool cursed = HostForgeConfig.EnemyForgeEnabled
+                      && (rolled.AlwaysCurse || curseRoll < CurseChanceFor(rolled));
+        return cursed ? ReforgeOutcome.RolledCurse : ReforgeOutcome.Reforged;
     }
 
     /// <summary>
@@ -481,11 +524,13 @@ internal static class RelicForgeService
         if (rec != null) { rec.Companion = null; rec.CompanionGranted = false; }
     }
 
-    // A grafted effect should be a WEAKER version of owning the real relic. Reduce each
-    // beneficial (INCREASE) var by WeakenFactor, floored at 1 so it never disappears.
-    // Counters/thresholds (SKIP) are left alone. VarOverride handles the odd case where
-    // "weaker" means RAISING a var — HappyFlower's "every N turns" interval (3 -> 4).
-    private const double WeakenFactor = 0.6;
+    // A grafted effect should be a WEAKER version of owning the real relic — a relic's EMBELLISHMENT,
+    // never an equivalent half-relic slot. Reduce each beneficial (INCREASE) var to WeakenFactor,
+    // floored at 1 so it never disappears. Counters/thresholds (SKIP) are left alone. VarOverride
+    // handles the odd case where "weaker" means RAISING a var — HappyFlower's "every N turns" interval
+    // (3 -> 4). Kept at ~1/3 (was 0.6, which let e.g. Anchored graft +6 Block ≈ half an Anchor); a
+    // third keeps grafts a garnish (Anchored 4 Block, Thorned 1 Thorn vs Bronze Scales' 3).
+    private const double WeakenFactor = 0.35;
     private static readonly Dictionary<(string relic, string var), decimal> VarOverride = new()
     {
         [("HappyFlower", "Turns")] = 4m,     // every 3 turns -> every 4 (less frequent = weaker)

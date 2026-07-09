@@ -40,8 +40,8 @@ public class ReforgeConsoleCmd : AbstractConsoleCmd
         var outcome = RelicForgeService.Reforge(relic, issuingPlayer);
         relic.Flash();
         return new CmdResult(success: true,
-            outcome == RelicForgeService.ReforgeOutcome.RolledPenalty
-                ? $"Re-forged {relic.Id.Entry} — rolled a PENALTY prefix (campfire reforge would end)."
+            outcome == RelicForgeService.ReforgeOutcome.RolledCurse
+                ? $"Re-forged {relic.Id.Entry} — rolled a CURSE (campfire/shop reforge would end; cleanse to remove)."
                 : $"Re-forged {relic.Id.Entry}.");
     }
 

@@ -49,8 +49,8 @@ internal static class ReforgeNet
     /// Perform a reforge so that EVERY client converges on the same result. Single-player (or
     /// fake-MP): apply locally, unchanged historic behavior. Real co-op: broadcast (relic, newCount)
     /// via a synchronized command; each client — including the initiator — re-derives deterministically
-    /// in <see cref="ApplyReforgeStepOnClient"/>. Returns the outcome for the caller UI (campfire uses
-    /// it to end its free reforge on a penalty roll).
+    /// in <see cref="ApplyReforgeStepOnClient"/>. Returns the outcome for the caller UI (campfire and
+    /// shop use it to end their reforge on a curse roll).
     /// </summary>
     public static RelicForgeService.ReforgeOutcome Reforge(RelicModel relic, Player player)
     {
@@ -148,7 +148,7 @@ internal static class ReforgeNet
     }
 
     /// <summary>
-    /// Predict the reforge outcome (Reforged vs RolledPenalty) WITHOUT mutating, for the initiator's
+    /// Predict the reforge outcome (Reforged vs RolledCurse) WITHOUT mutating, for the initiator's
     /// UI in the co-op path. It is a pure function of (seed, id, floor, count); until the shared
     /// derivation is factored out of <see cref="RelicForgeService.Forge"/>, this is a placeholder.
     /// </summary>

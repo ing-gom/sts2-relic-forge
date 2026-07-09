@@ -28,8 +28,9 @@ internal static class ForgeConfig
     /// spamming rerolls is self-limiting. The cost is <see cref="ShopReforgeBaseCost"/> for the first
     /// reforge and rises by <see cref="ShopReforgeCostStep"/> per reforge done in that shop; it resets
     /// to the base at the next shop (the counter lives on the button instance — see
-    /// <see cref="NMerchantReforgeButton"/> — so no save persistence is needed). A penalty prefix can
-    /// still roll (paid gamble). Not user-tunable (deliberately fixed).
+    /// <see cref="NMerchantReforgeButton"/> — so no save persistence is needed). A CURSE can roll and,
+    /// as at a campfire, ENDS reforging for the visit — it can't be re-rolled away, only Cleansed. Not
+    /// user-tunable (deliberately fixed).
     /// </summary>
     public const int ShopReforgeBaseCost = 30;
 
@@ -44,10 +45,11 @@ internal static class ForgeConfig
 
     /// <summary>
     /// Fixed gold cost of one shop CLEANSE — remove the curse from a relic, keeping its prefix (see
-    /// <see cref="NMerchantCleanseButton"/>). Costs more than a reforge because it's a guaranteed
-    /// upside (removes a downside without gambling the prefix). Default 150, adjustable in-game; 0 = free.
+    /// <see cref="NMerchantCleanseButton"/>). Now that a curse ENDS a reforge (it can no longer be
+    /// re-rolled away with a cheap reforge — campfire and shop both stop on a curse), Cleanse is the
+    /// intended way to shed one, so it is priced accessibly. Default 100, adjustable in-game; 0 = free.
     /// </summary>
-    public static int ShopCleanseCost = 150;
+    public static int ShopCleanseCost = 100;
 
     /// <summary>
     /// Master switch for the "enemy forge" mechanic (elites &amp; bosses rolling their own prefixes).

@@ -55,10 +55,10 @@ public class MainFile
                 .Range(0f, 100f, 1f, format: "F0")
                 .Description("Reference chance a forged relic carries ONE curse — either an enemy-rider curse (strengthens elites & bosses) OR a self-curse (punishes you on unblocked hits), never both. The real chance SCALES with the prefix's power: a weak prefix is rarely cursed, a Legendary almost always. Which kind is set by 'Self-curse share'. Re-forge to re-roll it.")
             .Slider(EntryKeyCleanseCost, "Shop cleanse cost (gold)",
-                defaultValue: 150.0,
+                defaultValue: 100.0,
                 onChanged: v => ForgeConfig.ShopCleanseCost = (int)v)
                 .Range(0f, 300f, 10f, format: "F0")
-                .Description("Gold charged per cleanse at a merchant — removes the curse from a relic while keeping its prefix. Costs more than a reforge because it's a guaranteed upside (no gamble). 0 = free.")
+                .Description("Gold charged per cleanse at a merchant — removes the curse from a relic (a penalty prefix reverts to no prefix; an enemy-rider / self-curse is stripped, keeping the prefix). A curse ends a reforge and can't be re-rolled away, so cleanse is how you shed one. 0 = free.")
             .Toggle(EntryKeyForgeAncient, "Forge Ancient relics",
                 defaultValue: true,
                 onChanged: v => { ForgeConfig.ForgeAncientRelics = v; ForgeConfigBroadcaster.BroadcastIfHost(); })
@@ -76,7 +76,7 @@ public class MainFile
 
         // Now that the keys are registered, read the saved-or-default values.
         ForgeConfig.NoPrefixChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyNoPrefix, 45.0) / 100.0;
-        ForgeConfig.ShopCleanseCost = (int)ModConfigBridge.GetValue<double>(ModId, EntryKeyCleanseCost, 150.0);
+        ForgeConfig.ShopCleanseCost = (int)ModConfigBridge.GetValue<double>(ModId, EntryKeyCleanseCost, 100.0);
         ForgeConfig.EnemyForgeEnabled = ModConfigBridge.GetValue<bool>(ModId, EntryKeyEnemyForge, true);
         ForgeConfig.CurseChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyRiderChance, 33.0) / 100.0;
         ForgeConfig.ForgeAncientRelics = ModConfigBridge.GetValue<bool>(ModId, EntryKeyForgeAncient, true);

@@ -467,13 +467,23 @@ internal static class PrefixTable
     }
 
     /// <summary>Whether a prefix is eligible for the current character's roll pool: fallback prefixes
-    /// are NEVER rolled (they only appear via substitution — see RelicForgeService.Forge); universal
-    /// (no RequiredCharacter) always, character-gated only when the character matches (case-insensitive
-    /// on CharacterModel Id.Entry, e.g. "SILENT").</summary>
+    /// are NEVER rolled (they only appear via substitution — see RelicForgeService.Forge); PENALTY
+    /// prefixes are NEVER rolled either (their downside is re-homed onto the curse side — a penalty
+    /// identity is drawn into rec.SelfCurse via <see cref="SelfCurseTable.PickCombined"/>, never into
+    /// the beneficial prefix slot); universal (no RequiredCharacter) always, character-gated only when
+    /// the character matches (case-insensitive on CharacterModel Id.Entry, e.g. "SILENT").</summary>
     private static bool InPool(Prefix p, string? character)
-        => !p.IsFallback
-           && (p.RequiredCharacter.Length == 0
-               || (character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase)));
+        => !p.IsFallback && !p.Penalty && CharacterMatches(p, character);
+
+    /// <summary>Character-eligibility half of <see cref="InPool"/>, shared with the curse pool: universal
+    /// (no RequiredCharacter) always, character-gated only when <paramref name="character"/> matches. The
+    /// curse-pool builder (<see cref="SelfCurseTable.PickCombined"/>) pre-filters on <c>Penalty &amp;&amp; !IsFallback</c>
+    /// and uses this for the character gate, so a penalty like Toxic only rolls for its own character.</summary>
+    public static bool CurseInPool(Prefix p, string? character) => CharacterMatches(p, character);
+
+    private static bool CharacterMatches(Prefix p, string? character)
+        => p.RequiredCharacter.Length == 0
+           || (character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The fallback prefixes (out of the normal roll pool), used to REPLACE a magnitude prefix
     /// that scaled nothing on a relic — BUFF fallbacks for a positive prefix, PENALTY fallbacks for a

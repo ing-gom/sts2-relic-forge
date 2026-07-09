@@ -37,7 +37,7 @@ internal static class CompanionCounterPatch
             RelicModel? comp = rec.Companion;
             if (comp != null && comp.ShowCounter) pieces.Add(comp.DisplayAmount.ToString());
 
-            int debtLeft = CharAffix.BankruptRemaining(host, rec.Prefix);
+            int debtLeft = CharAffix.BankruptRemaining(host, rec.SelfCurse);   // Bankrupt re-homed onto the curse slot
             if (debtLeft >= 0) pieces.Add(debtLeft.ToString());
 
             // Nothing beyond the host's own native counter -> leave the vanilla label untouched.

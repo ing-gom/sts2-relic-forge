@@ -164,6 +164,20 @@ internal static class CharAffix
         }
     }
 
+    /// <summary>Owned, forged relics of <paramref name="player"/> carrying the given CURSE identity — the
+    /// mirror of <see cref="Owned"/> for the curse slot. Penalty affixes (Dulled/Levied/Sacrificial/
+    /// Bankrupt/…) were re-homed onto rec.SelfCurse, so their patches match here instead of on rec.Prefix.
+    /// (Do NOT repoint <see cref="Owned"/> itself — beneficial char prefixes still live in the prefix slot.)</summary>
+    internal static IEnumerable<RelicModel> OwnedByCurse(Player player, string curseKey)
+    {
+        foreach (var relic in new List<RelicModel>(player.Relics))
+        {
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec != null && string.Equals(rec.SelfCurse, curseKey, StringComparison.Ordinal))
+                yield return relic;
+        }
+    }
+
     private static void Fire(RelicModel relic, Task effect)
     {
         relic.Flash();
@@ -211,7 +225,7 @@ internal static class CharAffix
         Player? applier = giver?.Player ?? giver?.PetOwner;
         if (applier == null) return amount;
         bool cursed = false;
-        foreach (var _ in Owned(applier, "Dulled")) { cursed = true; break; }
+        foreach (var _ in OwnedByCurse(applier, "Dulled")) { cursed = true; break; }
         if (!cursed) return amount;
         decimal current = target.GetPower<PoisonPower>()?.Amount ?? 0;
         decimal allowed = Math.Max(0m, DulledPoisonCap - current);
@@ -221,7 +235,7 @@ internal static class CharAffix
     /// <summary>Levied (curse) — true if the player carries the star-cost-increase curse.</summary>
     public static bool HasLevied(Player player)
     {
-        foreach (var _ in Owned(player, "Levied")) return true;
+        foreach (var _ in OwnedByCurse(player, "Levied")) return true;
         return false;
     }
 
@@ -301,7 +315,7 @@ internal static class CharAffix
         bool allEmpty = q.Orbs.Count == 0;
         bool allFull = q.Orbs.Count >= q.Capacity;
         if (!allEmpty && !allFull) return;
-        foreach (var relic in Owned(player, "Polarized"))
+        foreach (var relic in OwnedByCurse(player, "Polarized"))
         {
             PolarizedArmed.GetValue(relic, _ => new int[1])[0] = _combatEpoch;
         }
@@ -401,7 +415,7 @@ internal static class CharAffix
         if (!Enabled || owner.Creature == null) return;
         int turn = TurnOf(owner);
         decimal stacks = lethal ? 2m : 1m;
-        foreach (var relic in Owned(owner, "Sacrificial"))
+        foreach (var relic in OwnedByCurse(owner, "Sacrificial"))
         {
             var box = SacTurn.GetValue(relic, _ => new int[1] { -1 });
             if (!lethal && box[0] == turn) continue;   // once per turn (death fires regardless)
@@ -452,7 +466,7 @@ internal static class CharAffix
             }
 
         if (amount <= 0) return;
-        foreach (var relic in Owned(player, "Bankrupt"))
+        foreach (var relic in OwnedByCurse(player, "Bankrupt"))
         {
             var debt = BankruptDebt.GetValue(relic, _ => new int[2]);
             if (debt[0] != _combatEpoch) { debt[0] = _combatEpoch; debt[1] = 0; }

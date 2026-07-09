@@ -36,9 +36,10 @@ public class ForgeSelfCurseCmd : AbstractConsoleCmd
         if (args[0].Equals("all", StringComparison.OrdinalIgnoreCase))
             return GrantAll(issuingPlayer);
 
-        var def = SelfCurseTable.All.FirstOrDefault(c => string.Equals(c.En, args[0], StringComparison.OrdinalIgnoreCase));
-        if (def == null)
-            return new CmdResult(success: false, $"Unknown self-curse '{args[0]}'. Try: {CurseNames()}");
+        var resolved = ResolveCurse(args[0]);
+        if (resolved == null)
+            return new CmdResult(success: false, $"Unknown curse '{args[0]}'. Try: {CurseNames()}");
+        var (key, display, effect) = resolved.Value;
 
         RelicModel? canonical = args.Length >= 2
             ? GetRelicById(args[1])
@@ -52,14 +53,33 @@ public class ForgeSelfCurseCmd : AbstractConsoleCmd
         RelicForgeService.Forge(relic, rs.Rng.Seed, rs.TotalFloor, PrefixTable.ByName("Legendary"));
 
         var rec = RelicForgeService.RecordFor(relic);
-        // Forge may have rolled its OWN curse (enemy-rider) — clear it so the forced self-curse is the
-        // only curse, matching the mutual-exclusivity of real play.
-        if (rec != null) { rec.SelfCurse = def.En; rec.EnemyRider = false; rec.EnemyRiderSuffix = ""; }
+        // Forge may have rolled its OWN curse (enemy-rider) — clear it so the forced curse is the only
+        // one, matching the mutual-exclusivity of real play. The key is an on-hit self-curse OR a re-homed
+        // penalty identity; both dispatch off rec.SelfCurse (their own patches).
+        if (rec != null) { rec.SelfCurse = key; rec.EnemyRider = false; rec.EnemyRiderSuffix = ""; }
 
         return new CmdResult(
             RelicCmd.Obtain(relic, issuingPlayer),
             success: true,
-            $"Granted {relic.Id.Entry} self-cursed with '{def.Display}' — {def.Effect}.");
+            $"Granted {relic.Id.Entry} cursed with '{display}' — {effect}.");
+    }
+
+    /// <summary>Every forgeable curse identity: the on-hit self-curses PLUS the re-homed penalty affixes
+    /// (Cursed/…/Bankrupt), all stored in rec.SelfCurse. Character penalties can be forced onto any relic
+    /// for testing (their patches dispatch on the curse key, not the character).</summary>
+    private static IEnumerable<string> AllCurseKeys()
+        => SelfCurseTable.All.Select(c => c.En)
+           .Concat(PrefixTable.All.Where(p => p.Penalty && !p.IsFallback).Select(p => p.Name));
+
+    /// <summary>Resolve a curse name to (stored key, display, effect line): first an on-hit self-curse,
+    /// else a re-homed penalty prefix (its note is the effect line).</summary>
+    private static (string key, string display, string effect)? ResolveCurse(string name)
+    {
+        var def = SelfCurseTable.All.FirstOrDefault(c => string.Equals(c.En, name, StringComparison.OrdinalIgnoreCase));
+        if (def != null) return (def.En, def.Display, def.Effect);
+        var pfx = PrefixTable.All.FirstOrDefault(p => p.Penalty && !p.IsFallback && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (pfx != null) return (pfx.Name, pfx.Name, pfx.NoteDisplay);
+        return null;
     }
 
     /// <summary>Grant one DISTINCT relic per self-curse, each stamped with that curse — tests them all at once.</summary>
@@ -70,20 +90,20 @@ public class ForgeSelfCurseCmd : AbstractConsoleCmd
         var rs = player.RunState;
         var granted = new List<string>();
         int i = 0;
-        foreach (var def in SelfCurseTable.All)
+        foreach (var key in AllCurseKeys())
         {
             if (i >= pool.Count) break;
             RelicModel relic = pool[i++].ToMutable();
             RelicForgeService.Forge(relic, rs.Rng.Seed, rs.TotalFloor, PrefixTable.ByName("Legendary"));
             var rec = RelicForgeService.RecordFor(relic);
-            if (rec != null) { rec.SelfCurse = def.En; rec.EnemyRider = false; rec.EnemyRiderSuffix = ""; }
+            if (rec != null) { rec.SelfCurse = key; rec.EnemyRider = false; rec.EnemyRiderSuffix = ""; }
             TaskHelper.RunSafely(RelicCmd.Obtain(relic, player));
-            granted.Add($"{relic.Id.Entry}=☠{def.Display}");
+            granted.Add($"{relic.Id.Entry}=☠{key}");
         }
-        return new CmdResult(success: true, $"Granted {granted.Count} self-cursed relics (one per curse):\n  " + string.Join("\n  ", granted));
+        return new CmdResult(success: true, $"Granted {granted.Count} cursed relics (one per curse):\n  " + string.Join("\n  ", granted));
     }
 
-    private static string CurseNames() => string.Join(", ", SelfCurseTable.All.Select(c => c.En));
+    private static string CurseNames() => string.Join(", ", AllCurseKeys());
 
     private static RelicModel? GetRelicById(string id)
     {
@@ -100,7 +120,7 @@ public class ForgeSelfCurseCmd : AbstractConsoleCmd
         {
             string partial = args.Length == 1 ? args[0] : string.Empty;
             var candidates = new List<string> { "all" };
-            candidates.AddRange(SelfCurseTable.All.Select(c => c.En));
+            candidates.AddRange(AllCurseKeys());
             return CompleteArgument(candidates, Array.Empty<string>(), partial, CompletionType.Argument,
                 (candidate, p) => candidate.StartsWith(p, StringComparison.OrdinalIgnoreCase));
         }

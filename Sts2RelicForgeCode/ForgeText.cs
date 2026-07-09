@@ -97,11 +97,14 @@ internal static class ForgeText
             string effect = RiderSuffix.EffectOf(rec.EnemyRiderSuffix);
             if (effect.Length > 0) sb.Append("\n[color=#e0554d]⚔ ").Append(effect).Append("[/color]");
         }
-        // Self-curse: an independent player-side curse (punishes YOU on unblocked hits). Distinct ☠
-        // icon + red so it reads apart from the enemy-rider ⚔ line above.
+        // Self-curse: an independent player-side curse (punishes YOU). Distinct ☠ icon + red so it reads
+        // apart from the enemy-rider ⚔ line above. The key is either an on-hit self-curse (EffectOf) or a
+        // re-homed PENALTY identity — for the latter, fall back to that penalty prefix's own note (its
+        // effect + original trigger, e.g. "Weak 1 to self at combat start").
         if (rec.SelfCurse.Length > 0)
         {
             string effect = SelfCurseTable.EffectOf(rec.SelfCurse);
+            if (effect.Length == 0) effect = PrefixTable.ByName(rec.SelfCurse)?.NoteDisplay ?? "";
             if (effect.Length > 0) sb.Append("\n[color=#c0554d]☠ ").Append(effect).Append("[/color]");
         }
         return sb.ToString();

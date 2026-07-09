@@ -404,13 +404,16 @@ internal static class RelicForgeService
     /// for cheap gold — only removed by Cleanse. See <see cref="RolledCurseForReforge"/>.</summary>
     public enum ReforgeOutcome { Reforged, RolledCurse }
 
-    /// <summary>Whether a freshly re-forged record counts as a CURSE for the reforge-ends-on-curse rule:
-    /// a penalty prefix always does; an enemy-rider / self-curse does only while enemy-forge is enabled
-    /// (a recorded rider is inert when the toggle is off, so it would be confusing to end a reforge on an
-    /// invisible curse — with the toggle off only self-downside penalty prefixes end it, the old behavior).</summary>
+    /// <summary>Whether a freshly re-forged record counts as a CURSE for the reforge-ends-on-curse rule.
+    /// ANY curse ends the reforge now (the enemy-forge toggle no longer gates this): an enemy-rider OR a
+    /// self-curse — which, since penalties were re-homed onto the curse slot, also covers every former
+    /// penalty. (The leading Prefix?.Penalty clause only fires for legacy saves that still carry a penalty
+    /// in the prefix slot; the pool can no longer produce one, and Forge re-homes a forced one.) With
+    /// enemy-forge off, Forge already manifests a non-AlwaysCurse curse as a (real) self-curse, so the
+    /// reforge never ends on an invisible one.</summary>
     private static bool RolledCurseForReforge(ForgeRecord rec)
         => (PrefixTable.ByName(rec.Prefix)?.Penalty ?? false)
-           || (HostForgeConfig.EnemyForgeEnabled && (rec.EnemyRider || rec.SelfCurse.Length != 0));
+           || rec.EnemyRider || rec.SelfCurse.Length != 0;
 
     /// <summary>
     /// Re-roll a relic's prefix. Works on ANY owned relic — one that already has a prefix (the
@@ -481,14 +484,14 @@ internal static class RelicForgeService
         var rng = new Rng(seed);
         rng.NextFloat();                        // gate draw — ignored under guaranteePrefix, kept for rng order
         string? charTitle = character ?? CharAffix.TitleOf(relic.Owner) ?? CharAffix.LocalTitle();
-        Prefix rolled = PrefixTable.Roll(rng, charTitle);  // the prefix a guaranteed reforge lands
-        if (rolled.Penalty) return ReforgeOutcome.RolledCurse;   // a penalty prefix is always a curse
-        // Replicate Forge's FIRST curse draw (fixed rng order) to see whether an enemy-rider / self-curse
-        // rides this prefix. It only ends the reforge while enemy-forge is on (matches Reforge()); an
-        // AlwaysCurse prefix (e.g. Resonant) carries its rider unconditionally.
+        Prefix rolled = PrefixTable.Roll(rng, charTitle);  // the prefix a guaranteed reforge lands (never a penalty — InPool excludes them)
+        if (rolled.Penalty) return ReforgeOutcome.RolledCurse;   // defensive: Roll can no longer return a penalty
+        // Replicate Forge's FIRST curse draw (fixed rng order) to see whether a curse (enemy-rider OR
+        // self-curse) rides this prefix. Whether it's self or rider (and enemy-forge on/off) doesn't change
+        // WHETHER it's cursed, and a curse always ends the reforge now — so this matches Reforge() without
+        // needing the type/pick draws or the enemy-forge toggle. An AlwaysCurse prefix always carries one.
         double curseRoll = rng.NextFloat();
-        bool cursed = HostForgeConfig.EnemyForgeEnabled
-                      && (rolled.AlwaysCurse || curseRoll < CurseChanceFor(rolled));
+        bool cursed = rolled.AlwaysCurse || curseRoll < CurseChanceFor(rolled);
         return cursed ? ReforgeOutcome.RolledCurse : ReforgeOutcome.Reforged;
     }
 
@@ -678,6 +681,12 @@ internal static class RelicForgeService
         // outcome stays deterministic and stable even if the config threshold changes:
         // a relic's would-be prefix is fixed by seed, and whether it applies depends on
         // the gate roll vs the (config) no-prefix chance. Forced (test) skips the gate.
+        // Character-gated prefixes only enter the pool for the owning player's character. At
+        // pickup the relic isn't owned yet (relic.Owner is null), so the caller passes the
+        // obtaining player's character explicitly; on load/reforge the owner is set; preview
+        // (offered, unowned) falls back to the local player. Fixed per run → stays deterministic.
+        // Hoisted above the prefix branch because the curse pick (below) is also character-gated.
+        string? charTitle = character ?? CharAffix.TitleOf(relic.Owner) ?? CharAffix.LocalTitle();
         Prefix? prefix;
         if (forced != null)
         {
@@ -685,11 +694,6 @@ internal static class RelicForgeService
         }
         else
         {
-            // Character-gated prefixes only enter the pool for the owning player's character. At
-            // pickup the relic isn't owned yet (relic.Owner is null), so the caller passes the
-            // obtaining player's character explicitly; on load/reforge the owner is set; preview
-            // (offered, unowned) falls back to the local player. Fixed per run → stays deterministic.
-            string? charTitle = character ?? CharAffix.TitleOf(relic.Owner) ?? CharAffix.LocalTitle();
             double gate = rng.NextFloat();
             Prefix rolled = PrefixTable.Roll(rng, charTitle);
             // Draw the gate roll unconditionally (fixed rng order) but ignore it when
@@ -716,14 +720,29 @@ internal static class RelicForgeService
 
         double pct = prefix.PowerPct;
         var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount };
-        // Exactly one curse (or none). AlwaysCurse prefixes (e.g. 공명의/Resonant) always take the
-        // enemy-rider — their designed cost. Otherwise CurseChance gates whether there's a curse and
-        // SelfCurseShare decides the kind (self-curse vs enemy-rider). Penalty prefixes never carry one.
-        if (!prefix.Penalty && (prefix.AlwaysCurse || curseRoll < CurseChanceFor(prefix)))
+        if (prefix.Penalty && !prefix.IsFallback)
         {
-            bool self = !prefix.AlwaysCurse && curseTypeRoll < HostForgeConfig.SelfCurseShare;
+            // A FORCED penalty prefix (test: `forge <relic> <Penalty>`) — auto-rolls never reach here with
+            // a penalty since InPool now excludes them. Re-home it onto the curse slot so its effect+trigger
+            // fire via its own patch (which reads rec.SelfCurse), matching the auto-roll. The prefix slot is
+            // left empty (a penalty grafts nothing and scales no host var — there is no boon to keep).
+            record.Prefix = "";
+            record.Percent = 0;
+            record.Amplify = false;
+            record.SelfCurse = prefix.Name;
+        }
+        // Exactly one curse (or none) rides on a beneficial prefix. AlwaysCurse prefixes (e.g. 공명의/Resonant)
+        // always take the enemy-rider — their designed cost. Otherwise CurseChance gates whether there's a
+        // curse; SelfCurseShare decides the kind. The self-curse pool is now the COMBINED pool (on-hit curses
+        // + re-homed penalty identities), so a penalty's downside now rides a boon instead of replacing it.
+        else if (prefix.AlwaysCurse || curseRoll < CurseChanceFor(prefix))
+        {
+            // With enemy-forge OFF an enemy-rider is inert, so a NON-AlwaysCurse curse manifests as a
+            // self-curse instead — the downside stays real (and a curse always ends the reforge now).
+            bool self = !prefix.AlwaysCurse
+                        && (!HostForgeConfig.EnemyForgeEnabled || curseTypeRoll < HostForgeConfig.SelfCurseShare);
             if (self)
-                record.SelfCurse = SelfCurseTable.Pick(cursePickRoll).En;
+                record.SelfCurse = SelfCurseTable.PickCombined(cursePickRoll, charTitle);
             else
             {
                 record.EnemyRider = true;

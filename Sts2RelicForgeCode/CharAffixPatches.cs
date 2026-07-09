@@ -370,16 +370,23 @@ internal static class CharAffixPatches
                 foreach (var relic in new List<RelicModel>(player.Relics))
                 {
                     var rec = RelicForgeService.RecordFor(relic);
-                    if (rec == null || rec.Prefix.Length == 0) continue;
+                    if (rec == null) continue;
+                    // Beneficial char prefixes live in the prefix slot.
                     switch (rec.Prefix)
                     {
                         case "Bonebound":                    CharAffix.OnTurnBonebound(choiceContext, player, relic); break;
                         case "Starlit":                       CharAffix.OnTurnStarlit(player, relic); break;
+                        case "Echoing":                       CharAffix.OnTurnEchoing(player, relic, turn); break;
+                    }
+                    // Character PENALTY affixes were re-homed onto the curse slot (they now ride a boon
+                    // prefix instead of occupying it), so dispatch them off rec.SelfCurse. Same effects,
+                    // same triggers. A forged relic can carry a boon prefix AND one of these curses.
+                    switch (rec.SelfCurse)
+                    {
                         case "Doombound":                     CharAffix.OnTurnDoombound(choiceContext, player, relic); break;
                         case "Polarized":                     CharAffix.OnTurnPolarized(player, relic); break;
                         case "Toxic"   when turn == 1:        CharAffix.OnCombatStartToxic(choiceContext, player, relic); break;
                         case "Shorted" when turn == 1:        CharAffix.OnCombatStartShorted(choiceContext, player, relic); break;
-                        case "Echoing":                       CharAffix.OnTurnEchoing(player, relic, turn); break;
                     }
                 }
                 CharAffix.Reconcile(choiceContext, player);   // Supercharged re-eval each turn

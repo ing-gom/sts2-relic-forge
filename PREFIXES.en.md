@@ -23,11 +23,10 @@ Scale a relic's numbers up or down; the tooltip shows the change in color (green
 | Zealous | +6% | 4.5% |
 | Keen | +4% | 4.5% |
 | Volatile | raises boons AND downsides (high risk / high reward) | 1.8% |
-| Damaged | −12% | 4.2% |
-| Shoddy | −18% | 2.4% |
-| Broken | −25% | 1.5% |
 
 Exact per-relic numbers are in the interactive [`prefix_dashboard.html`](prefix_dashboard.html).
+
+> **Weakening rolls → curses.** About **8%** of rolls used to land a *weaker* prefix (Damaged −12% / Shoddy −18% / Broken −25%). Those rolls now yield a **[curse](CURSES.en.md)** instead — the relic keeps its normal numbers and gains a curse. Every downside lives in the curse slot.
 
 ---
 

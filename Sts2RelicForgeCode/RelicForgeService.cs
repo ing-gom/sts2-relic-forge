@@ -591,12 +591,13 @@ internal static class RelicForgeService
     }
 
     // A grafted effect should be a WEAKER version of owning the real relic — a relic's EMBELLISHMENT,
-    // never an equivalent half-relic slot. Reduce each beneficial (INCREASE) var to WeakenFactor,
-    // floored at 1 so it never disappears. Counters/thresholds (SKIP) are left alone. VarOverride
-    // handles the odd case where "weaker" means RAISING a var — HappyFlower's "every N turns" interval
-    // (3 -> 4). Kept at ~1/3 (was 0.6, which let e.g. Anchored graft +6 Block ≈ half an Anchor); a
-    // third keeps grafts a garnish (Anchored 4 Block, Thorned 1 Thorn vs Bronze Scales' 3).
-    private const double WeakenFactor = 0.35;
+    // never an equivalent half-relic slot. Reduce each beneficial (INCREASE) var to WeakenFactor and
+    // FLOOR it (round DOWN) so a graft never exceeds 30% of the donor — the design cap on a prefix's
+    // benefit — with a min of 1 so it never disappears. (Rounding to nearest let e.g. Anchor's Block 10
+    // land at 4 = 40%.) Counters/thresholds (SKIP) are left alone. VarOverride handles the odd case where
+    // "weaker" means RAISING a var — HappyFlower's "every N turns" interval (3 -> 4). At 0.30 + floor:
+    // Anchored 3 Block, Ferocious Vigor 2, Bladed/Tempered 1 — a garnish, well under owning the real relic.
+    private const double WeakenFactor = 0.30;
     private static readonly Dictionary<(string relic, string var), decimal> VarOverride = new()
     {
         [("HappyFlower", "Turns")] = 4m,     // every 3 turns -> every 4 (less frequent = weaker)
@@ -616,7 +617,7 @@ internal static class RelicForgeService
             if (VarOverride.TryGetValue((key, dv.Name), out var forced)) { dv.BaseValue = forced; continue; }
             if (dv.BaseValue <= 0m) continue;
             if (AffixPolicy.DirectionFor(key, dv.Name) != AffixDir.Increase) continue; // only cut boons
-            dv.BaseValue = Math.Max(1m, Math.Round(dv.BaseValue * (decimal)WeakenFactor, MidpointRounding.AwayFromZero));
+            dv.BaseValue = Math.Max(1m, Math.Floor(dv.BaseValue * (decimal)WeakenFactor));
         }
     }
 

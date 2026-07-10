@@ -182,8 +182,8 @@ internal static class PrefixTable
             CompanionRelic = typeof(MercuryHourglass),   // damage -> 1 (×0.35)
             NoteKo = "매 턴 모든 적에게 1 피해", NoteEn = "1 damage to all enemies each turn", NoteZh = "每回合对所有敌人造成1点伤害" },
         new Prefix { Name = "Anchored", Ko = "닻내린", Zh = "沉稳的", Weight = 7, Color = "#4db8ff",
-            CompanionRelic = typeof(Anchor),   // Block 10 -> 4 (×0.35)
-            NoteKo = "전투 시작 시 블록 4", NoteEn = "Block 4 at combat start", NoteZh = "战斗开始时获得4格挡" },
+            CompanionRelic = typeof(Anchor),   // Block 10 -> 3 (×0.30 floor)
+            NoteKo = "전투 시작 시 블록 3", NoteEn = "Block 3 at combat start", NoteZh = "战斗开始时获得3格挡" },
         new Prefix { Name = "Vital", Ko = "피끓는", Zh = "血涌的", Weight = 8, Color = "#ff5c8a",
             CompanionRelic = typeof(BloodVial),   // Heal 2 -> 1 (floor 1)
             NoteKo = "첫 턴에 체력 1 회복", NoteEn = "Heal 1 on turn 1", NoteZh = "第1回合回复1点生命" },
@@ -204,17 +204,17 @@ internal static class PrefixTable
 
         // --- 2nd batch (all weakened vs the real relic: reduced value, longer interval, or delay) ---
         new Prefix { Name = "Ferocious", Ko = "사나운", Zh = "凶猛的", Weight = 5, Color = "#ff5533",
-            CompanionRelic = typeof(Akabeko),   // Vigor 8 -> 3 (×0.35)
-            NoteKo = "첫 턴에 활력 3", NoteEn = "Vigor 3 on turn 1", NoteZh = "第1回合获得3鼓舞" },
+            CompanionRelic = typeof(Akabeko),   // Vigor 8 -> 2 (×0.30 floor)
+            NoteKo = "첫 턴에 활력 2", NoteEn = "Vigor 2 on turn 1", NoteZh = "第1回合获得2鼓舞" },
         new Prefix { Name = "Bladed", Ko = "칼날의", Zh = "锋刃的", Weight = 6, Color = "#d9d9e0",
-            CompanionRelic = typeof(LetterOpener),   // Damage 5->2 (×0.35), interval 3->4 (VarOverride) — per-turn counter
-            NoteKo = "한 턴에 스킬 4회마다 모든 적에게 2 피해", NoteEn = "2 damage to all enemies per 4 skills in one turn", NoteZh = "一回合内每4张技能牌对所有敌人造成2点伤害" },
+            CompanionRelic = typeof(LetterOpener),   // Damage 5->1 (×0.30 floor), interval 3->4 (VarOverride) — per-turn counter
+            NoteKo = "한 턴에 스킬 4회마다 모든 적에게 1 피해", NoteEn = "1 damage to all enemies per 4 skills in one turn", NoteZh = "一回合内每4张技能牌对所有敌人造成1点伤害" },
         new Prefix { Name = "Relentless", Ko = "연격의", Zh = "连击的", Weight = 5, Color = "#ff8c42",
             CompanionRelic = typeof(Shuriken),   // Strength +1, interval 3->4 (VarOverride) — per-turn counter
             NoteKo = "한 턴에 공격 4회마다 힘 +1", NoteEn = "Strength +1 per 4 attacks in one turn", NoteZh = "一回合内每4张攻击牌获得1力量" },
         new Prefix { Name = "Tempered", Ko = "단단한", Zh = "淬火的", Weight = 7, Color = "#5a9fd4",
-            CompanionRelic = typeof(Orichalcum),   // Block 6 -> 2 (×0.35)
-            NoteKo = "턴 종료 시 블록이 없으면 블록 2", NoteEn = "Block 2 if you end your turn with no Block", NoteZh = "回合结束时若无格挡则获得2格挡" },
+            CompanionRelic = typeof(Orichalcum),   // Block 6 -> 1 (×0.30 floor)
+            NoteKo = "턴 종료 시 블록이 없으면 블록 1", NoteEn = "Block 1 if you end your turn with no Block", NoteZh = "回合结束时若无格挡则获得1格挡" },
         new Prefix { Name = "Gusting", Ko = "질풍의", Zh = "疾风的", Weight = 7, Color = "#7ed9e0",
             CompanionRelic = typeof(OrnamentalFan),   // Block 4->1 (×0.35), interval 3->4 (VarOverride) — per-turn counter
             NoteKo = "한 턴에 공격 4회마다 블록 1", NoteEn = "Block 1 per 4 attacks in one turn", NoteZh = "一回合内每4张攻击牌获得1格挡" },

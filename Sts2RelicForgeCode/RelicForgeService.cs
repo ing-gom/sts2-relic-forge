@@ -506,20 +506,24 @@ internal static class RelicForgeService
 
     // --- Reforge-ends-on-curse: PROBABILISTIC, per VISITED LOCATION (this campfire / this shop) ---
     // A curse no longer HARD-stops the reforge. The UI counts curse APPEARANCES across EVERY relic it
-    // reforges at THIS location; the c-th curse ends reforging here at a hand-tuned chance that steepens
-    // (5 / 15 / 30 / 50%), and the 5th appearance is a guaranteed end. The count and the end-roll live on
+    // reforges at THIS location; the c-th curse ends reforging here at a geometrically steepening chance
+    // (10 / 25 / 50 / 80%), and the 5th appearance is a guaranteed end. The curve is tuned so the average
+    // free reforges at a campfire converge to ~6 (given the ~49% chance a reforge lands a curse at default
+    // settings: negative prefixes always curse, and effect prefixes carry one ~33% of the time). The count
+    // and the end-roll live on
     // the UI object (initiator-local, per-visit, not synced/persisted), so co-op is unaffected: only the
     // acting player's own reforge control greys, while the relic mutation itself replicates deterministic-
     // ally through Forge. ReforgeOutcome.RolledCurse now means only "a curse APPEARED this reforge" — the
     // UI decides whether that ends the visit (see CurseAuraEndsReforge).
 
-    // End chance (%) by the c-th curse appearance at this location (index c-1). The final entry (100) is
-    // the forced end, so its length is also the "Nth curse ends for sure" count.
-    private static readonly int[] CurseEndChancePct = { 5, 15, 30, 50, 100 };
+    // End chance (%) by the c-th curse appearance at this location (index c-1). A ~×2 geometric ramp, so
+    // the end distribution peaks around the 3rd curse and the average free reforges converge to ~6. The
+    // final entry (100) is the forced end, so its length is also the "Nth curse ends for sure" count.
+    private static readonly int[] CurseEndChancePct = { 10, 25, 50, 80, 100 };
     public static int CurseEndForceAt => CurseEndChancePct.Length;   // = 5: the 5th curse always ends it
 
     /// <summary>Whether reforging at this LOCATION ends after its <paramref name="curseCountThisVisit"/>-th
-    /// curse appearance: 5 / 15 / 30 / 50% for the 1st–4th, forced at the 5th. Seeded from (run seed,
+    /// curse appearance: 10 / 25 / 50 / 80% for the 1st–4th, forced at the 5th. Seeded from (run seed,
     /// current floor, count) — no Math.Random, and it never touches the run rng stream. The decision is
     /// initiator-local UI (the acting player's control only), so it is co-op-irrelevant; the seed just
     /// keeps the odds honest and reload-stable.</summary>

@@ -13,7 +13,7 @@ The relic's name gains a `(Cursed)` tag, and its tooltip states the exact effect
 
 > **Weakening rolls are curses too.** A relic no longer rolls a *weaker* prefix (the old Damaged / Shoddy / Broken). That downside is expressed as a **curse** instead — the relic keeps its normal power and gains a curse, rather than having its numbers shaved. Every downside lives in the curse slot.
 
-> **A curse tightens the forge — but doesn't always stop it.** Each curse that appears while reforging at one campfire or shop deepens the "curse aura." It ends reforging there with a **5% → 15% → 30% → 50%** chance for the 1st → 4th curse, and the **5th curse always ends it**. The tally is per **location** and resets at the next campfire / shop. Until it ends you can keep re-rolling (paying gold at a shop); once cold, only **Cleanse** at a merchant (default 100 gold) removes the curse.
+> **A curse tightens the forge — but doesn't always stop it.** Each curse that appears while reforging at one campfire or shop deepens the "curse aura." It ends reforging there with a **10% → 25% → 50% → 80%** chance for the 1st → 4th curse, and the **5th curse always ends it**. The tally is per **location** and resets at the next campfire / shop. Until it ends you can keep re-rolling (paying gold at a shop); once cold, only **Cleanse** at a merchant (default 100 gold) removes the curse.
 
 > **On by default** — controlled by **"Enemy forge"** in ModConfig. Turn it **off** for a pure power fantasy.
 
@@ -70,5 +70,5 @@ Fires **on each unblocked hit**, so a multi-hit attack you don't fully block sta
 
 - **Toggle** — on by default; turning off **"Enemy forge"** in ModConfig hides and disables all curses (the relic forging itself is unchanged).
 - **Tuning** — **"Curse chance"** (reference chance), **"Self-curse share"** (the enemy-vs-self split), and **"Enemy balance strength"** (how hard enemies are buffed).
-- **Reforge ends probabilistically on curses** — a curse no longer hard-stops reforging. Each curse that appears at a campfire / shop raises the chance the forge "goes cold": **5% / 15% / 30% / 50%** for the 1st–4th, and the **5th curse always ends it**. The tally is per location and resets when you leave. Remove a curse with **Cleanse** at a merchant (default 100 gold).
+- **Reforge ends probabilistically on curses** — a curse no longer hard-stops reforging. Each curse that appears at a campfire / shop raises the chance the forge "goes cold": **10% / 25% / 50% / 80%** for the 1st–4th, and the **5th curse always ends it**. The tally is per location and resets when you leave. Remove a curse with **Cleanse** at a merchant (default 100 gold).
 - **Cleanse** — strips an enemy-rider / self-curse while keeping the prefix; on a penalty prefix (which *is* the curse) it purges the prefix, reverting the relic to no prefix.

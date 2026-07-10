@@ -45,8 +45,9 @@ internal sealed partial class NMerchantReforgeButton : Control
     private NMerchantInventory _shop = null!;
     private Player? _player;
     private bool _busy;
-    private bool _ended;            // a curse roll ended reforging for THIS shop visit (fresh instance per shop resets it)
+    private bool _ended;            // the curse aura settled — reforging ended for THIS shop visit (fresh instance resets it)
     private int _reforgeCount;      // reforges done in THIS shop visit; each raises the next cost (see ForgeConfig)
+    private int _curseCount;        // curse APPEARANCES this shop visit; drives the growing end chance + the aura flavor band
     private TextureButton _icon = null!;
     private string _tipTitle = "";        // hover-tip title (shown via the game's own NHoverTipSet)
     private string _tipBody = "";         // hover-tip body describing the button's role
@@ -273,8 +274,14 @@ internal sealed partial class NMerchantReforgeButton : Control
         // Gray it out when unusable via modulate only — NOT Disabled, so hover (tooltip) still works.
         // Clicks are guarded in OnPressed, so a grayed button does nothing when pressed.
         _icon.Modulate = usable ? Colors.White : StsColors.halfTransparentWhite;
-        // When a curse ended reforging, swap the hover body to say so (cleanse remains available).
-        _tipBody = _ended ? ForgeLoc.Ui("SHOP_REFORGE_ENDED") : ForgeLoc.Ui("SHOP_REFORGE_BODY");
+        // Hover body escalates with the curse aura: base, three aura bands as curses appear this visit,
+        // then the ended line once the forge goes cold (cleanse remains available).
+        _tipBody = _ended ? ForgeLoc.Ui("SHOP_REFORGE_ENDED")
+                 : _curseCount == 0 ? ForgeLoc.Ui("SHOP_REFORGE_BODY")
+                 : _curseCount == 1 ? ForgeLoc.Ui("SHOP_REFORGE_AURA1")
+                 : _curseCount == 2 ? ForgeLoc.Ui("SHOP_REFORGE_AURA2")
+                 : _curseCount == 3 ? ForgeLoc.Ui("SHOP_REFORGE_AURA3")
+                 : ForgeLoc.Ui("SHOP_REFORGE_AURA4");
     }
 
     private void OnPressed()
@@ -300,9 +307,14 @@ internal sealed partial class NMerchantReforgeButton : Control
                 var outcome = ReforgeNet.Reforge(chosen, _player);   // a curse may roll — the paid gamble
                 chosen.Flash();
                 _reforgeCount++;                              // next reforge in this shop costs more (see ForgeConfig)
-                // A curse ends reforging for this shop visit — it can't be re-rolled away, only Cleansed.
-                if (outcome == RelicForgeService.ReforgeOutcome.RolledCurse) _ended = true;
-                MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge #{_reforgeCount}: {chosen.Id.Entry} for {cost}g{(_ended ? " [CURSE — reforge ended]" : "")}.");
+                // A curse MAY end reforging — count appearances this visit; the c-th curse ends it at
+                // c×10% (forced at the 10th). Until it ends, the player can keep paying to re-roll it away.
+                if (outcome == RelicForgeService.ReforgeOutcome.RolledCurse)
+                {
+                    _curseCount++;
+                    if (RelicForgeService.CurseAuraEndsReforge(_player, _curseCount)) _ended = true;
+                }
+                MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge #{_reforgeCount} (curse #{_curseCount}): {chosen.Id.Entry} for {cost}g{(_ended ? " [aura settled — ended]" : "")}.");
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] shop reforge failed: {e.Message}"); }

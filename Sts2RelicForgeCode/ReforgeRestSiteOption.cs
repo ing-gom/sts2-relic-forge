@@ -29,10 +29,14 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
 
     public override string OptionId => Id;
 
-    // Set once a reforge lands a CURSE (a penalty prefix, or an enemy-rider / self-curse): this
-    // campfire's reforge action is over (the forge "goes cold"). Only THIS option ends — heal/smith
-    // and the rest continue as normal. A curse can't be re-rolled away — only Cleansed at a shop.
+    // Set once the curse aura "settles" — a curse appeared and its growing end-roll hit (or the 10th
+    // curse forced it): this campfire's reforge action is over (the forge "goes cold"). Only THIS option
+    // ends — heal/smith and the rest continue. A curse can't be re-rolled away — only Cleansed at a shop.
     private bool _ended;
+
+    // Curse APPEARANCES across every relic reforged at THIS campfire (fresh instance per visit → resets).
+    // Drives both the growing end chance (CurseAuraEndsReforge) and the aura flavor band on the option.
+    private int _curseCount;
 
     // Icon (res://images/ui/rest_site/option_reforge.png) ships in the mod's .pck, so the base
     // Icon/AssetPaths members resolve it normally — no override needed.
@@ -44,8 +48,23 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
     public override bool IsEnabled => !_ended && RestSiteReforgeSupport.HasReforgeable(Owner);
 
     public override LocString Description
-        => new LocString("rest_site_ui",
-            "OPTION_" + Id + (_ended ? ".descriptionEnded" : IsEnabled ? ".description" : ".descriptionDisabled"));
+        => new LocString("rest_site_ui", "OPTION_" + Id + DescriptionSuffix());
+
+    // The description escalates with the curse aura: base (no curse yet), then one aura band per curse
+    // appearance (20/40/60/80%), then the ended line once the 5th curse (or an earlier roll) goes cold.
+    private string DescriptionSuffix()
+    {
+        if (_ended) return ".descriptionEnded";
+        if (!IsEnabled) return ".descriptionDisabled";
+        return _curseCount switch
+        {
+            0 => ".description",
+            1 => ".descriptionAura1",
+            2 => ".descriptionAura2",
+            3 => ".descriptionAura3",
+            _ => ".descriptionAura4",
+        };
+    }
 
     public ReforgeRestSiteOption(Player owner) : base(owner) { }
 
@@ -78,16 +97,19 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
             chosen.Flash();                                  // pulse the re-forged relic for feedback
             if (outcome == RelicForgeService.ReforgeOutcome.RolledCurse)
             {
-                // Gambled once too often: the forge goes cold. End THIS action only (return false —
-                // rest not consumed, fire stays lit, heal/smith remain). IsEnabled now returns false;
-                // rebuild the option buttons so THIS one comes back greyed + unclickable immediately.
-                _ended = true;
-                NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
+                // A curse APPEARED. Count it (across every relic this visit); the c-th curse ends the
+                // action at c×10%, forced at the 10th. Until then the forge merely darkens — keep going.
+                _curseCount++;
+                if (RelicForgeService.CurseAuraEndsReforge(Owner, _curseCount))
+                    _ended = true;                           // aura settled → forge cold; IsEnabled false now
             }
+            // Rebuild the options so THIS one's description reflects the new aura band (or greys on end).
+            NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
         }
 
         // Return false so the rest is NOT consumed — the player can pick "Reforge" again to re-roll
-        // more relics (until a penalty ends it) before finally healing / smithing / leaving.
+        // more relics (until a curse probabilistically ends it — see ReforgeOutcomeFor) before finally
+        // healing / smithing / leaving.
         return false;
     }
 
@@ -157,6 +179,23 @@ internal static class RestSiteReforgeSupport
                 Localize("저주가 서려 대장간의 불이 식었습니다. 이번 휴식에선 더 재련할 수 없습니다.",
                          "诅咒缠身，炉火已冷。本次休息无法再重铸。",
                          "A curse settles over the relic and the forge goes cold — no more reforging at this rest."),
+            // Curse-aura bands: one per curse appearance this visit (20/40/60/80% to end; the 5th is forced).
+            ["OPTION_REFORGE.descriptionAura1"] =
+                Localize("저주의 기운이 희미하게 감돈다. 아직은 재련을 이어갈 수 있다.",
+                         "隐约萦绕着一丝诅咒之气，仍可继续重铸。",
+                         "A faint curse-aura lingers — you can still keep reforging."),
+            ["OPTION_REFORGE.descriptionAura2"] =
+                Localize("저주의 기운이 짙어진다. 대장간의 불꽃이 흔들리기 시작한다.",
+                         "诅咒之气渐浓，炉火开始摇曳。",
+                         "The curse-aura thickens; the forge's flames begin to waver."),
+            ["OPTION_REFORGE.descriptionAura3"] =
+                Localize("저주의 기운이 자욱하게 감돈다. 불꽃이 위태롭게 사그라든다.",
+                         "诅咒之气弥漫，炉火岌岌可危地黯淡下去。",
+                         "The curse-aura hangs heavy; the flames gutter dangerously."),
+            ["OPTION_REFORGE.descriptionAura4"] =
+                Localize("불씨가 꺼지기 직전이다. 다음 저주가 뜨면 대장간이 식을 듯하다.",
+                         "余烬将熄，再出现一次诅咒，炉火恐将冷却。",
+                         "The embers are nearly out — one more curse may snuff the forge."),
         });
     }
 }

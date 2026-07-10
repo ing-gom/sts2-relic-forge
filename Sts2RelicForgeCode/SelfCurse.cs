@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using MegaCrit.Sts2.Core.Localization;
 
 namespace Sts2RelicForge;
@@ -62,4 +63,24 @@ internal static class SelfCurseTable
 
     /// <summary>Localized "on unblocked hit …" line for a stored curse key (empty if unknown).</summary>
     public static string EffectOf(string en) => ByKey(en)?.Effect ?? "";
+
+    /// <summary>The COMBINED curse pool a forged relic draws its self-curse from: the on-hit curses in
+    /// <see cref="All"/> PLUS every character-eligible PENALTY prefix (its downside re-homed onto the
+    /// curse side — the effect + original trigger still fire via that penalty's own patch, which now
+    /// reads rec.SelfCurse). Returns the stored key (an on-hit curse's <c>En</c> name OR a penalty
+    /// prefix's <c>Name</c>); the two namespaces are disjoint so each dispatcher skips keys it doesn't own.
+    /// Order is stable (on-hit first in source order, then <see cref="PrefixTable.All"/> source order) and
+    /// the pick is uniform, so the choice reproduces across peers/loads for the same (seed, character).</summary>
+    public static string PickCombined(double roll, string? character)
+    {
+        var pool = new List<string>(All.Length + 16);
+        foreach (var c in All) pool.Add(c.En);
+        foreach (var p in PrefixTable.All)
+            if (p.Penalty && !p.IsFallback && PrefixTable.CurseInPool(p, character))
+                pool.Add(p.Name);
+        int i = (int)(roll * pool.Count);
+        if (i >= pool.Count) i = pool.Count - 1;
+        if (i < 0) i = 0;
+        return pool[i];
+    }
 }

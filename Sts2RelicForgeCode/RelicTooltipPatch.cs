@@ -64,7 +64,11 @@ internal static class RelicTooltipPatch
                 }
             }
 
-            if (rec is null || rec.Prefix.Length == 0) return;
+            // Bail only when there is genuinely nothing to show. A curse-only relic (no prefix, just a
+            // curse) has an empty Prefix but still decorates (title mark + ☠ line), so let it through —
+            // the full gate below (hasCurse) renders it. Plain no-prefix duds still fall out there.
+            if (rec is null) return;
+            if (rec.Prefix.Length == 0 && !rec.EnemyRider && rec.SelfCurse.Length == 0) return;
 
             // Run-history reconstruction (see HistoryForgeDisplayPatch): no var deltas were stored, so
             // just show the prefix name + curse. Bypasses the numeric/bespoke path below.

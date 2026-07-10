@@ -15,7 +15,7 @@ Scale a relic's numbers up or down; the tooltip shows the change in color (green
 | Prefix | Effect | Share |
 |---|---|---:|
 | Legendary | +60% | 0.6% |
-| Godly | +35% | 1.2% |
+| Godly | +30% | 1.2% |
 | Demonic | +25% | 1.8% |
 | Superior | +18% | 2.7% |
 | Forceful | +12% | 3.6% |
@@ -23,11 +23,10 @@ Scale a relic's numbers up or down; the tooltip shows the change in color (green
 | Zealous | +6% | 4.5% |
 | Keen | +4% | 4.5% |
 | Volatile | raises boons AND downsides (high risk / high reward) | 1.8% |
-| Damaged | −12% | 4.2% |
-| Shoddy | −18% | 2.4% |
-| Broken | −25% | 1.5% |
 
 Exact per-relic numbers are in the interactive [`prefix_dashboard.html`](prefix_dashboard.html).
+
+> **Weakening rolls → curses.** About **8%** of rolls used to land a *weaker* prefix (Damaged −12% / Shoddy −18% / Broken −25%). Those rolls now yield a **[curse](CURSES.en.md)** instead — the relic keeps its normal numbers and gains a curse. Every downside lives in the curse slot.
 
 ---
 
@@ -40,15 +39,15 @@ Instead of scaling numbers, these graft another relic's effect onto yours — bu
 | Thorned | Thorns 1 at combat start | Bronze Scales | 2.7% |
 | Mighty | Strength +1 on turn 3 | Vajra | 1.8% |
 | Quicksilver | 1 damage to all enemies each turn | Mercury Hourglass | 1.8% |
-| Anchored | Block 4 at combat start | Anchor | 2.1% |
+| Anchored | Block 3 at combat start | Anchor | 2.1% |
 | Vital | Heal 1 on turn 1 | Blood Vial | 2.4% |
 | Rhythmic | +1 energy every 4 turns | Happy Flower | 1.5% |
 | Insightful | Draw 1 card when first hit | Centennial Puzzle | 2.1% |
 | Intimidating | Vulnerable 1 to all enemies on turn 2 | Bag of Marbles | 2.4% |
-| Ferocious | Vigor 3 on turn 1 | Akabeko | 1.5% |
-| Bladed | 2 damage to all enemies per 4 skills in one turn | Letter Opener | 1.8% |
+| Ferocious | Vigor 2 on turn 1 | Akabeko | 1.5% |
+| Bladed | 1 damage to all enemies per 4 skills in one turn | Letter Opener | 1.8% |
 | Relentless | Strength +1 per 4 attacks in one turn | Shuriken | 1.5% |
-| Tempered | Block 2 if you end your turn with no Block | Orichalcum | 2.1% |
+| Tempered | Block 1 if you end your turn with no Block | Orichalcum | 2.1% |
 | Gusting | Block 1 per 4 attacks in one turn | Ornamental Fan | 2.1% |
 | Darting | Dexterity +1 per 4 attacks in one turn | Kunai | 1.8% |
 | Supple | Dexterity +1 on turn 2 | Oddly Smooth Stone | 2.1% |

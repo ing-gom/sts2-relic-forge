@@ -73,7 +73,7 @@ internal static class KeywordAffixPatches
                 int turn = player.PlayerCombatState?.TurnNumber ?? 0;
                 if (turn <= 0) return;
 
-                foreach (var relic in CharAffix.Owned(player, "Searing"))
+                foreach (var relic in CharAffix.OwnedByCurse(player, "Searing"))
                     if (CharAffix.Roll(player, relic, turn) < 0.25f)
                     {
                         relic.Flash();

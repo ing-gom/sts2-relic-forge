@@ -58,9 +58,12 @@ internal static class PenaltyTurnPatch
             {
                 var rec = RelicForgeService.RecordFor(relic);
                 if (rec == null) continue;
-                var pfx = PrefixTable.ByName(rec.Prefix);
-                if (pfx == null || !pfx.Penalty) continue;
-                switch (pfx.Name)
+                // Penalty affixes were re-homed onto the curse slot, so dispatch off rec.SelfCurse (which
+                // holds a penalty identity here, or an on-hit self-curse key that falls through to default
+                // and is handled by UnblockedHitPenaltyPatch instead). Same effects, same triggers.
+                string key = rec.SelfCurse;
+                if (key.Length == 0) continue;
+                switch (key)
                 {
                     case "Cursed" when turn == 1:
                         Fire(relic, PowerCmd.Apply<WeakPower>(choiceContext, player.Creature, 1m, player.Creature, null));
@@ -92,7 +95,7 @@ internal static class PenaltyTurnPatch
                         }
                         break;
                     default:
-                        if (CardPenalties.TryGetValue(pfx.Name, out var cp) && (cp.eachTurn || turn == 1))
+                        if (CardPenalties.TryGetValue(key, out var cp) && (cp.eachTurn || turn == 1))
                         {
                             relic.Flash();
                             for (int i = 0; i < cp.count; i++)
@@ -136,9 +139,7 @@ internal static class PenaltyCardPatch
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
                 var rec = RelicForgeService.RecordFor(relic);
-                if (rec == null) continue;
-                var pfx = PrefixTable.ByName(rec.Prefix);
-                if (pfx == null || pfx.Name != "Overloaded") continue;
+                if (rec == null || rec.SelfCurse != "Overloaded") continue;   // penalty re-homed onto the curse slot
 
                 var s = State.GetValue(relic, _ => new int[3]);
                 if (s[0] != turn) { s[0] = turn; s[1] = 0; s[2] = 0; }  // new turn -> reset

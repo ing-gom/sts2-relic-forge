@@ -29,50 +29,51 @@ internal static class ForgeText
     }
 
     /// <summary>
-    /// Main-tooltip block: ONLY the numeric stat changes (the forge's boosts), under a tier-tinted ⚒
-    /// prefix header. The prefix effect and curse are shown in their own panels (RelicExtraPanelsPatch).
-    /// A history-reconstructed record (DisplayOnly) can't spawn panels, so it inlines the full block —
-    /// effect note, tie-break, and curse — exactly as before.
+    /// Main-tooltip block. For a LIVE relic this is now EMPTY: the forge's numeric boosts moved into the
+    /// prefix panel (see <see cref="PrefixEffectBody"/> / RelicExtraPanelsPatch), joining the effect note
+    /// and curse that were already there, so the relic's own tooltip stays vanilla. A history-reconstructed
+    /// record (DisplayOnly) can't spawn panels, so it still inlines the full block — ⚒ header, effect note,
+    /// numeric deltas, tie-break, and curse — exactly as before.
     /// </summary>
     public static string DescriptionBlock(ForgeRecord rec)
     {
+        if (!rec.DisplayOnly) return "";   // live relics: everything is in the hover panels now
+
+        // History view: no panels available, so inline the full block under a tier-tinted ⚒ header.
         var sb = new StringBuilder();
-        bool inlineAll = rec.DisplayOnly;   // history view: no panels available, so inline everything
+        sb.Append(PrefixHeader(rec));                       // "" when there's no prefix to name
+        string note = PrefixNote(rec);
+        if (note.Length > 0) sb.Append('\n').Append(note);
+        string deltas = DeltaLines(rec);                    // "" — reconstructed records store no var deltas
+        if (deltas.Length > 0) sb.Append('\n').Append(deltas);
+        string tb = TieBreakNote(rec);
+        if (tb.Length > 0) sb.Append('\n').Append(tb);
+        string curse = CurseBody(rec);
+        if (curse.Length > 0) sb.Append('\n').Append(curse);
+        return sb.ToString();
+    }
 
-        // ⚒ prefix header — grouping for the numbers below (or, for history, whenever there's a prefix
-        // to name). Tier-tinted; MegaRichTextLabel renders [color=#hex].
-        if (rec.Prefix.Length > 0 && (rec.HasChanges || inlineAll))
-        {
-            string headerColor = PrefixTable.ColorOf(rec.Prefix);
-            sb.Append("\n\n[color=").Append(headerColor).Append("]⚒ ")
-              .Append(PrefixTable.Localize(rec.Prefix)).Append("[/color]");
-        }
+    /// <summary>Tier-tinted "⚒ &lt;prefix name&gt;" header line (with a leading blank line), or "" when the
+    /// record has no prefix. Groups the deltas beneath it in the inline (history / bespoke) contexts.</summary>
+    public static string PrefixHeader(ForgeRecord rec)
+        => rec.Prefix.Length == 0
+            ? ""
+            : "\n\n[color=" + PrefixTable.ColorOf(rec.Prefix) + "]⚒ " + PrefixTable.Localize(rec.Prefix) + "[/color]";
 
-        // History only: the prefix effect note inline (live relics get the panel instead).
-        if (inlineAll)
-        {
-            string note = PrefixNote(rec);
-            if (note.Length > 0) sb.Append('\n').Append(note);
-        }
-
-        // Numeric stat deltas — always in the main tooltip. Colour by benefit, not numeric sign.
+    /// <summary>The per-var numeric stat deltas ([green]+N[/green] / [red]-N[/red]), one per line, no leading
+    /// newline. Coloured by benefit, not numeric sign. "" when the forge changed no numeric var.</summary>
+    private static string DeltaLines(ForgeRecord rec)
+    {
+        var sb = new StringBuilder();
         foreach (VarChange c in rec.Changes)
         {
             int d = (int)c.Delta;
             string color = c.IsBuff ? "green" : "red";
-            string sign = d >= 0 ? "+" : "";           // negative delta already carries '-'
-            sb.Append('\n').Append(VarLabel.Of(c.VarName)).Append("  [")
+            string sign = d >= 0 ? "+" : "";               // negative delta already carries '-'
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(VarLabel.Of(c.VarName)).Append("  [")
               .Append(color).Append(']').Append(sign).Append(d)
               .Append("[/").Append(color).Append(']');
-        }
-
-        // History only: tie-break bonus + curse lines inline.
-        if (inlineAll)
-        {
-            string tb = TieBreakNote(rec);
-            if (tb.Length > 0) sb.Append('\n').Append(tb);
-            string curse = CurseBody(rec);
-            if (curse.Length > 0) sb.Append('\n').Append(curse);
         }
         return sb.ToString();
     }
@@ -82,15 +83,19 @@ internal static class ForgeText
     /// <summary>Title of the prefix-effect panel: the localized prefix name (plain text, MegaLabel).</summary>
     public static string PrefixEffectTitle(ForgeRecord rec) => PrefixTable.Localize(rec.Prefix);
 
-    /// <summary>Body of the prefix-effect panel: the companion/mixed/reactive effect note plus any
-    /// tie-break bonus line. Empty when the prefix has no effect text (a pure numeric prefix — those
-    /// only show their +N in the main tooltip, so no effect panel).</summary>
+    /// <summary>Body of the prefix panel: the forge's numeric boosts ([green]+N[/green] / [red]-N[/red])
+    /// first, then the companion/mixed/reactive effect note, then any tie-break bonus line. A pure numeric
+    /// prefix (e.g. 신성한 +5) has no effect text but still fills this from its deltas, so it now gets its own
+    /// panel too instead of inlining the numbers into the relic's main tooltip. Empty only when the forge
+    /// produced neither a numeric change nor an effect note.</summary>
     public static string PrefixEffectBody(ForgeRecord rec)
     {
-        string note = PrefixNote(rec);
-        string tb = TieBreakNote(rec);
-        if (note.Length == 0) return tb;
-        return tb.Length == 0 ? note : note + "\n" + tb;
+        var sb = new StringBuilder();
+        void Add(string s) { if (s.Length == 0) return; if (sb.Length > 0) sb.Append('\n'); sb.Append(s); }
+        Add(DeltaLines(rec));    // numeric boosts first — this is what turns a pure-numeric prefix into a panel
+        Add(PrefixNote(rec));
+        Add(TieBreakNote(rec));
+        return sb.ToString();
     }
 
     /// <summary>Title of the curse panel.</summary>

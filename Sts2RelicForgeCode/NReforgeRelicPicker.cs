@@ -119,13 +119,20 @@ internal sealed partial class NReforgeRelicPicker : CanvasLayer
         scroll.OffsetBottom = -vp.Y * 0.18f; // end above the skip button (its row sits at ~84–95%)
         AddChild(scroll);
 
-        // Column count from available width so the grid never needs to scroll sideways.
+        // Center the grid horizontally: an HBox that fills the scroll width and centers its single child.
+        var centerRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        centerRow.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        scroll.AddChild(centerRow);
+
+        // Column count from available width so the grid never needs to scroll sideways — but capped at the
+        // relic count so a few relics form a short, centered row instead of a wide grid padded on the left.
         int cols = Mathf.Clamp((int)(vp.X * 0.76f / 120f), 2, 8);
+        cols = Math.Max(1, Math.Min(cols, _relics.Count));
         var grid = new GridContainer { Columns = cols };
         grid.AddThemeConstantOverride("h_separation", 16);
         grid.AddThemeConstantOverride("v_separation", 16);
-        grid.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-        scroll.AddChild(grid);
+        // Content-sized (no ExpandFill) so the centering HBox can shrink-wrap and center it.
+        centerRow.AddChild(grid);
 
         foreach (var relic in _relics)
         {
@@ -137,6 +144,8 @@ internal sealed partial class NReforgeRelicPicker : CanvasLayer
                 var holder = NRelicBasicHolder.Create(relic);
                 if (holder == null) continue;
                 holder.CustomMinimumSize = new Vector2(100f, 100f); // uniform cells; icon renders inside
+                // Curse-gauge tint is applied globally at the icon level (GaugeTintPatch on RelicModel.
+                // UpdateTexture), which the picker's holder routes through too — so no per-tile tint here.
                 var captured = relic;
                 holder.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => Select(captured)));
                 grid.AddChild(holder);

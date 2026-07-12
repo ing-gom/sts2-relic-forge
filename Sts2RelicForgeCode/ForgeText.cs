@@ -98,6 +98,19 @@ internal static class ForgeText
         return sb.ToString();
     }
 
+    /// <summary>Title of the curse-gauge panel.</summary>
+    public static string GaugeTitle() => ForgeLoc.Ui("GAUGE_TITLE");
+
+    /// <summary>Body of the curse-gauge panel: the fill percent + the escalating flavor band, in crimson.
+    /// Empty at gauge 0 (never re-forged). See <see cref="RelicForgeService.CurseGauge"/> / GaugeBand.</summary>
+    public static string GaugeBody(int gauge)
+    {
+        if (gauge <= 0) return "";
+        string fill = ForgeLoc.Ui("GAUGE_FILL");
+        try { fill = string.Format(fill, gauge); } catch { /* malformed {0} in a translation — show raw */ }
+        return "[color=#c0554d]" + fill + "[/color]\n" + ForgeLoc.Ui("GAUGE_BAND" + RelicForgeService.GaugeBand(gauge));
+    }
+
     /// <summary>Title of the curse panel.</summary>
     public static string CurseTitle(ForgeRecord rec) => ForgeLoc.Ui("CURSE_TITLE");
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -29,48 +30,43 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
 
     public override string OptionId => Id;
 
-    // Set once the curse aura "settles" — a curse appeared and its growing end-roll hit (or the 10th
-    // curse forced it): this campfire's reforge action is over (the forge "goes cold"). Only THIS option
-    // ends — heal/smith and the rest continue. A curse can't be re-rolled away — only Cleansed at a shop.
-    private bool _ended;
-
-    // Curse APPEARANCES across every relic reforged at THIS campfire (fresh instance per visit → resets).
-    // Drives both the growing end chance (CurseAuraEndsReforge) and the aura flavor band on the option.
-    private int _curseCount;
-
     // Icon (res://images/ui/rest_site/option_reforge.png) ships in the mod's .pck, so the base
     // Icon/AssetPaths members resolve it normally — no override needed.
 
-    // The base IsEnabled is a read-only virtual (`=> true`) with NO setter — reflectively "setting"
-    // it was a silent no-op, which is why the option never greyed. OVERRIDE it to compute live:
-    // disabled once a penalty ended reforging, or when the player has nothing reforgeable. The rest
-    // button reads _option.IsEnabled for its greyscale tint + clickability, so both now follow this.
+    // Per-VISIT location aura: each reforge at THIS campfire fills it 5–20% (LocationGaugeStep); at 100% the
+    // forge goes cold here (_ended) and this option greys for the visit. Initiator-local, per-visit (fresh
+    // instance resets it), not synced/persisted — a session budget ON TOP of the per-relic curse gauge.
+    private int _locGauge;
+    private int _reforges;
+    private bool _ended;
+
+    // Greys once the location aura fills (session budget spent) OR nothing is reforgeable (every relic
+    // cursed/saturated/volatile — see Reforgeable). The rest button reads IsEnabled for its tint + clickability.
     public override bool IsEnabled => !_ended && RestSiteReforgeSupport.HasReforgeable(Owner);
 
     public override LocString Description
-        => new LocString("rest_site_ui", "OPTION_" + Id + DescriptionSuffix());
+    {
+        get
+        {
+            var ls = new LocString("rest_site_ui", "OPTION_" + Id + DescriptionSuffix());
+            ls.Add("Pct", _locGauge);   // fills the {Pct} placeholder in the location-aura band texts
+            return ls;
+        }
+    }
 
-    // The description escalates with the curse aura: base (no curse yet), then one aura band per curse
-    // appearance (20/40/60/80%), then the ended line once the 5th curse (or an earlier roll) goes cold.
+    // Base → escalating location-aura bands as it fills → the ended line once it hits 100%.
     private string DescriptionSuffix()
     {
         if (_ended) return ".descriptionEnded";
-        if (!IsEnabled) return ".descriptionDisabled";
-        return _curseCount switch
-        {
-            0 => ".description",
-            1 => ".descriptionAura1",
-            2 => ".descriptionAura2",
-            3 => ".descriptionAura3",
-            _ => ".descriptionAura4",
-        };
+        if (!RestSiteReforgeSupport.HasReforgeable(Owner)) return ".descriptionDisabled";
+        return _locGauge <= 0 ? ".description" : ".descriptionLoc" + RelicForgeService.LocationGaugeBand(_locGauge);
     }
 
     public ReforgeRestSiteOption(Player owner) : base(owner) { }
 
     public override async Task<bool> OnSelect()
     {
-        if (_ended) return false;   // a curse roll already ended reforging at this campfire
+        if (_ended) return false;   // location aura full — the forge is cold at this campfire this visit
 
         // CO-OP: RestSiteSynchronizer.ChooseOption runs this OnSelect on EVERY client — the acting
         // player's choice is replayed on peers via OptionIndexChosenMessage. Our relic picker is a
@@ -93,23 +89,19 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
 
         if (chosen != null)
         {
-            var outcome = ReforgeNet.Reforge(chosen, Owner);
+            ReforgeNet.Reforge(chosen, Owner);
             chosen.Flash();                                  // pulse the re-forged relic for feedback
-            if (outcome == RelicForgeService.ReforgeOutcome.RolledCurse)
-            {
-                // A curse APPEARED. Count it (across every relic this visit); the c-th curse ends the
-                // action at c×10%, forced at the 10th. Until then the forge merely darkens — keep going.
-                _curseCount++;
-                if (RelicForgeService.CurseAuraEndsReforge(Owner, _curseCount))
-                    _ended = true;                           // aura settled → forge cold; IsEnabled false now
-            }
-            // Rebuild the options so THIS one's description reflects the new aura band (or greys on end).
+            // Fill this campfire's location aura 5–20%; at 100% the forge goes cold here for the visit.
+            _locGauge = Math.Min(RelicForgeService.LocationGaugeFull,
+                                 _locGauge + RelicForgeService.LocationGaugeStep(Owner, _reforges));
+            _reforges++;
+            if (_locGauge >= RelicForgeService.LocationGaugeFull) _ended = true;
+            // Rebuild the options so THIS one reflects the new aura band (or greys when full / all relics gone).
             NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
         }
 
-        // Return false so the rest is NOT consumed — the player can pick "Reforge" again to re-roll
-        // more relics (until a curse probabilistically ends it — see ReforgeOutcomeFor) before finally
-        // healing / smithing / leaving.
+        // Return false so the rest is NOT consumed — the player can pick "Reforge" again to re-roll more
+        // relics (each bounded by its own curse gauge) before finally healing / smithing / leaving.
         return false;
     }
 
@@ -129,13 +121,21 @@ internal static class RestSiteReforgeSupport
 
     /// <summary>
     /// Every owned, player-chosen relic can be reforged — whether it currently has a prefix, rolled
-    /// "no prefix", or was never eligible on pickup (a deliberate reforge always lands a prefix).
-    /// Hidden companion instances (grafted donors) are excluded, since those aren't relics the
-    /// player picked; Ancient (先古) relics are excluded too while <see cref="ForgeConfig.ForgeAncientRelics"/>
-    /// is off, so the opt-out leaves them untouched at campfires and shops as well as on pickup.
+    /// "no prefix", or was never eligible on pickup (a deliberate reforge always lands a prefix) — EXCEPT
+    /// one that currently carries a CURSE. A cursed relic can no longer be re-rolled (which used to wash
+    /// the curse away, cheaply duplicating Cleanse); its only recourse is <see cref="Cleansable"/>. This
+    /// makes reforge (improve an un-cursed prefix) and cleanse (remove a curse) fully disjoint, so a curse
+    /// is a real commitment, and it never overlaps Cleanse's role. Hidden companion instances (grafted
+    /// donors) are excluded, since those aren't relics the player picked; Ancient (先古) relics are excluded
+    /// too while <see cref="ForgeConfig.ForgeAncientRelics"/> is off, so the opt-out leaves them untouched
+    /// at campfires and shops as well as on pickup.
     /// </summary>
     public static IEnumerable<RelicModel> Reforgeable(Player player)
         => player.Relics.Where(r => !RelicForgeService.IsCompanion(r)
+            && !r.IsWax                                              // volatile (wax) relic — melts on use, never reforge
+            && !RelicForgeService.IsRelicSpent(r)                    // already melted / used-up (Disabled) — nothing to reforge
+            && !RelicForgeService.CanCleanse(r)                      // cursed → cleanse-only, never reforge
+            && !RelicForgeService.IsGaugeSaturated(r)                // curse gauge full → saturated, no more reforging
             && (HostForgeConfig.ForgeAncient || r.Rarity != RelicRarity.Ancient));
 
     public static bool HasReforgeable(Player player) => Reforgeable(player).Any();
@@ -169,33 +169,36 @@ internal static class RestSiteReforgeSupport
         {
             ["OPTION_REFORGE.name"] = Localize("재련", "重铸", "Reforge"),
             ["OPTION_REFORGE.description"] =
-                Localize("유물 하나를 선택해 재련합니다. 휴식을 소모하지 않아 여러 번 할 수 있습니다. 재련으로 저주가 뜨면 재련이 끝나며, 저주는 상점의 정화로만 없앨 수 있습니다.",
-                         "选择一件遗物进行重铸。不消耗休息，可多次使用。但若重铸出诅咒，重铸即结束；诅咒只能在商店净化，无法再重铸覆盖。",
-                         "Pick a relic and reforge it. Doesn't use up your rest — repeatable. But if a reforge rolls a curse, reforging ends; a curse can't be re-rolled away, only Cleansed at a shop."),
+                Localize("유물을 재련합니다(휴식 소모 없음, 반복 가능). 재련할수록 저주 기운이 차오르고, 가득 차면 유물 효과가 멈춥니다 — 저주만 남습니다. 상점 정화로 되살립니다.",
+                         "重铸遗物（不消耗休息，可重复）。诅咒之气积满后遗物效果停止——仅留诅咒。可在商店净化使其恢复。",
+                         "Reforge a relic (free, repeatable). Each reforge fills its curse-aura; when full, its effect stops — only the curse remains. Cleanse at a shop to revive it."),
             ["OPTION_REFORGE.descriptionDisabled"] =
-                Localize("재련할 강화된 유물이 없습니다.", "没有可重铸的已强化遗物。",
-                         "You have no forged relic to reforge."),
+                Localize("재련할 유물이 없습니다 (모두 저주에 걸렸거나 저주 기운이 가득 찼습니다).",
+                         "没有可重铸的遗物（都已被诅咒或诅咒之气已满）。",
+                         "No relic left to reforge (all cursed or curse-saturated)."),
+            // Location aura bands: this campfire's own reforge aura fills 5–20% per reforge; at 100% it ends.
+            ["OPTION_REFORGE.descriptionLoc0"] =
+                Localize("이 대장간의 저주 기운 {Pct}% — 희미하게 서리기 시작한다. 계속 재련할 수 있다.",
+                         "本熔炉诅咒之气 {Pct}% — 隐约开始萦绕，仍可继续重铸。",
+                         "This forge's curse-aura: {Pct}% — a faint haze; keep reforging."),
+            ["OPTION_REFORGE.descriptionLoc1"] =
+                Localize("이 대장간의 저주 기운 {Pct}% — 짙어지고 있다.",
+                         "本熔炉诅咒之气 {Pct}% — 渐浓。",
+                         "This forge's curse-aura: {Pct}% — thickening."),
+            ["OPTION_REFORGE.descriptionLoc2"] =
+                Localize("이 대장간의 저주 기운 {Pct}% — 자욱하다. 불꽃이 흔들린다.",
+                         "本熔炉诅咒之气 {Pct}% — 弥漫，炉火摇曳。",
+                         "This forge's curse-aura: {Pct}% — heavy; the flames waver."),
+            ["OPTION_REFORGE.descriptionLoc3"] =
+                Localize("이 대장간의 저주 기운 {Pct}% — 불씨가 꺼지기 직전. 곧 재련할 수 없다.",
+                         "本熔炉诅咒之气 {Pct}% — 余烬将熄，即将无法重铸。",
+                         "This forge's curse-aura: {Pct}% — embers nearly out; soon cold."),
+            ["OPTION_REFORGE.descriptionLoc4"] =
+                Localize("이 대장간의 저주 기운 {Pct}% — 가득 찼다.", "本熔炉诅咒之气 {Pct}% — 已满。", "This forge's curse-aura: {Pct}% — full."),
             ["OPTION_REFORGE.descriptionEnded"] =
-                Localize("저주가 서려 대장간의 불이 식었습니다. 이번 휴식에선 더 재련할 수 없습니다.",
-                         "诅咒缠身，炉火已冷。本次休息无法再重铸。",
-                         "A curse settles over the relic and the forge goes cold — no more reforging at this rest."),
-            // Curse-aura bands: one per curse appearance this visit (20/40/60/80% to end; the 5th is forced).
-            ["OPTION_REFORGE.descriptionAura1"] =
-                Localize("저주의 기운이 희미하게 감돈다. 아직은 재련을 이어갈 수 있다.",
-                         "隐约萦绕着一丝诅咒之气，仍可继续重铸。",
-                         "A faint curse-aura lingers — you can still keep reforging."),
-            ["OPTION_REFORGE.descriptionAura2"] =
-                Localize("저주의 기운이 짙어진다. 대장간의 불꽃이 흔들리기 시작한다.",
-                         "诅咒之气渐浓，炉火开始摇曳。",
-                         "The curse-aura thickens; the forge's flames begin to waver."),
-            ["OPTION_REFORGE.descriptionAura3"] =
-                Localize("저주의 기운이 자욱하게 감돈다. 불꽃이 위태롭게 사그라든다.",
-                         "诅咒之气弥漫，炉火岌岌可危地黯淡下去。",
-                         "The curse-aura hangs heavy; the flames gutter dangerously."),
-            ["OPTION_REFORGE.descriptionAura4"] =
-                Localize("불씨가 꺼지기 직전이다. 다음 저주가 뜨면 대장간이 식을 듯하다.",
-                         "余烬将熄，再出现一次诅咒，炉火恐将冷却。",
-                         "The embers are nearly out — one more curse may snuff the forge."),
+                Localize("저주 기운이 가득 차 이 대장간의 불이 식었습니다. 다른 휴식처에서 다시 재련하세요.",
+                         "诅咒之气缠满，这座熔炉的炉火已冷。请在其他休息处再重铸。",
+                         "The curse-aura fills and this forge goes cold — reforge again at another rest site."),
         });
     }
 }

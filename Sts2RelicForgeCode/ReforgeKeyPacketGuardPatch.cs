@@ -23,7 +23,9 @@ internal static class ReforgeKeyPacketGuardPatch
     {
         try
         {
-            __instance.ints?.RemoveAll(p => p.name == RelicForgeService.RfCountKey || p.name == RelicForgeService.RfCleansedKey);
+            __instance.ints?.RemoveAll(p => p.name == RelicForgeService.RfCountKey
+                                            || p.name == RelicForgeService.RfCleansedKey
+                                            || p.name == RelicForgeService.RfReductionKey);
             __instance.strings?.RemoveAll(p => p.name == RelicForgeService.RfDescKey);
         }
         catch (Exception e)

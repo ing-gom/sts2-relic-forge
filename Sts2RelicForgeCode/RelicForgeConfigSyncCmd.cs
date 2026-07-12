@@ -82,5 +82,41 @@ internal static class ForgeConfigBroadcaster
         MainFile.Logger.Info($"[{MainFile.ModId}] host broadcast rf_config to clients.");
     }
 
+    /// <summary>
+    /// Host-side: broadcast every relic's reforge COUNT + CLEANSED flag (the state that cannot cross the
+    /// packet wire — see <see cref="RelicForgeCountSyncCmd"/>) so a RECONNECTED client can restore it. Only
+    /// relics that actually need it (count &gt; 0 or cleansed) go in the payload; if none do, nothing is
+    /// enqueued. A no-op off the co-op host. Fires on room entry (belt-and-suspenders alongside the config
+    /// broadcast), so a client that rebuilt its relics on reconnect reconciles at the next room boundary.
+    /// The command is idempotent on every peer, so re-sending each room costs only a cheap in-sync check.
+    /// </summary>
+    public static void BroadcastCountsIfHost()
+    {
+        if (!HostForgeConfig.IsHost) return;
+        var run = RunManager.Instance;
+        var state = run?.State;
+        var me = LocalContext.GetMe(state?.Players ?? System.Linq.Enumerable.Empty<Player>());
+        if (state == null || me == null) return;
+
+        var sb = new System.Text.StringBuilder(RelicForgeCountSyncCmd.Verb);
+        int n = 0;
+        foreach (var player in state.Players)
+            foreach (var relic in player.Relics)
+            {
+                if (RelicForgeService.IsCompanion(relic)) continue;      // hidden donors re-derive from their host
+                int count = RelicForgeService.ReforgeCountOf(relic);
+                bool cleansed = RelicForgeService.IsCleansed(relic);
+                int gred = RelicForgeService.GaugeReductionOf(relic);
+                if (count <= 0 && !cleansed && gred <= 0) continue;     // seed-derivable as-is — nothing to carry
+                sb.Append(' ').Append(player.NetId).Append(':').Append(relic.Id.Entry)
+                  .Append(':').Append(count).Append(':').Append(cleansed ? '1' : '0').Append(':').Append(gred);
+                n++;
+            }
+        if (n == 0) return;   // nothing reforged/cleansed yet — skip the enqueue entirely
+
+        run!.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, sb.ToString(), inCombat: false));
+        MainFile.Logger.Info($"[{MainFile.ModId}] host broadcast rf_counts ({n} relic(s)) to clients.");
+    }
+
     private static string Verb() => RelicForgeConfigSyncCmd.Verb;
 }

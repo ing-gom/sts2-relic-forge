@@ -36,6 +36,7 @@ internal sealed partial class NMerchantCleanseButton : Control
     private NMerchantInventory _shop = null!;
     private Player? _player;
     private bool _busy;
+    private int _cleanseCount;     // cleanses done in THIS shop visit; each raises the next cost (see ForgeConfig). A fresh instance per shop resets it.
     private TextureButton _icon = null!;
     private string _tipTitle = "";        // hover-tip title (shown via the game's own NHoverTipSet)
     private string _tipBase = "";         // usable description ("Remove the relic's curse")
@@ -224,7 +225,7 @@ internal sealed partial class NMerchantCleanseButton : Control
 
     private void Refresh()
     {
-        int cost = ForgeConfig.ShopCleanseCost;
+        int cost = ForgeConfig.ShopCleanseCostFor(_cleanseCount);
         bool affordable = _player != null && _player.Gold >= cost;
         bool hasCursed = _player != null && RestSiteReforgeSupport.HasCleansable(_player);
         bool usable = affordable && hasCursed;
@@ -245,7 +246,7 @@ internal sealed partial class NMerchantCleanseButton : Control
     private void OnPressed()
     {
         if (_busy || _player == null) return;
-        int cost = ForgeConfig.ShopCleanseCost;
+        int cost = ForgeConfig.ShopCleanseCostFor(_cleanseCount);
         if (_player.Gold < cost) return;
         var candidates = RestSiteReforgeSupport.Cleansable(_player).ToList();
         if (candidates.Count == 0) return;
@@ -265,7 +266,8 @@ internal sealed partial class NMerchantCleanseButton : Control
             {
                 if (cost > 0) await PlayerCmd.LoseGold(cost, _player);
                 chosen.Flash();
-                MainFile.Logger.Info($"[{MainFile.ModId}] shop cleanse: {chosen.Id.Entry} for {cost}g.");
+                _cleanseCount++;                              // next cleanse in this shop costs more (see ForgeConfig)
+                MainFile.Logger.Info($"[{MainFile.ModId}] shop cleanse #{_cleanseCount}: {chosen.Id.Entry} for {cost}g.");
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] shop cleanse failed: {e.Message}"); }

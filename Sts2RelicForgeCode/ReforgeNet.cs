@@ -110,7 +110,7 @@ internal static class ReforgeNet
         var relic = owner.Relics.FirstOrDefault(
             r => r.Id.Entry == relicEntry && !RelicForgeService.IsCompanion(r));
         if (relic == null) return;
-        RelicForgeService.ApplyCleanse(relic);
+        RelicForgeService.ApplyCleanseLive(relic);   // strip curse + reset the curse gauge, on every client
     }
 
     /// <summary>Enqueue the cleanse onto the run's synchronized action stream so it replays on every
@@ -177,8 +177,10 @@ internal static class ReforgeNet
     ///
     /// Live co-op sync needs nothing more: every client re-derives the identical grade from
     /// seed+id+floor+count. (Reforge counts are not carried in MP save packets —
-    /// ReforgeKeyPacketGuardPatch strips <c>__rf_count</c> — so a client that JOINS mid-run won't
-    /// retroactively see prior reforge counts; that mid-join catch-up is the one remaining gap.)
+    /// ReforgeKeyPacketGuardPatch strips <c>__rf_count</c> — so a client that JOINS / RECONNECTS mid-run
+    /// would not otherwise see prior reforge counts. That mid-join catch-up is now closed by the host's
+    /// per-room <c>rf_counts</c> broadcast — see <see cref="RelicForgeCountSyncCmd"/> /
+    /// <see cref="ForgeConfigBroadcaster.BroadcastCountsIfHost"/> / RelicForgeService.ReconcileToHost.)
     /// </summary>
     private static void DispatchNetworked(Player owner, string relicEntry, int targetCount)
     {

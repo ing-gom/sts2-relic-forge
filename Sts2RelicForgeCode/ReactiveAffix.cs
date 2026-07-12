@@ -128,6 +128,7 @@ internal static class ReactiveAffix
     {
         foreach (var relic in new List<RelicModel>(player.Relics))
         {
+            if (RelicForgeService.IsForgeEffectSuppressed(relic)) continue;   // dead relic (spent/disabled/saturated) — no reactive effect
             var rec = RelicForgeService.RecordFor(relic);
             if (rec == null || rec.Prefix.Length == 0) continue;
             var pfx = PrefixTable.ByName(rec.Prefix);

@@ -56,8 +56,31 @@ internal static class RelicForgeService
     // type. See ReforgeSaveInjectPatch / ReforgeLoadCapturePatch.
     private static readonly ConditionalWeakTable<RelicModel, StrongBox<int>> Pending = new();
 
+    // Same parking, for the curse-gauge cleanse reduction (see ForgeRecord.GaugeReduction): captured off the
+    // serialized relic on FromSerializable, taken when the relic is (re-)forged on load / heal / reconnect.
+    private static readonly ConditionalWeakTable<RelicModel, StrongBox<int>> PendingReduction = new();
+
     /// <summary>The SavedProperty name our reforge count rides on inside a serialized relic.</summary>
     public const string RfCountKey = "__rf_count";
+
+    /// <summary>The SavedProperty (int) name carrying the curse-gauge cleanse reduction (see
+    /// ForgeRecord.GaugeReduction). Persisted alongside the reforge count; stripped from packet sync.</summary>
+    public const string RfReductionKey = "__rf_gred";
+
+    /// <summary>Park a gauge reduction for a load-restored relic instance (set from FromSerializable).</summary>
+    public static void SetPendingGaugeReduction(RelicModel relic, int n) => PendingReduction.AddOrUpdate(relic, new StrongBox<int>(n));
+
+    /// <summary>Read + consume the parked gauge reduction for a relic instance (0 if none).</summary>
+    public static int TakePendingGaugeReduction(RelicModel relic)
+    {
+        if (!PendingReduction.TryGetValue(relic, out var box)) return 0;
+        PendingReduction.Remove(relic);
+        return box.Value;
+    }
+
+    /// <summary>The current curse-gauge cleanse reduction of a relic instance (0 if never cleansed).</summary>
+    public static int GaugeReductionOf(RelicModel relic)
+        => Records.TryGetValue(relic, out var rec) ? rec.GaugeReduction : 0;
 
     /// <summary>The SavedProperty (string) name carrying a compact forge summary ("prefix|rider|self")
     /// for the RUN-HISTORY view, where the real grade can't be re-derived (history keeps only the
@@ -99,31 +122,47 @@ internal static class RelicForgeService
            || rec.EnemyRider || rec.SelfCurse.Length != 0;
 
     /// <summary>
-    /// CLEANSE a relic's curse. Removes the enemy-rider or self-curse and keeps the prefix; if the
-    /// prefix ITSELF is the curse (a penalty prefix), purges it so the relic falls back to un-prefixed
-    /// (a penalty prefix has no upside to keep). Sets a persisted "cleansed" flag so the seed-derived
-    /// curse doesn't return on load. A later reforge re-rolls everything (fresh record, cleansed
-    /// cleared). Returns true if a curse was removed.
+    /// CLEANSE a relic (single-player live path). Purifies it two ways: removes any curse (enemy-rider /
+    /// self-curse, or purges a penalty prefix back to un-prefixed) AND reduces the curse gauge — a CURSED
+    /// relic sheds half its fill, a saturated non-cursed relic sheds all of it (→ 0) — giving a burnt-out
+    /// relic more reforges. Offered on a relic that is cursed OR gauge-saturated (see <see cref="CanCleanse"/>).
+    /// Returns true if it acted.
     /// </summary>
     public static bool Cleanse(RelicModel relic)
     {
-        if (!Records.TryGetValue(relic, out var rec)) return false;
-        if (!IsCursedRecord(rec)) return false; // nothing to cleanse
-        StripCurse(rec);
+        if (!CanCleanse(relic)) return false;
+        ApplyCleanseLive(relic);
         relic.Flash();
-        MainFile.Logger.Info($"[{MainFile.ModId}] cleansed curse from {relic.Id.Entry}.");
+        MainFile.Logger.Info($"[{MainFile.ModId}] cleansed {relic.Id.Entry} (curse removed + gauge reset).");
         return true;
     }
 
-    /// <summary>Whether this relic currently carries a curse that <see cref="Cleanse"/> would remove —
-    /// a NON-mutating check. Used by the co-op cleanse seam (<see cref="ReforgeNet.Cleanse"/>) to decide
-    /// whether to charge gold + dispatch, since the actual strip runs on every client via the synced
-    /// command rather than locally here.</summary>
+    /// <summary>Whether <see cref="Cleanse"/> would do anything to this relic — it is CURSED or its curse
+    /// gauge has SATURATED (100%). A NON-mutating check. Used by the co-op cleanse seam
+    /// (<see cref="ReforgeNet.Cleanse"/>) to decide whether to charge gold + dispatch, and by
+    /// <see cref="ReforgeRestSiteOption"/> to exclude cleanse-only relics from the reforge picker.</summary>
     public static bool CanCleanse(RelicModel relic)
-        => Records.TryGetValue(relic, out var rec) && IsCursedRecord(rec);
+        => Records.TryGetValue(relic, out var rec) && (IsCursedRecord(rec) || IsGaugeSaturated(relic));
 
-    /// <summary>Re-apply the cleansed state to a just-re-derived record (load path, and the co-op
-    /// per-client apply — see <see cref="ReforgeNet.ApplyCleanseOnClient"/>).</summary>
+    /// <summary>LIVE cleanse applied on EVERY co-op client (see <see cref="ReforgeNet.ApplyCleanseOnClient"/>)
+    /// and by the SP <see cref="Cleanse"/>. Strips any curse and REDUCES the curse gauge: a CURSED relic
+    /// sheds only HALF its current fill (the curse-removal is the main service), a saturated (non-cursed)
+    /// relic sheds ALL of it (→ 0). Runs exactly once per cleanse per peer, computed from the deterministic
+    /// gauge + synced reforge count, so every peer arrives at the same reduction. NOT the load/reconnect
+    /// re-apply (that is <see cref="ApplyCleanse"/>, curse-only; the reduction is restored from persistence /
+    /// the rf_counts sync there).</summary>
+    public static void ApplyCleanseLive(RelicModel relic)
+    {
+        if (!Records.TryGetValue(relic, out var rec)) return;
+        int fill = CurseGauge(relic);                 // current fill BEFORE this cleanse (unaffected by StripCurse)
+        bool cursed = IsCursedRecord(rec);
+        if (cursed) StripCurse(rec);
+        rec.GaugeReduction += cursed ? fill / 2 : fill;   // cursed → half off; saturated non-cursed → all off
+    }
+
+    /// <summary>Re-apply the cleansed CURSE state to a just-re-derived record (load / reconnect / heal
+    /// path). Curse-strip ONLY — the gauge reduction is restored separately from persistence (__rf_gred) /
+    /// the parked pending value during the re-forge, so it must NOT be re-reset here.</summary>
     public static void ApplyCleanse(RelicModel relic)
     {
         if (Records.TryGetValue(relic, out var rec)) StripCurse(rec);
@@ -266,6 +305,128 @@ internal static class RelicForgeService
     private static double CurseOnlyChance()
         => Math.Clamp(HostForgeConfig.CurseChance * CurseOnlyFactor, CurseFloor, CurseCap);
 
+    // --- Per-relic CURSE GAUGE (reforge fatigue) ---------------------------------------------------
+    // Each reforge fills the picked relic's gauge; at 100% the relic SATURATES and can no longer be
+    // reforged (only the gauge — not the grade — gates this, so a saturated relic keeps its last roll).
+    // A normal reforge adds a seeded 5–30%; a reforge that ROLLED A CURSE adds a bigger 40% chunk, so
+    // pushing a relic that keeps cursing burns out fast. The gauge is a PURE FUNCTION of (seed, id,
+    // floor, count) — exactly like the grade — so it re-derives identically on load / co-op / reconnect
+    // with NO new persistence (the reforge count already rides the save + the rf_counts sync). Cleansing
+    // does NOT lower it: the fatigue of a reforge that once cursed lingers even after the curse is gone
+    // (ReforgeRollsCurse is seed-derived and ignores the cleansed flag), so a cleansed relic has fewer
+    // reforges left. Replaces the old probabilistic per-visit "curse aura ends reforging" limiter.
+    private const int GaugeStepMin = 5, GaugeStepMax = 30, GaugeCurseStep = 40, GaugeFull = 100;
+
+    // Memo: the gauge only changes when (count, reduction) change (a reforge or a cleanse). The shop cleanse
+    // button re-scans every relic EVERY FRAME (HasCleansable → CanCleanse → CurseGauge), so cache the last
+    // result per instance and recompute only on a count/reduction change — turning the per-frame scan O(1).
+    private static readonly ConditionalWeakTable<RelicModel, int[]> GaugeCache = new();   // [count, reduction, gauge]
+
+    /// <summary>The curse-gauge fill (0–100): the seeded raw fill over all reforges MINUS the cleanse
+    /// reduction, clamped. 0 when never re-forged. Deterministic + memoized on (count, reduction); safe to
+    /// call from per-frame display code (count is small).</summary>
+    public static int CurseGauge(RelicModel relic)
+    {
+        if (relic == null) return 0;
+        int count = ReforgeCountOf(relic);
+        if (count <= 0) return 0;                  // never re-forged
+        int reduction = GaugeReductionOf(relic);   // gauge points removed by cleansing
+        if (GaugeCache.TryGetValue(relic, out var cached) && cached[0] == count && cached[1] == reduction)
+            return cached[2];                       // unchanged since last compute — return the memoized fill
+
+        var owner = relic.Owner as Player;
+        uint runSeed = owner?.RunState.Rng.Seed ?? RunManager.Instance?.State?.Rng.Seed ?? 0;
+        int floor = relic.FloorAddedToDeck;
+        string? character = CharAffix.TitleOf(owner);
+        string relicId = relic.Id.Entry;
+
+        int raw = 0;
+        for (int k = 1; k <= count; k++)
+        {
+            if (ReforgeRollsCurse(relic, runSeed, floor, k, character))
+                raw += GaugeCurseStep;
+            else
+            {
+                // Seeded 5–30 increment for step k, from a derived stream (never touches the grade rng).
+                var rng = new Rng(SplitMix32(GradeSeed(runSeed, floor, relicId) + (uint)k * 0x85EBCA6Bu + 0x27D4EB2Fu));
+                raw += GaugeStepMin + (int)(rng.NextFloat() * (GaugeStepMax - GaugeStepMin + 1));
+            }
+        }
+        int gauge = Math.Clamp(raw - reduction, 0, GaugeFull);   // subtract what cleansing removed
+        GaugeCache.AddOrUpdate(relic, new[] { count, reduction, gauge });
+        return gauge;
+    }
+
+    /// <summary>True once a relic's curse gauge has saturated (100%) — it can no longer be reforged.</summary>
+    public static bool IsGaugeSaturated(RelicModel relic) => CurseGauge(relic) >= GaugeFull;
+
+    // --- Per-LOCATION (campfire / shop visit) reforge aura — a SESSION budget on top of the per-relic gauge ---
+    // Each reforge done at a location fills this initiator-local gauge 5–20%; at 100% the forge "goes cold"
+    // for the visit (that reforge control greys). Unlike the per-relic curse gauge this is UI-only, per-visit,
+    // NOT persisted or synced — it lives on the campfire option / shop button instance, so it just limits the
+    // acting player's own session and is co-op-irrelevant (the reforge mutation still replicates via ReforgeNet).
+    private const int LocationStepMin = 5, LocationStepMax = 20;
+    public const int LocationGaugeFull = 100;
+
+    /// <summary>Seeded 5–20% fill added to a LOCATION's reforge aura for the <paramref name="reforgeIndexThisVisit"/>-th
+    /// reforge this visit (index from 0). Seeded from (run seed, current floor as a per-visit nonce, index) so it is
+    /// honest + reload-stable, and it never touches the run rng stream. Initiator-local → co-op unaffected.</summary>
+    public static int LocationGaugeStep(Player player, int reforgeIndexThisVisit)
+    {
+        uint seed = player?.RunState?.Rng.Seed ?? 0;
+        uint floor = (uint)(player?.RunState?.TotalFloor ?? 0);
+        var rng = new Rng(SplitMix32(seed + floor * 2654435761u + (uint)reforgeIndexThisVisit * 0x9E3779B9u + 0x165667B1u));
+        return LocationStepMin + (int)(rng.NextFloat() * (LocationStepMax - LocationStepMin + 1));
+    }
+
+    /// <summary>Flavor band (0 = faint … 4 = full/ended) for a location aura fill, so the reforge control can
+    /// pick escalating "the forge is going cold" text.</summary>
+    public static int LocationGaugeBand(int gauge)
+        => gauge >= LocationGaugeFull ? 4 : gauge >= 75 ? 3 : gauge >= 50 ? 2 : gauge >= 25 ? 1 : 0;
+
+    /// <summary>
+    /// Whether the relic's OWN base effect is GONE — consumed or self-disabled — so BOTH its forge boon AND
+    /// its curse must go silent (a dead relic does nothing at all):
+    ///   · <c>IsMelted</c> — a volatile / consumed relic (e.g. a wax relic used up);
+    ///   · <c>Status == RelicStatus.Disabled</c> — a relic that self-disabled by condition (e.g. a
+    ///     combats-left relic whose charges ran out — the game's IsUsedUp → Status = Disabled).
+    /// Gauge saturation is DELIBERATELY excluded here: an over-reforged relic still exists and keeps its
+    /// curse (only its upside dies — see <see cref="IsForgeEffectSuppressed"/>). The CURSE sites (EnemyForge /
+    /// UnblockedHitPenaltyPatch) gate on THIS, so a spent/melted relic gives no curse, but a saturated one
+    /// still bites.
+    /// </summary>
+    public static bool IsRelicSpent(RelicModel relic)
+        => relic != null && (relic.IsMelted || relic.Status == RelicStatus.Disabled);
+
+    /// <summary>
+    /// Whether a relic's forge BOON (prefix effect / combat-start buff / grafted companion) must be
+    /// suppressed: the relic is spent (<see cref="IsRelicSpent"/>) OR curse-gauge SATURATED (100%, the mod's
+    /// "over-reforged, burnt out" state). Saturation kills the upside but NOT the curse — a saturated relic
+    /// becomes pure downside. The forge combat-start buff sites and the companion hook-exclusion gate on this.
+    /// (Numeric prefix boosts already follow the native effect: a melted relic is dropped from hook dispatch
+    /// by the game, a Disabled relic no-ops its own hooks, and a saturated relic is dropped by the mod's
+    /// hook filter — see <see cref="SaturatedRelicFilter"/>.)
+    /// </summary>
+    public static bool IsForgeEffectSuppressed(RelicModel relic)
+        => relic != null && (IsRelicSpent(relic) || IsGaugeSaturated(relic));
+
+    /// <summary>Whether to force-drop a relic from the game's HOOK DISPATCH (see SaturatedRelicDisablePatch).
+    /// ONLY curse-gauge saturation does this for a normal relic — a melted relic is already excluded by the
+    /// game, and a Disabled relic must stay listed so its own hooks can re-enable it. A hidden companion is
+    /// dropped whenever its HOST's forge effect is suppressed (the companion embodies that host's prefix).</summary>
+    public static bool IsEffectDisabled(RelicModel relic)
+    {
+        if (relic == null) return false;
+        if (IsGaugeSaturated(relic)) return true;
+        var host = HostOf(relic);                       // a grafted companion dies with its suppressed host
+        return host != null && IsForgeEffectSuppressed(host);
+    }
+
+    /// <summary>Flavor band (0 = faint … 4 = saturated) for a gauge fill, so the tooltip / picker can
+    /// pick escalating "curse-aura" text. 100% maps to the dedicated saturated band (4).</summary>
+    public static int GaugeBand(int gauge)
+        => gauge >= GaugeFull ? 4 : gauge >= 75 ? 3 : gauge >= 50 ? 2 : gauge >= 25 ? 1 : 0;
+
     /// <summary>The forge record for a relic instance, or null if it was never forged.</summary>
     public static ForgeRecord? RecordFor(RelicModel relic)
         => Records.TryGetValue(relic, out var rec) ? rec : null;
@@ -382,8 +543,9 @@ internal static class RelicForgeService
         uint seed = player.RunState.Rng.Seed;
         int rf = TakePendingReforgeCount(relic);
         bool cleansed = TakePendingCleansed(relic);
+        int gred = TakePendingGaugeReduction(relic);
         string? summary = Forge(relic, seed, relic.FloorAddedToDeck,
-              reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(player));
+              reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(player), gaugeReduction: gred);
         // Non-eligible relics (Starter/Event) never get a record — Forge returned null without adding one.
         // Don't log or graft for them: they'd otherwise spam this line every single combat.
         var rec2 = RecordFor(relic);
@@ -457,6 +619,7 @@ internal static class RelicForgeService
         // just starts from count 0 and canonical vars (nothing to restore).
         Records.TryGetValue(relic, out var rec);
         int next = (rec?.ReforgeCount ?? 0) + 1;
+        int reduction = rec?.GaugeReduction ?? 0;   // carry the cleanse reduction across the reforge (new fill adds on top)
 
         // (1) Undo the previous grade so Forge scales from canonical values again.
         //     Grafted companion prefixes added a hidden relic instance -> remove it. Delayed
@@ -477,17 +640,60 @@ internal static class RelicForgeService
         //     reforge can prefix even a Starter/Event relic the pickup path would have skipped.
         var runState = player.RunState;
         string? summary = Forge(relic, runState.Rng.Seed, relic.FloorAddedToDeck,
-                                reforgeCount: next, guaranteePrefix: true, character: CharAffix.TitleOf(player));
+                                reforgeCount: next, guaranteePrefix: true, character: CharAffix.TitleOf(player),
+                                gaugeReduction: reduction);
 
         // (3) If the new prefix is a graft companion, grant it.
         GrantCompanionIfAny(relic, player);
 
-        // (4) Did this roll land a CURSE? RolledCurse means only "a curse APPEARED" — the campfire / shop
-        //     UI counts appearances this visit and decides (probabilistically) whether that ENDS the
-        //     session (see CurseAuraEndsReforge). Matches PredictReforgeOutcome, which the co-op UI uses.
+        // (4) Did this roll land a CURSE? RolledCurse now means only "a curse APPEARED this reforge" — it
+        //     locks the cursed relic (cleanse-only, see Reforgeable) and adds a bigger curse-gauge chunk;
+        //     it no longer ends a session. Reported for feedback/logging. Matches PredictReforgeOutcome.
         bool cursed = Records.TryGetValue(relic, out var newRec) && RolledCurseForReforge(newRec);
         MainFile.Logger.Info($"[{MainFile.ModId}] reforge #{next} {relic.Id.Entry}: {summary ?? "(no numeric change)"}{(cursed ? " [CURSE]" : "")}");
         return cursed ? ReforgeOutcome.RolledCurse : ReforgeOutcome.Reforged;
+    }
+
+    /// <summary>
+    /// CO-OP reconnect repair: reconcile <paramref name="relic"/> to the HOST's authoritative reforge
+    /// state (reforge <paramref name="count"/> + <paramref name="cleansed"/> flag). Those two values are
+    /// the ONLY forge data that cannot cross the packet wire — the SavedProperties packet serializer strips
+    /// our custom keys (see ReforgeKeyPacketGuardPatch) to avoid a net-id throw — so a client that rebuilt
+    /// its relic instances on reconnect re-derives them at count 0 / un-cleansed and shows the wrong (or
+    /// vanished) prefix, or a cleansed curse comes back. The host re-broadcasts the true state on room
+    /// entry (see <see cref="ForgeConfigBroadcaster.BroadcastCountsIfHost"/>); this applies one entry.
+    ///
+    /// IDEMPOTENT: a no-op when the relic already matches — which is the host itself, and every synced
+    /// client in normal play (the count already rode the live reforge command, <see cref="ReforgeNet"/>).
+    /// Only a desynced (reconnected) client actually rebuilds, re-deriving the SAME seed-deterministic
+    /// grade the host holds — so the two CONVERGE rather than diverge. Runs through the synchronized
+    /// action queue (a ConsoleCmdGameAction), so it replays in lockstep on every peer; deterministic given
+    /// (seed, floor, id, count), so any peer that DOES apply it agrees. Mirrors the undo+re-forge of
+    /// <see cref="Reforge"/>, but targets an explicit count instead of incrementing.
+    /// </summary>
+    public static void ReconcileToHost(RelicModel relic, Player player, int count, bool cleansed, int gaugeReduction)
+    {
+        if (relic == null || player == null || IsCompanion(relic)) return;
+        if (ReforgeCountOf(relic) == count && IsCleansed(relic) == cleansed
+            && GaugeReductionOf(relic) == gaugeReduction) return;   // already in sync — no churn
+
+        // Undo the current (wrong-count) grade so Forge scales from canonical again — same as Reforge().
+        if (Records.TryGetValue(relic, out var rec))
+        {
+            RemoveCompanions(relic, rec, player);                 // scan-based: never strands an orphan companion
+            foreach (var c in rec.Changes)
+                if (relic.DynamicVars.TryGetValue(c.VarName, out var dv))
+                    dv.BaseValue = c.OldValue;
+            Records.Remove(relic);
+        }
+
+        // Re-derive at the host's count + gauge reduction (guaranteePrefix mirrors Reforge for count>0),
+        // graft, then cleanse — reproducing the exact state the host holds so checksums reconverge.
+        Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
+              reforgeCount: count, guaranteePrefix: count > 0, character: CharAffix.TitleOf(player), gaugeReduction: gaugeReduction);
+        GrantCompanionIfAny(relic, player);
+        if (cleansed) ApplyCleanse(relic);
+        MainFile.Logger.Info($"[{MainFile.ModId}] co-op reconcile {relic.Id.Entry} -> reforge #{count}{(cleansed ? " cleansed" : "")} gred {gaugeReduction}.");
     }
 
     /// <summary>
@@ -504,39 +710,13 @@ internal static class RelicForgeService
         => ReforgeRollsCurse(relic, runSeed, floor, reforgeCount, character)
             ? ReforgeOutcome.RolledCurse : ReforgeOutcome.Reforged;
 
-    // --- Reforge-ends-on-curse: PROBABILISTIC, per VISITED LOCATION (this campfire / this shop) ---
-    // A curse no longer HARD-stops the reforge. The UI counts curse APPEARANCES across EVERY relic it
-    // reforges at THIS location; the c-th curse ends reforging here at a geometrically steepening chance
-    // (10 / 25 / 50 / 80%), and the 5th appearance is a guaranteed end. The curve is tuned so the average
-    // free reforges at a campfire converge to ~6 (given the ~49% chance a reforge lands a curse at default
-    // settings: negative prefixes always curse, and effect prefixes carry one ~33% of the time). The count
-    // and the end-roll live on
-    // the UI object (initiator-local, per-visit, not synced/persisted), so co-op is unaffected: only the
-    // acting player's own reforge control greys, while the relic mutation itself replicates deterministic-
-    // ally through Forge. ReforgeOutcome.RolledCurse now means only "a curse APPEARED this reforge" — the
-    // UI decides whether that ends the visit (see CurseAuraEndsReforge).
-
-    // End chance (%) by the c-th curse appearance at this location (index c-1). A ~×2 geometric ramp, so
-    // the end distribution peaks around the 3rd curse and the average free reforges converge to ~6. The
-    // final entry (100) is the forced end, so its length is also the "Nth curse ends for sure" count.
-    private static readonly int[] CurseEndChancePct = { 10, 25, 50, 80, 100 };
-    public static int CurseEndForceAt => CurseEndChancePct.Length;   // = 5: the 5th curse always ends it
-
-    /// <summary>Whether reforging at this LOCATION ends after its <paramref name="curseCountThisVisit"/>-th
-    /// curse appearance: 10 / 25 / 50 / 80% for the 1st–4th, forced at the 5th. Seeded from (run seed,
-    /// current floor, count) — no Math.Random, and it never touches the run rng stream. The decision is
-    /// initiator-local UI (the acting player's control only), so it is co-op-irrelevant; the seed just
-    /// keeps the odds honest and reload-stable.</summary>
-    public static bool CurseAuraEndsReforge(Player player, int curseCountThisVisit)
-    {
-        if (curseCountThisVisit < 1) return false;
-        if (curseCountThisVisit >= CurseEndForceAt) return true;     // 5th (or beyond) always ends
-        int pct = CurseEndChancePct[curseCountThisVisit - 1];
-        uint floor = (uint)player.RunState.TotalFloor;   // per-visit nonce (floors advance between rests/shops)
-        var rng = new Rng(SplitMix32(player.RunState.Rng.Seed + floor * 68917u
-                                     + (uint)curseCountThisVisit * 0x9E3779B9u + 0x632BE5ABu));
-        return rng.NextFloat() * 100f < pct;
-    }
+    // --- Reforge limiting is now PER-RELIC via the curse gauge (see CurseGauge) ---
+    // The old probabilistic per-visit "curse aura ends reforging here" limiter was removed: each relic
+    // instead fills its own gauge and SATURATES at 100% (IsGaugeSaturated → excluded from Reforgeable),
+    // so reforging is bounded per-relic and re-derives deterministically from the seed. A curse no longer
+    // ends the visit — it locks the cursed relic (cleanse-only) and adds a bigger gauge chunk. Nothing
+    // here is per-visit or UI-counted anymore. ReforgeOutcome.RolledCurse still reports "a curse appeared
+    // this reforge" for feedback/logging, but no longer gates a session end.
 
     /// <summary>Pure "does a guaranteed reforge to <paramref name="count"/> land a CURSE?" — mirrors
     /// <see cref="Forge"/>'s curse determination in the same fixed rng order: a re-homed penalty, a
@@ -556,6 +736,22 @@ internal static class RelicForgeService
         // Otherwise a boon prefix may still roll a curse (the first curse draw, same rng order as Forge).
         double curseRoll = rng.NextFloat();
         return rolled.AlwaysCurse || curseRoll < CurseChanceFor(rolled);
+    }
+
+    /// <summary>
+    /// A HOST relic left the player's inventory (sold via a foreign Sell mod, or any non-silent
+    /// <c>RemoveRelicInternal</c>). Its numeric prefix + enemy-rider / self-curse stop mattering on their
+    /// own (both read only from relics still in <c>player.Relics</c>), but a GRAFTED companion is a hidden
+    /// relic that STAYS in <c>player.Relics</c> after its host is gone — so its effect keeps firing "in the
+    /// background". Un-graft it and drop the host's record. Scan-based (like <see cref="RemoveCompanions"/>)
+    /// so it runs identically on every co-op peer. No-op for an unforged relic or one with no companion.
+    /// </summary>
+    public static void OnHostRemoved(RelicModel host, Player player)
+    {
+        if (host == null || player == null) return;
+        if (!Records.TryGetValue(host, out var rec)) return;   // never forged — nothing to clean
+        RemoveCompanions(host, rec, player);                   // drop the hidden donor(s) the prefix grafted
+        Records.Remove(host);                                  // clear the stale record (re-derives if re-obtained)
     }
 
     /// <summary>
@@ -649,8 +845,9 @@ internal static class RelicForgeService
             // prefix matches pickup instead of the current floor (the Insightful->Fickle corruption bug).
             int rf = TakePendingReforgeCount(relic);
             bool cleansed = TakePendingCleansed(relic);
+            int gred = TakePendingGaugeReduction(relic);
             Forge(relic, owner.RunState.Rng.Seed, relic.FloorAddedToDeck,
-                  reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(owner));
+                  reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(owner), gaugeReduction: gred);
             if (cleansed) ApplyCleanse(relic);
             return;
         }
@@ -710,7 +907,8 @@ internal static class RelicForgeService
     /// to re-roll never yields "no prefix"). Returns a log summary or null.
     /// </summary>
     public static string? Forge(RelicModel relic, uint runSeed, int floor, Prefix? forced = null,
-                                int reforgeCount = 0, bool guaranteePrefix = false, string? character = null)
+                                int reforgeCount = 0, bool guaranteePrefix = false, string? character = null,
+                                int gaugeReduction = 0)
     {
         if (Records.TryGetValue(relic, out _)) return null; // already processed
 
@@ -765,6 +963,16 @@ internal static class RelicForgeService
             prefix = (!guaranteePrefix && gate < HostForgeConfig.NoPrefixChance) ? null : rolled;
         }
 
+        // E — CURSES COME FROM GREED, NOT LOOT: a PICKUP carries no downside, so a curse can land ONLY on a
+        // deliberate reforge (guaranteePrefix) or a forced test. A pickup that rolled a penalty / weakening
+        // (negative-magnitude) prefix — which on a reforge becomes a pure curse — is dropped to no-prefix
+        // (vanilla) here instead, so pickups are boon-or-nothing. The reforge path is unchanged: it still
+        // re-homes those to a "curse-only" roll (the gamble's worst outcome).
+        bool allowCurse = guaranteePrefix || forced != null;
+        if (!allowCurse && prefix != null
+            && (prefix.Penalty || (prefix.PowerPct < 0 && !prefix.Amplify && !prefix.IsCompanionPrefix)))
+            prefix = null;
+
         // Enemy-rider roll (a Terraria-style curse): any forged relic MIGHT also strengthen enemies.
         // Drawn in fixed rng order so the stream stays stable if the chance is retuned; whether it
         // lands depends on the config chance, and penalty prefixes never carry it. A second draw
@@ -781,8 +989,8 @@ internal static class RelicForgeService
             // boon), the outcome that replaces the old penalty prefixes. Uses the already-drawn curse rolls
             // (no new rng, no stream shift) at the reduced CurseOnlyChance. Record it either way so the
             // relic isn't re-rolled.
-            var bare = new ForgeRecord { Rarity = relic.Rarity, Prefix = "", Percent = 0, ReforgeCount = reforgeCount };
-            if (curseRoll < CurseOnlyChance())
+            var bare = new ForgeRecord { Rarity = relic.Rarity, Prefix = "", Percent = 0, ReforgeCount = reforgeCount, GaugeReduction = gaugeReduction };
+            if (allowCurse && curseRoll < CurseOnlyChance())   // pickups never curse-only (E) — reforge/test only
             {
                 // Same kind split as a boon+curse, incl. the enemy-forge-off self-forcing (a real curse,
                 // not an inert rider). One curse only.
@@ -801,7 +1009,7 @@ internal static class RelicForgeService
         }
 
         double pct = prefix.PowerPct;
-        var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount };
+        var record = new ForgeRecord { Rarity = relic.Rarity, Prefix = prefix.Name, Percent = pct, Amplify = prefix.Amplify, ReforgeCount = reforgeCount, GaugeReduction = gaugeReduction };
         bool rehomedNegative = false;   // a weakening prefix converted to a pure curse (skip all numeric logic)
         if (prefix.Penalty && !prefix.IsFallback)
         {
@@ -840,10 +1048,10 @@ internal static class RelicForgeService
         // always take the enemy-rider — their designed cost. Otherwise CurseChance gates whether there's a
         // curse; SelfCurseShare decides the kind. The self-curse pool is now the COMBINED pool (on-hit curses
         // + re-homed penalty identities), so a penalty's downside now rides a boon instead of replacing it.
-        else if (prefix.AlwaysCurse || curseRoll < CurseChanceFor(prefix))
+        else if (allowCurse && (prefix.AlwaysCurse || curseRoll < CurseChanceFor(prefix)))
         {
-            // With enemy-forge OFF an enemy-rider is inert, so a NON-AlwaysCurse curse manifests as a
-            // self-curse instead — the downside stays real (and a curse always ends the reforge now).
+            // Curse rides a boon ONLY on a reforge/test (E — pickups are curse-free). With enemy-forge OFF an
+            // enemy-rider is inert, so a NON-AlwaysCurse curse manifests as a self-curse instead.
             bool self = !prefix.AlwaysCurse
                         && (!HostForgeConfig.EnemyForgeEnabled || curseTypeRoll < HostForgeConfig.SelfCurseShare);
             if (self)

@@ -43,6 +43,7 @@ internal static class UnblockedHitPenaltyPatch
 
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
+                if (RelicForgeService.IsRelicSpent(relic)) continue;   // dead relic → its self-curse is off too
                 var rec = RelicForgeService.RecordFor(relic);
                 if (rec == null || rec.SelfCurse.Length == 0) continue;
                 var def = SelfCurseTable.ByKey(rec.SelfCurse);

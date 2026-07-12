@@ -33,6 +33,14 @@ internal static class ReforgeSaveInjectPatch
                 __result.Props.ints.Add(new SavedProperties.SavedProperty<int>(RelicForgeService.RfCountKey, n));
             }
 
+            int gred = RelicForgeService.GaugeReductionOf(__instance);
+            if (gred > 0)                            // cleansed -> persist the gauge reduction
+            {
+                __result.Props ??= new SavedProperties();
+                __result.Props.ints ??= new List<SavedProperties.SavedProperty<int>>();
+                __result.Props.ints.Add(new SavedProperties.SavedProperty<int>(RelicForgeService.RfReductionKey, gred));
+            }
+
             // Compact forge summary ("prefix|rider|self") for the RUN-HISTORY view — history keeps only
             // the display seed string, so the grade can't be re-derived there; we carry a readable
             // summary instead. Only relics that actually rolled a prefix or curse get it.

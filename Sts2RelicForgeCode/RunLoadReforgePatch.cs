@@ -40,8 +40,9 @@ internal static class RunLoadReforgePatch
                     // guarantee a prefix (reforge never lands "no prefix"), matching Reforge().
                     int rf = RelicForgeService.TakePendingReforgeCount(relic);
                     bool cleansed = RelicForgeService.TakePendingCleansed(relic);
+                    int gred = RelicForgeService.TakePendingGaugeReduction(relic);
                     if (RelicForgeService.Forge(relic, seed, relic.FloorAddedToDeck,
-                            reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(player)) != null)
+                            reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(player), gaugeReduction: gred) != null)
                         count++;
                     // A shop-cleansed relic re-derived its curse above — strip it again so cleanse sticks.
                     if (cleansed) RelicForgeService.ApplyCleanse(relic);

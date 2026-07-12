@@ -41,6 +41,7 @@ internal static class DelayedCompanionPatch
             // Snapshot: applying a power won't change player.Relics, but be safe.
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
+                if (RelicForgeService.IsForgeEffectSuppressed(relic)) continue;   // dead relic (spent/disabled/saturated) — no delayed effect
                 var rec = RelicForgeService.RecordFor(relic);
                 if (rec == null || rec.Prefix.Length == 0) continue;
                 var pfx = PrefixTable.ByName(rec.Prefix);

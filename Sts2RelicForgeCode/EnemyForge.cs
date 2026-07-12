@@ -170,6 +170,7 @@ internal static class EnemyForge
         double heat = 0;
         foreach (var relic in player.Relics)
         {
+            if (RelicForgeService.IsRelicSpent(relic)) continue;   // dead relic → its curse is off too
             var rec = RelicForgeService.RecordFor(relic);
             if (rec != null && rec.EnemyRider) heat += 1;
         }
@@ -277,6 +278,7 @@ internal static class EnemyForge
         }
         foreach (var relic in player.Relics)
         {
+            if (RelicForgeService.IsRelicSpent(relic)) continue;   // dead relic → its curse is off too
             var rec = RelicForgeService.RecordFor(relic);
             if (rec == null || !rec.EnemyRider || rec.EnemyRiderSuffix.Length == 0) continue;
             list.Add(rec.EnemyRiderSuffix);
@@ -372,6 +374,7 @@ internal static class EnemyForge
         }
         foreach (var relic in player.Relics)
         {
+            if (RelicForgeService.IsRelicSpent(relic)) continue;   // dead relic → its HP curse is off too
             var rec = RelicForgeService.RecordFor(relic);
             if (rec == null || !rec.EnemyRider || rec.EnemyRiderSuffix.Length == 0) continue;
             var def = RiderSuffix.ByKey(rec.EnemyRiderSuffix);

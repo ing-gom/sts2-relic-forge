@@ -23,7 +23,15 @@ internal static class RoomEnterConfigBroadcastPatch
         // Diagnostic kill-switch (co-op only): lets an affected player stop the per-room re-broadcast
         // if it turns out to be the "black screen on event/room entry" hang. No-op in single-player.
         if (!ForgeConfig.RoomBroadcastEnabled) return;
-        try { ForgeConfigBroadcaster.BroadcastIfHost(); }
+        try
+        {
+            ForgeConfigBroadcaster.BroadcastIfHost();
+            // Also re-send per-relic reforge counts, so a client that rebuilt its relics on RECONNECT
+            // (their counts can't cross the packet wire) reconciles at the next room boundary. Idempotent
+            // on every synced peer — a cheap in-sync check in normal play. Shares the RoomBroadcastEnabled
+            // kill-switch so an affected co-op player can disable both if a per-room enqueue ever hangs.
+            ForgeConfigBroadcaster.BroadcastCountsIfHost();
+        }
         catch (Exception e)
         {
             MainFile.Logger.Warn($"[{MainFile.ModId}] room-enter config broadcast failed: {e.Message}");

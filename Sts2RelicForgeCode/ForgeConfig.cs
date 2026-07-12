@@ -6,11 +6,12 @@ namespace Sts2RelicForge;
 internal static class ForgeConfig
 {
     /// <summary>
-    /// Probability that a relic receives NO prefix (stays vanilla). Default 0.60, i.e.
-    /// only ~40% of relics get a Terraria prefix — a prefix is a lucky find. Adjustable
-    /// in-game via ModConfig; 0 = every eligible relic is prefixed.
+    /// Probability that a relic receives NO prefix (stays vanilla). Default 0.65, i.e. ~35% of PICKED-UP
+    /// relics get a prefix — a prefix is a lucky find, and (since E) a pickup prefix is pure upside with no
+    /// curse. Surfaced in-game as the POSITIVE "Prefix chance" slider (1 - this); 0 = every eligible relic
+    /// is prefixed. Reforging ignores this entirely — it always lands a prefix.
     /// </summary>
-    public static double NoPrefixChance = 0.45;
+    public static double NoPrefixChance = 0.65;
 
     /// <summary>
     /// Enemy-forge strength multiplier, FIXED at the designed 1.0 (100%). Formerly a 0–200% ModConfig
@@ -25,18 +26,18 @@ internal static class ForgeConfig
     /// <summary>
     /// Escalating gold cost of shop reforges (see <see cref="NMerchantReforgeButton"/>). Uses are
     /// unlimited per shop, but each reforge in the SAME shop visit costs more than the last, so
-    /// spamming rerolls is self-limiting. The cost is <see cref="ShopReforgeBaseCost"/> for the first
-    /// reforge and rises by <see cref="ShopReforgeCostStep"/> per reforge done in that shop; it resets
-    /// to the base at the next shop (the counter lives on the button instance — see
-    /// <see cref="NMerchantReforgeButton"/> — so no save persistence is needed). A CURSE can roll and,
-    /// as at a campfire, ENDS reforging for the visit — it can't be re-rolled away, only Cleansed. Not
-    /// user-tunable (deliberately fixed).
+    /// spamming rerolls is self-limiting. The FIRST reforge this visit is free (<see cref="ShopReforgeBaseCost"/>
+    /// = 0), then it rises by <see cref="ShopReforgeCostStep"/> per reforge done in that shop; it resets to
+    /// the base at the next shop (the counter lives on the button instance — see
+    /// <see cref="NMerchantReforgeButton"/> — so no save persistence is needed). Reforging is now also bounded
+    /// per-relic by the curse gauge (a reforge fills it; at 100% the relic saturates), and a rolled curse
+    /// locks that relic to cleanse-only — so gold is the soft, secondary limiter. Not user-tunable.
     /// </summary>
-    public const int ShopReforgeBaseCost = 30;
+    public const int ShopReforgeBaseCost = 0;
 
     /// <summary>Gold added to the shop reforge cost per reforge already done this shop visit. See
     /// <see cref="ShopReforgeBaseCost"/>.</summary>
-    public const int ShopReforgeCostStep = 10;
+    public const int ShopReforgeCostStep = 15;
 
     /// <summary>Gold cost of the next shop reforge given how many have already been done in the current
     /// shop visit (<paramref name="reforgesThisShop"/> = 0 for the first).</summary>
@@ -44,12 +45,26 @@ internal static class ForgeConfig
         ShopReforgeBaseCost + ShopReforgeCostStep * Math.Max(0, reforgesThisShop);
 
     /// <summary>
-    /// Fixed gold cost of one shop CLEANSE — remove the curse from a relic, keeping its prefix (see
-    /// <see cref="NMerchantCleanseButton"/>). Now that a curse ENDS a reforge (it can no longer be
-    /// re-rolled away with a cheap reforge — campfire and shop both stop on a curse), Cleanse is the
-    /// intended way to shed one, so it is priced accessibly. Default 100, adjustable in-game; 0 = free.
+    /// BASE gold cost of the FIRST shop CLEANSE this visit — remove the curse from a relic, keeping its
+    /// prefix (see <see cref="NMerchantCleanseButton"/>). A cursed relic can no longer be reforged at all
+    /// (the reforge picker excludes it), so Cleanse is the ONLY way to shed a curse — priced as the
+    /// premium, guaranteed (no-gamble) removal. Like the shop reforge, the cost ESCALATES within a single
+    /// shop visit (base + <see cref="ShopCleanseCostStep"/> per cleanse already done — see
+    /// <see cref="ShopCleanseCostFor"/>), so clearing several curses at once gets progressively expensive;
+    /// the per-visit counter lives on the button instance (<see cref="NMerchantCleanseButton"/>), so it
+    /// resets to this base at the next shop. Default 100, adjustable in-game; 0 = free first cleanse.
     /// </summary>
     public static int ShopCleanseCost = 100;
+
+    /// <summary>Gold added to the shop cleanse cost per cleanse already done this shop visit. Fixed
+    /// (not user-tunable), mirroring <see cref="ShopReforgeCostStep"/>. See <see cref="ShopCleanseCostFor"/>.</summary>
+    public const int ShopCleanseCostStep = 50;
+
+    /// <summary>Gold cost of the next shop cleanse given how many have already been done in the current
+    /// shop visit (<paramref name="cleansesThisShop"/> = 0 for the first). Base is the tunable
+    /// <see cref="ShopCleanseCost"/>; each prior cleanse this visit adds <see cref="ShopCleanseCostStep"/>.</summary>
+    public static int ShopCleanseCostFor(int cleansesThisShop) =>
+        ShopCleanseCost + ShopCleanseCostStep * Math.Max(0, cleansesThisShop);
 
     /// <summary>
     /// Master switch for the "enemy forge" mechanic (elites &amp; bosses rolling their own prefixes).

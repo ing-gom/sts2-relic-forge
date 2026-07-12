@@ -26,6 +26,8 @@ internal static class ReforgeLoadCapturePatch
                 {
                     if (p.name == RelicForgeService.RfCountKey && p.value > 0)
                         RelicForgeService.SetPendingReforgeCount(__result, p.value);
+                    else if (p.name == RelicForgeService.RfReductionKey && p.value > 0)
+                        RelicForgeService.SetPendingGaugeReduction(__result, p.value);
                     else if (p.name == RelicForgeService.RfCleansedKey && p.value != 0)
                         RelicForgeService.SetPendingCleansed(__result);
                 }

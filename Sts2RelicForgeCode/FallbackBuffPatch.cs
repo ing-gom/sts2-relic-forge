@@ -44,6 +44,7 @@ internal static class FallbackBuffPatch
             // Snapshot: applying a power won't change player.Relics, but be safe.
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
+                if (RelicForgeService.IsForgeEffectSuppressed(relic)) continue;   // dead relic (spent/disabled/saturated) — no forge buff
                 var rec = RelicForgeService.RecordFor(relic);
                 if (rec == null || rec.FallbackPercent <= 0 || rec.FallbackStat.Length == 0) continue;
 

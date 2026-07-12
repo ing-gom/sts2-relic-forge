@@ -26,10 +26,9 @@ namespace Sts2RelicForge;
 /// one of your relics, reusing the same picker + reforge core as the campfire. Uses are unlimited, but
 /// the cost ESCALATES within a shop visit (base + step per reforge done — see ForgeConfig), so rerolls
 /// are self-limiting; the counter (<see cref="_reforgeCount"/>) lives on this instance and resets at
-/// the next shop. A CURSE can roll (a penalty prefix, or an enemy-rider / self-curse) — and like the
-/// campfire, a curse ENDS reforging for this shop visit (<see cref="_ended"/>): it can't be re-rolled
-/// away for cheap gold, only removed with the sibling Cleanse. Gold is charged only once a relic is
-/// actually chosen (cancelling the picker is free); the counter + ended state reset at the next shop.
+/// the next shop. Each reforge also fills the relic's own CURSE GAUGE — at 100% it saturates and drops
+/// out of the picker (see RelicForgeService.CurseGauge) — and a rolled curse locks that relic to
+/// cleanse-only. Gold is charged only once a relic is actually chosen (cancelling the picker is free).
 ///
 /// Single-player only (like the campfire reforge and its picker), gated in the patch below.
 /// </summary>
@@ -45,9 +44,9 @@ internal sealed partial class NMerchantReforgeButton : Control
     private NMerchantInventory _shop = null!;
     private Player? _player;
     private bool _busy;
-    private bool _ended;            // the curse aura settled — reforging ended for THIS shop visit (fresh instance resets it)
-    private int _reforgeCount;      // reforges done in THIS shop visit; each raises the next cost (see ForgeConfig)
-    private int _curseCount;        // curse APPEARANCES this shop visit; drives the growing end chance + the aura flavor band
+    private int _reforgeCount;      // reforges done in THIS shop visit; each raises the next cost (see ForgeConfig) + indexes the location aura
+    private int _locGauge;          // this shop's reforge aura (0–100); fills 5–20% per reforge, ends the visit at 100%
+    private bool _ended;            // location aura full — reforging is done at THIS shop this visit (fresh instance resets it)
     private TextureButton _icon = null!;
     private string _tipTitle = "";        // hover-tip title (shown via the game's own NHoverTipSet)
     private string _tipBody = "";         // hover-tip body describing the button's role
@@ -274,14 +273,10 @@ internal sealed partial class NMerchantReforgeButton : Control
         // Gray it out when unusable via modulate only — NOT Disabled, so hover (tooltip) still works.
         // Clicks are guarded in OnPressed, so a grayed button does nothing when pressed.
         _icon.Modulate = usable ? Colors.White : StsColors.halfTransparentWhite;
-        // Hover body escalates with the curse aura: base, three aura bands as curses appear this visit,
-        // then the ended line once the forge goes cold (cleanse remains available).
+        // Tooltip shows this shop's location aura fill %, or the ended line once it's full.
         _tipBody = _ended ? ForgeLoc.Ui("SHOP_REFORGE_ENDED")
-                 : _curseCount == 0 ? ForgeLoc.Ui("SHOP_REFORGE_BODY")
-                 : _curseCount == 1 ? ForgeLoc.Ui("SHOP_REFORGE_AURA1")
-                 : _curseCount == 2 ? ForgeLoc.Ui("SHOP_REFORGE_AURA2")
-                 : _curseCount == 3 ? ForgeLoc.Ui("SHOP_REFORGE_AURA3")
-                 : ForgeLoc.Ui("SHOP_REFORGE_AURA4");
+                 : _locGauge <= 0 ? ForgeLoc.Ui("SHOP_REFORGE_BODY")
+                 : string.Format(ForgeLoc.Ui("SHOP_REFORGE_AURA"), _locGauge);
     }
 
     private void OnPressed()
@@ -304,17 +299,14 @@ internal sealed partial class NMerchantReforgeButton : Control
             if (chosen != null && _player != null && _player.Gold >= cost)
             {
                 if (cost > 0) await PlayerCmd.LoseGold(cost, _player);
-                var outcome = ReforgeNet.Reforge(chosen, _player);   // a curse may roll — the paid gamble
+                ReforgeNet.Reforge(chosen, _player);         // a curse may roll — the paid gamble
                 chosen.Flash();
+                // Fill this shop's location aura 5–20% (indexed by reforges done); at 100% reforging ends here.
+                _locGauge = Math.Min(RelicForgeService.LocationGaugeFull,
+                                     _locGauge + RelicForgeService.LocationGaugeStep(_player, _reforgeCount));
+                if (_locGauge >= RelicForgeService.LocationGaugeFull) _ended = true;
                 _reforgeCount++;                              // next reforge in this shop costs more (see ForgeConfig)
-                // A curse MAY end reforging — count appearances this visit; the c-th curse ends it at
-                // c×10% (forced at the 10th). Until it ends, the player can keep paying to re-roll it away.
-                if (outcome == RelicForgeService.ReforgeOutcome.RolledCurse)
-                {
-                    _curseCount++;
-                    if (RelicForgeService.CurseAuraEndsReforge(_player, _curseCount)) _ended = true;
-                }
-                MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge #{_reforgeCount} (curse #{_curseCount}): {chosen.Id.Entry} for {cost}g{(_ended ? " [aura settled — ended]" : "")}.");
+                MainFile.Logger.Info($"[{MainFile.ModId}] shop reforge #{_reforgeCount} (aura {_locGauge}%): {chosen.Id.Entry} for {cost}g{(_ended ? " [ended]" : "")}.");
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] shop reforge failed: {e.Message}"); }

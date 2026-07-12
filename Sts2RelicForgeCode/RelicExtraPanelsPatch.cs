@@ -32,7 +32,11 @@ internal static class RelicExtraPanelsPatch
 
             string effect = ForgeText.PrefixEffectBody(rec);
             string curse = ForgeText.CurseBody(rec);
-            if (effect.Length == 0 && curse.Length == 0) return;
+            // Curse gauge: read off the live hovered instance (0 for offered/preview relics, which carry no
+            // reforge count). A reforged relic always shows it — even at 100% (saturated), where it explains
+            // why the relic no longer appears in the reforge picker.
+            int gauge = RelicForgeService.CurseGauge(__instance);
+            if (effect.Length == 0 && curse.Length == 0 && gauge == 0) return;
 
             // __result is the game's List<IHoverTip> ([main] + extras); copy so we never mutate its backing.
             var list = new List<IHoverTip>(__result);
@@ -41,6 +45,8 @@ internal static class RelicExtraPanelsPatch
             if (curse.Length > 0)
                 list.Add(MakePanel(ForgeText.CurseTitle(rec), curse,
                     "sts2rf_curse_" + (rec.SelfCurse.Length > 0 ? rec.SelfCurse : rec.EnemyRiderSuffix), debuff: true));
+            if (gauge > 0)
+                list.Add(MakePanel(ForgeText.GaugeTitle(), ForgeText.GaugeBody(gauge), "sts2rf_gauge", debuff: true));
             __result = list;
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] extra hover panels failed: {e.Message}"); }

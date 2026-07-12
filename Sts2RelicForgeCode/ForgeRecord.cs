@@ -44,6 +44,15 @@ internal sealed class ForgeRecord
     // value persisted across save/load (SavedProperty "__rf_count", see ReforgeSaveInjectPatch).
     public int ReforgeCount;
 
+    // Curse-gauge REDUCTION: cumulative gauge percentage-points removed by cleansing. The gauge
+    // (RelicForgeService.CurseGauge) is the seeded per-reforge raw fill (counts 1..ReforgeCount) MINUS this,
+    // clamped to [0,100]. A cleanse of a saturated relic subtracts the whole current fill (→ 0); a cleanse
+    // of a CURSED relic subtracts only half (→ ~50%). Later reforges add to the raw fill, so the gauge
+    // climbs again from the reduced point. Player-driven like ReforgeCount and NOT seed-derivable, so it is
+    // persisted the same way (SavedProperty "__rf_gred") and carried across reforges + the rf_counts co-op
+    // sync. 0 = never cleansed.
+    public int GaugeReduction;
+
     // Enemy-rider: a Terraria-style "curse" that a forged relic MAY also carry — while owned, it
     // strengthens elites/bosses (see EnemyForge). Rolled deterministically at forge time, so it is
     // re-derived on load (not persisted). Never set on penalty prefixes.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Models;
@@ -12,17 +13,30 @@ namespace Sts2RelicForge;
 /// keeps only the numeric boosts (see <see cref="ForgeText.DescriptionBlock"/>) and the prefix name on the
 /// title (<see cref="RelicTooltipPatch"/>); the effect note and the curse move here into up to two panels.
 ///
-/// Hook: <c>RelicModel.get_HoverTips</c> — the plural list the relic holders (NRelicInventoryHolder /
-/// NRelicBasicHolder) feed to NHoverTipSet. It is <c>[ main HoverTip ] + ExtraHoverTips</c>; appending here
-/// runs downstream of every per-relic ExtraHoverTips override, and each HoverTip in the list renders as its
-/// own stacked panel. (HoverTip has no child-tip field — multi-panel is purely a longer list.)
+/// Hooks BOTH properties that surface a relic's ExtraHoverTips to the UI, because they feed DIFFERENT views:
+///   - <c>RelicModel.get_HoverTips</c> — <c>[ main HoverTip ] + ExtraHoverTips</c>, the list the relic
+///     holders (NRelicInventoryHolder / NRelicBasicHolder) feed to NHoverTipSet on HOVER.
+///   - <c>RelicModel.get_HoverTipsExcludingRelic</c> — just <c>ExtraHoverTips</c>, the list the click-to-
+///     ENLARGE inspect screen (NInspectRelicScreen.UpdateRelicDisplay) reads. That screen renders the main
+///     description itself (from DynamicDescription, so forged NUMBERS already show) and pulls only the extra
+///     panels from here. Without this second target the enlarged view showed the boosted numbers but no
+///     prefix-effect / curse / gauge panels at all.
+/// Both getters are non-virtual on RelicModel and call the virtual ExtraHoverTips through the vtable, so a
+/// single Postfix on each runs downstream of every per-relic ExtraHoverTips override. (HoverTip has no
+/// child-tip field — multi-panel is purely a longer list.)
 ///
 /// History-reconstructed records (DisplayOnly) can't route through this live path, so they keep the inline
 /// block from DescriptionBlock and are skipped here.
 /// </summary>
-[HarmonyPatch(typeof(RelicModel), "get_HoverTips")]
+[HarmonyPatch]
 internal static class RelicExtraPanelsPatch
 {
+    private static IEnumerable<MethodBase> TargetMethods()
+    {
+        yield return AccessTools.PropertyGetter(typeof(RelicModel), "HoverTips");
+        yield return AccessTools.PropertyGetter(typeof(RelicModel), "HoverTipsExcludingRelic");
+    }
+
     private static void Postfix(RelicModel __instance, ref IEnumerable<IHoverTip> __result)
     {
         try

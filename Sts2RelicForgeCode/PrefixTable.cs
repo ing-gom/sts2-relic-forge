@@ -438,6 +438,39 @@ internal static class PrefixTable
             NoteZh = "每消耗4颗星，手牌中随机1张牌获得虚无" },
     };
 
+    // --- External prefix registration (public API via RelicForgeApi.RegisterPrefix) -----------------
+    // Sister mods add DATA-DRIVEN numeric prefixes to the roll pool. Registered at THEIR mod init, so the
+    // pool is fixed before any run starts. ★CO-OP CONTRACT: every peer must register the SAME prefixes in
+    // the SAME order (holds when both players run the same extension mods + a load-order syncer) — the
+    // weighted Roll is seed-deterministic over the pool, so a divergent pool desyncs.
+    private static readonly List<Prefix> _external = new();
+    // Combined pool (built-ins first, then externals in registration order). Roll / ByName / loc read this.
+    private static Prefix[] _pool = All;
+
+    /// <summary>The full prefix pool (built-ins + externally registered), for the roll, name lookup and loc.</summary>
+    internal static IReadOnlyList<Prefix> Pool => _pool;
+
+    /// <summary>Append an external numeric prefix to the roll pool. Rejected (logged) if the name is empty
+    /// or collides with an existing prefix. Rebuilds the combined pool + invalidates the loc cache so the
+    /// new prefix rolls and localizes. Intended for mod-init time only (a run-active call still works but
+    /// would change the pool mid-run — logged by RelicForgeApi).</summary>
+    internal static bool RegisterExternal(Prefix p)
+    {
+        if (p == null || string.IsNullOrEmpty(p.Name)) return false;
+        if (ByName(p.Name) != null)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] RegisterPrefix: '{p.Name}' collides with an existing prefix — ignored.");
+            return false;
+        }
+        _external.Add(p);
+        var combined = new Prefix[All.Length + _external.Count];
+        All.CopyTo(combined, 0);
+        for (int i = 0; i < _external.Count; i++) combined[All.Length + i] = _external[i];
+        _pool = combined;                 // single assignment — Roll reads the field, never a half-built array
+        ForgeLoc.Invalidate();            // so the new prefix's name localizes on next lookup
+        return true;
+    }
+
     // Rarities that can receive a prefix at all. Starter/Event/None never do. Ancient is included
     // here but can be opted out at runtime via ForgeConfig.ForgeAncientRelics (see RelicForgeService.Forge).
     public static readonly HashSet<RelicRarity> Eligible = new()
@@ -452,18 +485,19 @@ internal static class PrefixTable
     /// seed-deterministic and reproduces on load.</summary>
     public static Prefix Roll(Rng rng, string? character = null)
     {
+        var pool = _pool;                 // snapshot the field once (registration is init-time; still safe)
         double total = 0;
-        foreach (var p in All) if (InPool(p, character)) total += p.Weight;
+        foreach (var p in pool) if (InPool(p, character)) total += p.Weight;
         double r = rng.NextFloat() * total;
         Prefix? last = null;
-        foreach (var p in All)
+        foreach (var p in pool)
         {
             if (!InPool(p, character)) continue;
             last = p;
             r -= p.Weight;
             if (r < 0) return p;
         }
-        return last ?? All[All.Length - 1];
+        return last ?? pool[pool.Length - 1];
     }
 
     /// <summary>Whether a prefix is eligible for the current character's roll pool: fallback prefixes
@@ -534,7 +568,7 @@ internal static class PrefixTable
     /// <summary>Find a prefix by name (case-insensitive) for the test console command.</summary>
     public static Prefix? ByName(string name)
     {
-        foreach (var p in All)
+        foreach (var p in _pool)
             if (string.Equals(p.Name, name, System.StringComparison.OrdinalIgnoreCase))
                 return p;
         return null;

@@ -43,9 +43,38 @@ internal static class SelfCurseTable
             EffKo = "막지 못한 피격마다 자신에게 약화·손상·취약 중 무작위 1", EffEn = "A random Weak / Frail / Vulnerable 1 to self on each unblocked hit", EffZh = "每次未格挡受击时给予自己随机1层虚弱/脆弱/易伤" },
     };
 
+    // --- External self-curse registration (public API via RelicForgeApi.RegisterSelfCurse) -----------
+    // Sister mods add DATA-DRIVEN self-curses (on-hit Weak/Frail/Vulnerable, a Dazed card, or a random
+    // debuff). ★CO-OP CONTRACT identical to PrefixTable: every peer must register the SAME curses in the
+    // SAME order — PickCombined is a seed-deterministic uniform pick over the pool.
+    private static readonly List<SelfCurseDef> _external = new();
+    private static SelfCurseDef[] _pool = All;
+
+    /// <summary>The full self-curse pool (built-ins + externally registered), for the pick and loc.</summary>
+    internal static IReadOnlyList<SelfCurseDef> Pool => _pool;
+
+    /// <summary>Append an external self-curse. Rejected (logged) on empty/duplicate name. Rebuilds the pool
+    /// + invalidates the loc cache. Init-time only (see RelicForgeApi).</summary>
+    internal static bool RegisterExternal(SelfCurseDef c)
+    {
+        if (c == null || string.IsNullOrEmpty(c.En)) return false;
+        if (ByKey(c.En) != null)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] RegisterSelfCurse: '{c.En}' collides with an existing curse — ignored.");
+            return false;
+        }
+        _external.Add(c);
+        var combined = new SelfCurseDef[All.Length + _external.Count];
+        All.CopyTo(combined, 0);
+        for (int i = 0; i < _external.Count; i++) combined[All.Length + i] = _external[i];
+        _pool = combined;
+        ForgeLoc.Invalidate();
+        return true;
+    }
+
     public static SelfCurseDef? ByKey(string en)
     {
-        foreach (var c in All) if (c.En == en) return c;
+        foreach (var c in _pool) if (c.En == en) return c;
         return null;
     }
 
@@ -53,10 +82,11 @@ internal static class SelfCurseTable
     /// stay uniform since none is disproportionately punishing.)</summary>
     public static SelfCurseDef Pick(double roll)
     {
-        int i = (int)(roll * All.Length);
-        if (i >= All.Length) i = All.Length - 1;
+        var pool = _pool;
+        int i = (int)(roll * pool.Length);
+        if (i >= pool.Length) i = pool.Length - 1;
         if (i < 0) i = 0;
-        return All[i];
+        return pool[i];
     }
 
     public static string Localize(string en) => ByKey(en)?.Display ?? en;
@@ -73,8 +103,8 @@ internal static class SelfCurseTable
     /// the pick is uniform, so the choice reproduces across peers/loads for the same (seed, character).</summary>
     public static string PickCombined(double roll, string? character)
     {
-        var pool = new List<string>(All.Length + 16);
-        foreach (var c in All) pool.Add(c.En);
+        var pool = new List<string>(_pool.Length + 16);
+        foreach (var c in _pool) pool.Add(c.En);
         foreach (var p in PrefixTable.All)
             if (p.Penalty && !p.IsFallback && PrefixTable.CurseInPool(p, character))
                 pool.Add(p.Name);

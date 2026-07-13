@@ -74,6 +74,11 @@ internal static class ForgeLoc
     private static Dictionary<string, (string en, string ko, string zh)>? _entries;
     private static string? _builtLang;   // language the injected table was last built for
 
+    /// <summary>Drop the cached loc registry so the next <see cref="Get"/> rebuilds it — called when a
+    /// sister mod registers an external prefix / self-curse (see PrefixTable.RegisterExternal), so the
+    /// newly-registered names/effects get localized entries. No-op-cheap; registration is init-time.</summary>
+    internal static void Invalidate() { _entries = null; _builtLang = null; }
+
     /// <summary>The mod string for <paramref name="key"/> in the current language, read through the
     /// live LocManager table (so external translations win); <paramref name="en"/> on any failure.</summary>
     public static string Get(string key, string en)
@@ -130,7 +135,7 @@ internal static class ForgeLoc
     private static Dictionary<string, (string en, string ko, string zh)> BuildRegistry()
     {
         var d = new Dictionary<string, (string en, string ko, string zh)>(UiStrings);
-        foreach (var p in PrefixTable.All)
+        foreach (var p in PrefixTable.Pool)   // built-ins + externally registered (RelicForgeApi.RegisterPrefix)
         {
             string k = "PREFIX_" + KeyOf(p.Name);
             d[k + ".name"] = (p.Name, p.Ko, p.Zh);
@@ -143,7 +148,7 @@ internal static class ForgeLoc
             d[k + ".name"] = (s.En, s.Ko, s.Zh);
             d[k + ".effect"] = (s.EffEn, s.EffKo, s.EffZh);
         }
-        foreach (var c in SelfCurseTable.All)
+        foreach (var c in SelfCurseTable.Pool)   // built-ins + externally registered (RelicForgeApi.RegisterSelfCurse)
         {
             string k = "SELFCURSE_" + KeyOf(c.En);
             d[k + ".name"] = (c.En, c.Ko, c.Zh);

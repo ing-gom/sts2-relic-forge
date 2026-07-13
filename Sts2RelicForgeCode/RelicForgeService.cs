@@ -581,6 +581,26 @@ internal static class RelicForgeService
     ///     reforge-count / cleansed flag, and re-graft companions.
     /// Deterministic per (seed, floor, id, count) and identical on every peer, so it is co-op safe.
     /// </summary>
+    /// <summary>
+    /// LIGHTWEIGHT re-assertion of a relic's forged BASE VALUES only — no companion graft, no seed
+    /// re-derive. Idempotent: re-applies each stored delta ONLY where the var currently holds its captured
+    /// canonical value (the exact signal it was reset), so it is a no-op in normal play and never clobbers a
+    /// legitimate mid-combat change. Cheap enough for a per-card-play hook (see ForgeReassertOnPlayPatch),
+    /// which closes the window that <see cref="HealForge"/> (turn-start only) misses: a foreign MID-COMBAT
+    /// state restore — e.g. the Rewind mod's in-combat turn rewind, which reconstructs via NGame.LoadRun
+    /// (so RunLoadReforgePatch restores the record) but can leave the live vars canonical until re-asserted.
+    /// Only touches relics that already carry a real (non-display) record; a record-less fresh instance still
+    /// needs the full <see cref="HealForge"/> re-derive at turn start.
+    /// </summary>
+    public static void ReassertForgeVars(RelicModel relic)
+    {
+        if (relic == null || IsCompanion(relic)) return;
+        if (!Records.TryGetValue(relic, out var rec) || rec.DisplayOnly || !rec.HasChanges) return;
+        foreach (var c in rec.Changes)
+            if (relic.DynamicVars.TryGetValue(c.VarName, out var dv) && dv.BaseValue == c.OldValue)
+                dv.BaseValue = c.NewValue;
+    }
+
     public static void HealForge(RelicModel relic, Player player)
     {
         if (relic == null || player == null) return;

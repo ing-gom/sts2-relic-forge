@@ -58,7 +58,9 @@ public sealed class RelicForgeCountSyncCmd : AbstractConsoleCmd
             bool cleansed = f[3] == "1";
             int gred = 0;
             if (f.Length >= 5) int.TryParse(f[4], NumberStyles.Integer, inv, out gred);
-            string? desc = f.Length >= 6 ? string.Join(":", f.Skip(5)) : null;
+            // Descriptor is escaped on the wire (rider suffixes like "the Tyrant" contain a space that would
+            // otherwise split the token). It no longer contains ':', so f[5] is the whole field; unescape it.
+            string? desc = f.Length >= 6 ? RelicForgeService.UnescapeWireDesc(f[5]) : null;
 
             var player = state.Players.FirstOrDefault(p => p.NetId == netId);
             if (player == null) continue;

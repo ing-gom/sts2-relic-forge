@@ -143,6 +143,18 @@ internal static class RelicForgeService
     public static string? DescriptorOf(RelicModel relic)
         => Records.TryGetValue(relic, out var rec) ? EncodeDescriptor(rec) : null;
 
+    /// <summary>Escape a descriptor for the SPACE-delimited, ':'-fielded rf_counts command payload. An
+    /// enemy-rider suffix ("the Tyrant" / "the Titan") contains a SPACE, which would otherwise split the
+    /// token and corrupt the co-op reconcile (→ a checksum divergence / black screen on room exit). Escapes
+    /// '%', ' ' and ':'. The DISK save keeps the raw descriptor (JSON handles spaces) — only the wire needs
+    /// this. Escape '%' FIRST so the escapes never collide.</summary>
+    public static string EscapeWireDesc(string desc)
+        => string.IsNullOrEmpty(desc) ? "" : desc.Replace("%", "%25").Replace(" ", "%20").Replace(":", "%3A");
+
+    /// <summary>Inverse of <see cref="EscapeWireDesc"/> — unescape ':' and ' ' first, '%' LAST.</summary>
+    public static string UnescapeWireDesc(string s)
+        => string.IsNullOrEmpty(s) ? "" : s.Replace("%3A", ":").Replace("%20", " ").Replace("%25", "%");
+
     /// <summary>Parsed descriptor fields (see EncodeDescriptor). Missing trailing fields (legacy 3-field
     /// saves) default to empty / 0, so an old "prefix|rider|self" descriptor still restores its identity
     /// and curse (only the fallback-buff chance, which those saves never carried, is absent).</summary>

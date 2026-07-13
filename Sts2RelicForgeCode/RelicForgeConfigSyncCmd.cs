@@ -116,7 +116,7 @@ internal static class ForgeConfigBroadcaster
                 if (string.IsNullOrEmpty(desc) && count <= 0 && !cleansed && gred <= 0) continue;
                 sb.Append(' ').Append(player.NetId).Append(':').Append(relic.Id.Entry)
                   .Append(':').Append(count).Append(':').Append(cleansed ? '1' : '0').Append(':').Append(gred)
-                  .Append(':').Append(desc ?? "");
+                  .Append(':').Append(RelicForgeService.EscapeWireDesc(desc ?? ""));   // ★escape: rider suffixes may contain a space
                 n++;
             }
         if (n == 0) return;   // nothing reforged/cleansed yet — skip the enqueue entirely

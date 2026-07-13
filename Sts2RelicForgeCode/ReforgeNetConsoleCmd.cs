@@ -47,7 +47,14 @@ public sealed class ReforgeNetConsoleCmd : AbstractConsoleCmd
         if (!int.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int targetCount))
             return new CmdResult(success: false, $"rf_sync: bad count '{args[1]}'.");
 
-        ReforgeNet.ApplyReforgeStepOnClient(issuingPlayer, args[0], targetCount);
+        // Guard the mutation: an exception in a networked handler must not propagate out of the replay
+        // (it could abort the action queue). Log it so a failed reforge sync is diagnosable.
+        try { ReforgeNet.ApplyReforgeStepOnClient(issuingPlayer, args[0], targetCount); }
+        catch (System.Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] rf_sync failed for {args[0]} -> {targetCount}: {e.Message}");
+            return new CmdResult(success: false, $"rf_sync error: {e.Message}");
+        }
         return new CmdResult(success: true, $"rf_sync {args[0]} -> {targetCount}");
     }
 }

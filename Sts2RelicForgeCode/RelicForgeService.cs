@@ -813,6 +813,13 @@ internal static class RelicForgeService
         if (ReforgeCountOf(relic) == count && IsCleansed(relic) == cleansed
             && GaugeReductionOf(relic) == gaugeReduction && descMatches) return;   // already in sync — no churn
 
+        // Reaching here means THIS peer diverged from the host (a reconcile fires only on a mismatch).
+        // Snapshot the client's state BEFORE the rebuild so the log below pins the exact divergence — the
+        // single most useful breadcrumb when chasing a co-op black screen (it shows which relic drifted and
+        // from what to what).
+        string beforeDesc = DescriptorOf(relic) ?? "";
+        int beforeCount = ReforgeCountOf(relic);
+
         // Undo the current (wrong) grade so the restore/re-derive scales from canonical again — same as Reforge().
         if (Records.TryGetValue(relic, out var rec))
         {
@@ -835,7 +842,10 @@ internal static class RelicForgeService
             if (cleansed) ApplyCleanse(relic);
         }
         GrantCompanionIfAny(relic, player);
-        MainFile.Logger.Info($"[{MainFile.ModId}] co-op reconcile {relic.Id.Entry} -> reforge #{count}{(cleansed ? " cleansed" : "")} gred {gaugeReduction}{(string.IsNullOrEmpty(desc) ? "" : $" '{desc}'")}.");
+        // Divergence breadcrumb: client-before -> host-after. If a black screen still follows, this line
+        // (compared across the two peers' logs) names the relic + enchantment that failed to converge.
+        MainFile.Logger.Info($"[{MainFile.ModId}] co-op reconcile {relic.Id.Entry}: client [#{beforeCount} '{beforeDesc}'] "
+            + $"-> host [#{count} '{desc}']{(cleansed ? " cleansed" : "")} gred {gaugeReduction}.");
     }
 
     /// <summary>

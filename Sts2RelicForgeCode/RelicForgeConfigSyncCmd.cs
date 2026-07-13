@@ -47,7 +47,12 @@ public sealed class RelicForgeConfigSyncCmd : AbstractConsoleCmd
         bool ancient = args[3] == "1";
         bool enemyForge = args[4] == "1";
 
-        HostForgeConfig.ApplyFromHost(noPrefix, curse, selfShare, ancient, enemyForge);
+        try { HostForgeConfig.ApplyFromHost(noPrefix, curse, selfShare, ancient, enemyForge); }
+        catch (System.Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] rf_config apply failed: {e.Message}");
+            return new CmdResult(success: false, $"rf_config error: {e.Message}");
+        }
         return new CmdResult(success: true, "rf_config applied.");
     }
 }

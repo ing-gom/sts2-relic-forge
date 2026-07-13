@@ -68,8 +68,30 @@ public sealed class RelicForgeCountSyncCmd : AbstractConsoleCmd
                 r => r.Id.Entry == relicId && !RelicForgeService.IsCompanion(r));
             if (relic == null) continue;
 
-            RelicForgeService.ReconcileToHost(relic, player, count, cleansed, gred, desc);
-            applied++;
+            // Per-relic guard: a throw while reconciling ONE relic must NOT abort the whole rf_counts
+            // sync — that would leave the remaining relics un-reconciled and could itself desync the
+            // lockstep. Isolate each relic; log the offender (with its ids) so a divergence report can
+            // pinpoint which relic/curse broke.
+            try
+            {
+                RelicForgeService.ReconcileToHost(relic, player, count, cleansed, gred, desc);
+                applied++;
+            }
+            catch (System.Exception e)
+            {
+                MainFile.Logger.Warn($"[{MainFile.ModId}] rf_counts reconcile failed for {relicId} " +
+                                     $"(net {netId}, #{count}, desc '{desc}'): {e.Message}");
+            }
+        }
+
+        // Diagnostic: per-player relic + hidden-companion counts after applying. Co-op checksum divergence
+        // (the campfire black screen) is almost always a companion-count mismatch — logging both peers'
+        // counts here lets a divergence be spotted by diffing the two clients' logs for the same room.
+        foreach (var p in state.Players)
+        {
+            int relics = 0, companions = 0;
+            foreach (var r in p.Relics) { relics++; if (RelicForgeService.IsCompanion(r)) companions++; }
+            MainFile.Logger.Info($"[{MainFile.ModId}] rf_counts post-sync net {p.NetId}: {relics} relics ({companions} hidden companions).");
         }
         return new CmdResult(success: true, $"rf_counts applied ({applied}).");
     }

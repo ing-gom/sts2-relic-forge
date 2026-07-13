@@ -44,7 +44,13 @@ public sealed class CleanseNetConsoleCmd : AbstractConsoleCmd
         if (args.Length < 1)
             return new CmdResult(success: false, "Usage: rf_cleanse <relicEntry>");
 
-        ReforgeNet.ApplyCleanseOnClient(issuingPlayer, args[0]);
+        // Guard the mutation (see rf_sync): a handler exception must not escape the networked replay.
+        try { ReforgeNet.ApplyCleanseOnClient(issuingPlayer, args[0]); }
+        catch (System.Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] rf_cleanse failed for {args[0]}: {e.Message}");
+            return new CmdResult(success: false, $"rf_cleanse error: {e.Message}");
+        }
         return new CmdResult(success: true, $"rf_cleanse {args[0]}");
     }
 }

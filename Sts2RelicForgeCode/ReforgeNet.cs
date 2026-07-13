@@ -145,6 +145,15 @@ internal static class ReforgeNet
         int guard = 0;
         while (RelicForgeService.ReforgeCountOf(relic) < targetCount && guard++ < 64)
             RelicForgeService.Reforge(relic, owner);
+
+        // Diagnostic (co-op): the relic + hidden-companion count on THIS peer right after the reforge —
+        // BEFORE the room-exit checksum. A reforge that grafts/removes a companion is the classic campfire
+        // black-screen trigger; diffing this line across the two peers' logs for the same reforge shows a
+        // 3-vs-2 companion divergence the instant it happens, not just when it later drops the session.
+        int relics = 0, companions = 0;
+        foreach (var r in owner.Relics) { relics++; if (RelicForgeService.IsCompanion(r)) companions++; }
+        MainFile.Logger.Info($"[{MainFile.ModId}] rf_sync {relicEntry} -> #{targetCount} on net {owner.NetId}: "
+            + $"{relics} relics ({companions} hidden companions).");
     }
 
     /// <summary>

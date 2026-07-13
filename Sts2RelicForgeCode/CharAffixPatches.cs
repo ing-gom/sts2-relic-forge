@@ -9,6 +9,7 @@ using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
+using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Localization.DynamicVars;
 using MegaCrit.Sts2.Core.Models;
@@ -42,8 +43,16 @@ internal static class CharAffixPatches
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterPowerAmountChanged))]
     internal static class PowerPatch
     {
-        private static void Postfix(PlayerChoiceContext choiceContext, PowerModel power, decimal amount, Creature? applier)
+        // CHAIN onto the hook's awaited Task (AfterPowerAmountChanged fires mid-PowerCmd.Apply): the +1
+        // poison/doom/focus re-apply must run IN-ORDER inside that await, not detached — a fire-and-forget
+        // apply interleaves non-deterministically and desyncs co-op (the Cursefed class). Same idiom as
+        // ChannelPatch / DiscardPatch / CurseDrawAffixPatch.
+        private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, PowerModel power, decimal amount, Creature? applier)
+            => __result = After(__result, choiceContext, power, amount, applier);
+
+        private static async Task After(Task original, PlayerChoiceContext choiceContext, PowerModel power, decimal amount, Creature? applier)
         {
+            await original;
             try
             {
                 if (amount <= 0m) return;
@@ -52,13 +61,13 @@ internal static class CharAffixPatches
                 Player? actor = applier?.Player ?? applier?.PetOwner;
 
                 if (power is PoisonPower && applier?.Side == CombatSide.Player && owner.Side == CombatSide.Enemy && actor != null)
-                    CharAffix.OnPoisonApplied(choiceContext, actor, owner);
+                    await CharAffix.OnPoisonApplied(choiceContext, actor, owner);
                 else if (power is DoomPower && applier?.Side == CombatSide.Player && owner.Side == CombatSide.Enemy && actor != null)
-                    CharAffix.OnDoomApplied(choiceContext, actor, owner);
+                    await CharAffix.OnDoomApplied(choiceContext, actor, owner);
                 else if (power is FocusPower)
                 {
                     if (owner.Side == CombatSide.Player && applier?.Side == CombatSide.Player && owner.Player != null)
-                        CharAffix.OnFocusGained(choiceContext, owner.Player);
+                        await CharAffix.OnFocusGained(choiceContext, owner.Player);
                 }
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char power hook failed: {e.Message}"); }
@@ -125,12 +134,19 @@ internal static class CharAffixPatches
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterOrbEvoked))]
     internal static class EvokePatch
     {
-        private static void Postfix(PlayerChoiceContext choiceContext, ICombatState combatState)
+        // CHAIN onto the awaited evoke hook (mid-OrbCmd): the Supercharged Focus ±1 toggle must run in-order,
+        // not detached, or it desyncs co-op. Reconcile no-ops the transient channel-into-full evoke via the
+        // ChannelBracketPatch depth counter, so the settle path is unaffected.
+        private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, ICombatState combatState)
+            => __result = ReconcileAfter(__result, choiceContext, combatState);
+
+        private static async Task ReconcileAfter(Task original, PlayerChoiceContext choiceContext, ICombatState combatState)
         {
+            await original;
             try
             {
                 foreach (var pc in combatState.PlayerCreatures)
-                    if (pc.Player != null) CharAffix.Reconcile(choiceContext, pc.Player);
+                    if (pc.Player != null) await CharAffix.Reconcile(choiceContext, pc.Player);
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char evoke hook failed: {e.Message}"); }
         }
@@ -155,7 +171,7 @@ internal static class CharAffixPatches
         {
             try { await original; }
             finally { CharAffix.EndChannel(); }
-            try { CharAffix.Reconcile(ctx, player); }   // no-op if a bonus channel is still in flight
+            try { await CharAffix.Reconcile(ctx, player); }   // no-op if a bonus channel is still in flight
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] channel settle reconcile failed: {e.Message}"); }
         }
     }
@@ -187,15 +203,22 @@ internal static class CharAffixPatches
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterCardPlayed))]
     internal static class CardPlayedPatch
     {
-        private static void Postfix(ICombatState combatState, PlayerChoiceContext choiceContext, CardPlay cardPlay)
+        // CHAIN onto the awaited AfterCardPlayed Task (fires within the card-play / Replay series loop):
+        // Flurrying's bonus Shiv and Echoing's Vulnerable+Frail must run in-order, not detached, or they race
+        // the series and desync co-op (the Cursefed class).
+        private static void Postfix(ref Task __result, ICombatState combatState, PlayerChoiceContext choiceContext, CardPlay cardPlay)
+            => __result = After(__result, combatState, choiceContext, cardPlay);
+
+        private static async Task After(Task original, ICombatState combatState, PlayerChoiceContext choiceContext, CardPlay cardPlay)
         {
+            await original;
             try
             {
                 var card = cardPlay.Card;
                 if (card?.Owner is not Player player) return;
                 if (card is Shiv)
-                    CharAffix.OnShivPlayed(player, new CsAccess(combatState));
-                CharAffix.OnCardPlayedEchoing(choiceContext, player, card);
+                    await CharAffix.OnShivPlayed(player, new CsAccess(combatState));
+                await CharAffix.OnCardPlayedEchoing(choiceContext, player, card);
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char card-played hook failed: {e.Message}"); }
         }
@@ -205,9 +228,14 @@ internal static class CharAffixPatches
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterSummon))]
     internal static class SummonPatch
     {
-        private static void Postfix(PlayerChoiceContext choiceContext, Player summoner)
+        // CHAIN onto the awaited AfterSummon Task (mid-OstyCmd.Summon): Necromantic's block must run in-order.
+        private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, Player summoner)
+            => __result = After(__result, choiceContext, summoner);
+
+        private static async Task After(Task original, PlayerChoiceContext choiceContext, Player summoner)
         {
-            try { CharAffix.OnSummon(choiceContext, summoner); }
+            await original;
+            try { await CharAffix.OnSummon(choiceContext, summoner); }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char summon hook failed: {e.Message}"); }
         }
     }
@@ -218,13 +246,20 @@ internal static class CharAffixPatches
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterDamageReceived))]
     internal static class DamagePatch
     {
-        private static void Postfix(PlayerChoiceContext choiceContext, Creature target, DamageResult result)
+        private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, Creature target, DamageResult result)
+            => __result = After(__result, choiceContext, target, result);
+
+        // CHAIN onto the awaited damage hook (AfterDamageReceived fires per damage instance inside
+        // CreatureCmd.Damage): the Sacrificial self-debuff must run in-order, not detached, or it desyncs
+        // co-op the same way as the self-curse family (UnblockedHitPenaltyPatch).
+        private static async Task After(Task original, PlayerChoiceContext choiceContext, Creature target, DamageResult result)
         {
+            await original;
             try
             {
                 if (result.UnblockedDamage <= 0) return;   // block held -> the summon wasn't hurt
                 if (target.IsPet && target.PetOwner is Player owner)
-                    CharAffix.OnSummonDamaged(choiceContext, owner);
+                    await CharAffix.OnSummonDamaged(choiceContext, owner);
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char summon-damage hook failed: {e.Message}"); }
         }
@@ -298,7 +333,7 @@ internal static class CharAffixPatches
                 foreach (var r in results)
                     if (r.UnblockedDamage > 0 && r.WasTargetKilled && r.Receiver != null && r.Receiver.IsDead
                         && pets.TryGetValue(r.Receiver, out var owner))
-                        CharAffix.OnSummonDamaged(ctx, owner, lethal: true);
+                        await CharAffix.OnSummonDamaged(ctx, owner, lethal: true);
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] lethal summon-damage check failed: {e.Message}"); }
             return results;
@@ -309,9 +344,14 @@ internal static class CharAffixPatches
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterForge))]
     internal static class ForgePatch
     {
-        private static void Postfix(Player forger)
+        // CHAIN onto the awaited AfterForge Task (mid-ForgeCmd, in-combat forge): Reforging's star in-order.
+        private static void Postfix(ref Task __result, Player forger)
+            => __result = After(__result, forger);
+
+        private static async Task After(Task original, Player forger)
         {
-            try { CharAffix.OnForge(forger); }
+            await original;
+            try { await CharAffix.OnForge(forger); }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char forge hook failed: {e.Message}"); }
         }
     }
@@ -321,11 +361,17 @@ internal static class CharAffixPatches
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterStarsSpent))]
     internal static class StarsSpentPatch
     {
-        private static void Postfix(ICombatState combatState, int amount, Player spender)
+        // CHAIN onto the awaited AfterStarsSpent Task (mid stars-spend): Regal's refund runs in-order.
+        // (Bankrupt's Ethereal branding uses the synchronous CardCmd.ApplyKeyword, so it needs no await.)
+        private static void Postfix(ref Task __result, ICombatState combatState, int amount, Player spender)
+            => __result = After(__result, combatState, amount, spender);
+
+        private static async Task After(Task original, ICombatState combatState, int amount, Player spender)
         {
+            await original;
             try
             {
-                CharAffix.OnStarsSpent(spender, new CsAccess(combatState), amount);
+                await CharAffix.OnStarsSpent(spender, new CsAccess(combatState), amount);
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char stars hook failed: {e.Message}"); }
         }
@@ -389,7 +435,10 @@ internal static class CharAffixPatches
                         case "Shorted" when turn == 1:        CharAffix.OnCombatStartShorted(choiceContext, player, relic); break;
                     }
                 }
-                CharAffix.Reconcile(choiceContext, player);   // Supercharged re-eval each turn
+                // Turn start is the verified-safe detached-dispatch choke (post-setup, after the draw loop),
+                // so Supercharged's re-eval stays fire-and-forget here — RunSafely consumes+logs the Task,
+                // preserving the pre-async behavior. (The mid-command evoke/channel paths await Reconcile.)
+                TaskHelper.RunSafely(CharAffix.Reconcile(choiceContext, player));   // Supercharged re-eval each turn
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char turn hook failed: {e.Message}"); }
         }

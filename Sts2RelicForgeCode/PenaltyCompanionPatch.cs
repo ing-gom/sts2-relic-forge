@@ -127,8 +127,15 @@ internal static class PenaltyCardPatch
     // per-host [turnNumber, cardsThisTurn, firedThisTurn]
     private static readonly ConditionalWeakTable<RelicModel, int[]> State = new();
 
-    private static void Postfix(ICombatState combatState, PlayerChoiceContext choiceContext, CardPlay cardPlay)
+    // CHAIN onto the awaited AfterCardPlayed Task: Overloaded's self-Vulnerable must run in-order, not
+    // detached, or it races the play series and desyncs co-op (the Cursefed class). The card counter is
+    // advanced inside the continuation — deterministic on every peer since the hook fires in lockstep.
+    private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, CardPlay cardPlay)
+        => __result = After(__result, choiceContext, cardPlay);
+
+    private static async Task After(Task original, PlayerChoiceContext choiceContext, CardPlay cardPlay)
     {
+        await original;
         try
         {
             Player? player = cardPlay.Card.Owner;
@@ -148,7 +155,7 @@ internal static class PenaltyCardPatch
                 {
                     s[2] = 1;
                     relic.Flash();
-                    TaskHelper.RunSafely(PowerCmd.Apply<VulnerablePower>(choiceContext, player.Creature, 1m, player.Creature, null));
+                    await PowerCmd.Apply<VulnerablePower>(choiceContext, player.Creature, 1m, player.Creature, null);
                 }
             }
         }

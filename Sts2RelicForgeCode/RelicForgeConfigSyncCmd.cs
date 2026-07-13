@@ -107,9 +107,16 @@ internal static class ForgeConfigBroadcaster
                 int count = RelicForgeService.ReforgeCountOf(relic);
                 bool cleansed = RelicForgeService.IsCleansed(relic);
                 int gred = RelicForgeService.GaugeReductionOf(relic);
-                if (count <= 0 && !cleansed && gred <= 0) continue;     // seed-derivable as-is — nothing to carry
+                string? desc = RelicForgeService.DescriptorOf(relic);
+                // Carry any relic the host has FORGED (has a descriptor) so a config-diverged / reconnected
+                // client converges to the host's EXACT enchantment — not just re-forged/cleansed relics. The
+                // descriptor rides as a trailing ':' field ("prefix|rider|self|fbStat|fbAmt|fbPct" — no ':' or
+                // space, so it never breaks the token split). A relic with no descriptor and no non-derivable
+                // state is vanilla to the mod: nothing to sync.
+                if (string.IsNullOrEmpty(desc) && count <= 0 && !cleansed && gred <= 0) continue;
                 sb.Append(' ').Append(player.NetId).Append(':').Append(relic.Id.Entry)
-                  .Append(':').Append(count).Append(':').Append(cleansed ? '1' : '0').Append(':').Append(gred);
+                  .Append(':').Append(count).Append(':').Append(cleansed ? '1' : '0').Append(':').Append(gred)
+                  .Append(':').Append(desc ?? "");
                 n++;
             }
         if (n == 0) return;   // nothing reforged/cleansed yet — skip the enqueue entirely

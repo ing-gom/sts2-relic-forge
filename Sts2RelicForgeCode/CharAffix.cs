@@ -184,28 +184,41 @@ internal static class CharAffix
         TaskHelper.RunSafely(effect);
     }
 
+    /// <summary>AWAITED sibling of <see cref="Fire"/> for handlers that ride a MID-COMMAND hook
+    /// (AfterPowerAmountChanged / AfterOrbEvoked / AfterDamageReceived): the effect must run IN-ORDER
+    /// inside the hook's awaited Task, not detached — a fire-and-forget command interleaves
+    /// non-deterministically with the rest of the command and desyncs co-op lockstep (the Cursefed
+    /// class). The caller chains this onto the hook's <c>ref Task __result</c>. Swallows the effect's
+    /// own exception so one failed grant never breaks the awaited chain.</summary>
+    private static async Task FireAsync(RelicModel relic, Task effect)
+    {
+        relic.Flash();
+        try { await effect; }
+        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] affix effect failed: {e.Message}"); }
+    }
+
     // ============================ Silent ============================
 
     /// <summary>Envenomed — the player applied Poison to an enemy; 50% chance to apply 1 more. The +1
     /// is applied with the enemy as its own applier (the StripOne trick), so it does NOT read as a
     /// player-applied poison and never re-triggers this handler — no echo counter needed.</summary>
-    public static void OnPoisonApplied(PlayerChoiceContext ctx, Player player, Creature enemy)
+    public static async Task OnPoisonApplied(PlayerChoiceContext ctx, Player player, Creature enemy)
     {
         if (!Enabled) return;
         int turn = TurnOf(player);
         foreach (var relic in Owned(player, "Envenomed"))
             if (Roll(player, relic, turn) < 0.5f)
-                Fire(relic, PowerCmd.Apply<PoisonPower>(ctx, enemy, 1m, enemy, null));
+                await FireAsync(relic, PowerCmd.Apply<PoisonPower>(ctx, enemy, 1m, enemy, null));
     }
 
     /// <summary>Flurrying — the player played a Shiv; 25% chance to add a Shiv to hand.</summary>
-    public static void OnShivPlayed(Player player, ICombatStateAccess cs)
+    public static async Task OnShivPlayed(Player player, ICombatStateAccess cs)
     {
         if (!Enabled) return;
         int turn = TurnOf(player);
         foreach (var relic in Owned(player, "Flurrying"))
             if (Roll(player, relic, turn) < 0.25f)
-                Fire(relic, CardPileCmd.Add(cs.CreateShiv(player), PileType.Hand));
+                await FireAsync(relic, CardPileCmd.Add(cs.CreateShiv(player), PileType.Hand));
     }
 
     /// <summary>Dulled (curse) — poison the player's side applies to an enemy cannot push that enemy's
@@ -264,7 +277,7 @@ internal static class CharAffix
     /// synergize — verified as the expected behavior in play testing), and no loop is possible — the
     /// echo of Focused's own +1 is blocked by the per-combat once-flag below, and every negative
     /// (Shorted, Supercharged's revoke) is filtered by the amount &gt; 0 gate in the dispatch patch.</summary>
-    public static void OnFocusGained(PlayerChoiceContext ctx, Player player)
+    public static async Task OnFocusGained(PlayerChoiceContext ctx, Player player)
     {
         if (!Enabled) return;
         int turn = TurnOf(player);
@@ -274,7 +287,7 @@ internal static class CharAffix
             if (box[0] != _combatEpoch) { box[0] = _combatEpoch; box[1] = 0; }
             if (box[1] != 0) continue;
             box[1] = 1;
-            Fire(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, 1m, player.Creature, null));
+            await FireAsync(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, 1m, player.Creature, null));
         }
     }
 
@@ -301,7 +314,7 @@ internal static class CharAffix
                     await ChannelRandom(ctx, player, Roll(player, relic, turn));
                 }
         }
-        Reconcile(ctx, player);   // channeling may have filled the slots — refresh Supercharged
+        await Reconcile(ctx, player);   // channeling may have filled the slots — refresh Supercharged
     }
 
     /// <summary>Polarized (curse) — at each player's turn end (Hook.BeforeFlush), arm the penalty if
@@ -350,7 +363,7 @@ internal static class CharAffix
     /// is in flight — channeling into a full queue evokes-then-enqueues, and reacting to that transient
     /// "not full" would flicker the Focus off and back on; the bracket patch reconciles once after the
     /// channel settles instead.</summary>
-    public static void Reconcile(PlayerChoiceContext ctx, Player player)
+    public static async Task Reconcile(PlayerChoiceContext ctx, Player player)
     {
         if (!Enabled || player.Creature == null) return;
         if (_channelDepth > 0)
@@ -368,12 +381,12 @@ internal static class CharAffix
             if (full && !granted)
             {
                 box[0] = _combatEpoch;
-                Fire(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, 1m, player.Creature, null));
+                await FireAsync(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, 1m, player.Creature, null));
             }
             else if (!full && granted)
             {
                 box[0] = 0;
-                Fire(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, -1m, player.Creature, null));
+                await FireAsync(relic, PowerCmd.Apply<FocusPower>(ctx, player.Creature, -1m, player.Creature, null));
             }
         }
     }
@@ -381,20 +394,20 @@ internal static class CharAffix
     // ============================ Necrobinder ============================
 
     /// <summary>Necromantic — the player summoned (grew Osty); gain 3 Block.</summary>
-    public static void OnSummon(PlayerChoiceContext ctx, Player player)
+    public static async Task OnSummon(PlayerChoiceContext ctx, Player player)
     {
         if (!Enabled || player.Creature == null) return;
         foreach (var relic in Owned(player, "Necromantic"))
-            Fire(relic, CreatureCmd.GainBlock(player.Creature, 3m, ValueProp.Unpowered, null));
+            await FireAsync(relic, CreatureCmd.GainBlock(player.Creature, 3m, ValueProp.Unpowered, null));
     }
 
     /// <summary>Dooming — the player applied Doom to an enemy; apply 1 more (enemy as its own applier,
     /// so no echo — same trick as Envenomed).</summary>
-    public static void OnDoomApplied(PlayerChoiceContext ctx, Player player, Creature enemy)
+    public static async Task OnDoomApplied(PlayerChoiceContext ctx, Player player, Creature enemy)
     {
         if (!Enabled) return;
         foreach (var relic in Owned(player, "Dooming"))
-            Fire(relic, PowerCmd.Apply<DoomPower>(ctx, enemy, 1m, enemy, null));
+            await FireAsync(relic, PowerCmd.Apply<DoomPower>(ctx, enemy, 1m, enemy, null));
     }
 
     /// <summary>Bonebound — per turn, Summon 1 (grows Osty). Fires from the turn-start patch.</summary>
@@ -410,7 +423,7 @@ internal static class CharAffix
     /// Vulnerable 1 to YOURSELF, once per turn per relic. A LETHAL hit (the summon died) applies 2
     /// and bypasses the once-per-turn gate — the death is a distinct, bigger event than the chip
     /// hit that may already have fired this turn.</summary>
-    public static void OnSummonDamaged(PlayerChoiceContext ctx, Player owner, bool lethal = false)
+    public static async Task OnSummonDamaged(PlayerChoiceContext ctx, Player owner, bool lethal = false)
     {
         if (!Enabled || owner.Creature == null) return;
         int turn = TurnOf(owner);
@@ -427,7 +440,7 @@ internal static class CharAffix
                 1 => PowerCmd.Apply<FrailPower>(ctx, owner.Creature, stacks, owner.Creature, null),
                 _ => PowerCmd.Apply<VulnerablePower>(ctx, owner.Creature, stacks, owner.Creature, null),
             };
-            Fire(relic, t);
+            await FireAsync(relic, t);
         }
     }
 
@@ -438,11 +451,11 @@ internal static class CharAffix
         => Fire(relic, PlayerCmd.GainStars(1m, player));
 
     /// <summary>Reforging — the player forged a card in combat; gain 1 Star.</summary>
-    public static void OnForge(Player player)
+    public static async Task OnForge(Player player)
     {
         if (!Enabled) return;
         foreach (var relic in Owned(player, "Reforging"))
-            Fire(relic, PlayerCmd.GainStars(1m, player));
+            await FireAsync(relic, PlayerCmd.GainStars(1m, player));
     }
 
     /// <summary>Every 4th Star spent evaporates an asset (Bankrupt's debt meter, below).</summary>
@@ -454,7 +467,7 @@ internal static class CharAffix
     /// non-Ethereal card in hand becomes Ethereal (CardCmd.ApplyKeyword — the GhostSeed idiom, UI
     /// refresh included) — play it this turn or watch the asset evaporate. No eligible card in hand
     /// = that trigger fizzles (the debt is still paid).</summary>
-    public static void OnStarsSpent(Player player, ICombatStateAccess cs, int amount)
+    public static async Task OnStarsSpent(Player player, ICombatStateAccess cs, int amount)
     {
         if (!Enabled) return;
         int turn = TurnOf(player);
@@ -462,7 +475,7 @@ internal static class CharAffix
         foreach (var relic in Owned(player, "Regal"))
             if (Roll(player, relic, turn) < 0.5f)
             {
-                Fire(relic, PlayerCmd.GainStars(1m, player));
+                await FireAsync(relic, PlayerCmd.GainStars(1m, player));
             }
 
         if (amount <= 0) return;
@@ -543,7 +556,7 @@ internal static class CharAffix
     /// <summary>Echoing — a card was played: if it is THIS relic's granted card, pay for the boon with
     /// Vulnerable 1 + Frail 1 to the player, once. Replay makes the card play as a series, so
     /// AfterCardPlayed can fire per play — the Penalized flag collapses that to a single charge.</summary>
-    public static void OnCardPlayedEchoing(PlayerChoiceContext ctx, Player player, CardModel card)
+    public static async Task OnCardPlayedEchoing(PlayerChoiceContext ctx, Player player, CardModel card)
     {
         if (!Enabled || player.Creature == null) return;
         int turn = TurnOf(player);
@@ -553,8 +566,10 @@ internal static class CharAffix
             if (st.Penalized || st.Turn != turn || !ReferenceEquals(st.Card, card)) continue;
             st.Penalized = true;
             relic.Flash();
-            TaskHelper.RunSafely(PowerCmd.Apply<VulnerablePower>(ctx, player.Creature, 1m, player.Creature, null));
-            TaskHelper.RunSafely(PowerCmd.Apply<FrailPower>(ctx, player.Creature, 1m, player.Creature, null));
+            // AWAITED in-order (AfterCardPlayed is a mid-play / Replay-series hook): a detached apply
+            // would race the play series and desync co-op (the Cursefed class).
+            await PowerCmd.Apply<VulnerablePower>(ctx, player.Creature, 1m, player.Creature, null);
+            await PowerCmd.Apply<FrailPower>(ctx, player.Creature, 1m, player.Creature, null);
         }
     }
 

@@ -109,6 +109,56 @@ internal static class RelicForgeService
     /// <summary>True if this relic instance currently carries a cleansed (curse-removed) forge record.</summary>
     public static bool IsCleansed(RelicModel relic) => Records.TryGetValue(relic, out var rec) && rec.Cleansed;
 
+    // --- AUTHORITATIVE forge descriptor (the fix for save/load + co-op prefix drift) ---------------
+    // The prefix identity + curse USED to be re-derived from (seed, floor, character, config) on every
+    // load / reconnect / peer. Any drift in those inputs (a client's local config before the host's
+    // broadcast lands, a relic obtained off the normal floor path, a reconnected client rebuilt at
+    // count 0) silently re-rolled the enchantment. The full identity is now PERSISTED as a compact
+    // descriptor and RESTORED verbatim (see RestoreForged) so the outcome is a stored fact, not a guess
+    // — only the numeric var deltas are recomputed (deterministic from prefix power + canonical bases,
+    // config/character/rng-independent). Format: "prefix|rider|self|fbStat|fbAmt|fbPct" (all fields are
+    // single tokens with no ':' or space, so the whole descriptor rides one ':'-delimited rf_counts field).
+    private static readonly ConditionalWeakTable<RelicModel, StrongBox<string>> PendingDesc = new();
+    public static void SetPendingDesc(RelicModel relic, string desc) => PendingDesc.AddOrUpdate(relic, new StrongBox<string>(desc));
+    public static string? TakePendingDesc(RelicModel relic)
+    {
+        if (!PendingDesc.TryGetValue(relic, out var box)) return null;
+        PendingDesc.Remove(relic);
+        return box.Value;
+    }
+
+    /// <summary>Encode a record's authoritative identity to the compact descriptor (see PendingDesc).
+    /// Returns null when there is nothing worth persisting (no prefix, no curse, no fallback buff).</summary>
+    public static string? EncodeDescriptor(ForgeRecord rec)
+    {
+        if (rec == null) return null;
+        bool any = rec.Prefix.Length > 0 || rec.EnemyRider || rec.SelfCurse.Length > 0 || rec.FallbackPercent > 0;
+        if (!any) return null;
+        string rider = rec.EnemyRider ? rec.EnemyRiderSuffix : "";
+        return $"{rec.Prefix}|{rider}|{rec.SelfCurse}|{rec.FallbackStat}|{rec.FallbackAmount}|{rec.FallbackPercent}";
+    }
+
+    /// <summary>The current authoritative descriptor for an owned relic instance, or null if unforged /
+    /// nothing to persist. Used by the co-op broadcaster and the idempotency check in ReconcileToHost.</summary>
+    public static string? DescriptorOf(RelicModel relic)
+        => Records.TryGetValue(relic, out var rec) ? EncodeDescriptor(rec) : null;
+
+    /// <summary>Parsed descriptor fields (see EncodeDescriptor). Missing trailing fields (legacy 3-field
+    /// saves) default to empty / 0, so an old "prefix|rider|self" descriptor still restores its identity
+    /// and curse (only the fallback-buff chance, which those saves never carried, is absent).</summary>
+    private static (string prefix, string rider, string self, string fbStat, int fbAmt, int fbPct) DecodeDescriptor(string desc)
+    {
+        var p = desc.Split('|');
+        string prefix = p.Length > 0 ? p[0] : "";
+        string rider  = p.Length > 1 ? p[1] : "";
+        string self   = p.Length > 2 ? p[2] : "";
+        string fbStat = p.Length > 3 ? p[3] : "";
+        int fbAmt = 0, fbPct = 0;
+        if (p.Length > 4) int.TryParse(p[4], out fbAmt);
+        if (p.Length > 5) int.TryParse(p[5], out fbPct);
+        return (prefix, rider, self, fbStat, fbAmt, fbPct);
+    }
+
     /// <summary>
     /// Unified "curse" test on a record: a relic is CURSED if its prefix is itself a penalty prefix
     /// (a self-downside like Cursed/Cumbersome/Tainted…), OR it carries an enemy-rider / self-curse.
@@ -655,6 +705,73 @@ internal static class RelicForgeService
     }
 
     /// <summary>
+    /// Restore a relic's forge to a PERSISTED authoritative descriptor (see <see cref="EncodeDescriptor"/>)
+    /// instead of re-deriving it from the seed. This is the drift-proof load / reconnect / co-op path: the
+    /// prefix identity and curse are taken VERBATIM from <paramref name="desc"/>, and only the numeric var
+    /// deltas are recomputed — deterministic from the prefix's power + the relic's canonical base values, so
+    /// they carry no rng / config / character / floor sensitivity. The caller must clear any existing record
+    /// first (a fresh load instance has none; <see cref="ReconcileToHost"/> undoes the old one). Applies the
+    /// cleanse itself. Returns the restored record (null if nothing to restore).
+    /// </summary>
+    public static ForgeRecord? RestoreForged(RelicModel relic, string desc, uint runSeed, int floor,
+                                             int reforgeCount, bool cleansed, int gaugeReduction, string? character)
+    {
+        if (relic == null || string.IsNullOrEmpty(desc)) return null;
+        if (Records.TryGetValue(relic, out _)) return null;   // already has a record — caller must clear first
+        var (prefixName, rider, self, fbStat, fbAmt, fbPct) = DecodeDescriptor(desc);
+
+        // Curse-only / no-prefix record (a re-homed penalty, or a pickup "curse-only" result): nothing to
+        // scale, so build the bare record directly — no numeric application, matching Forge's no-prefix path.
+        if (prefixName.Length == 0)
+        {
+            var bare = new ForgeRecord
+            {
+                Rarity = relic.Rarity, Prefix = "", Percent = 0, ReforgeCount = reforgeCount,
+                GaugeReduction = gaugeReduction, EnemyRider = rider.Length > 0, EnemyRiderSuffix = rider,
+                SelfCurse = self, FallbackStat = fbStat, FallbackAmount = fbAmt, FallbackPercent = fbPct,
+                Cleansed = cleansed,
+            };
+            Records.Add(relic, bare);
+            return bare;
+        }
+
+        Prefix? def = PrefixTable.ByName(prefixName);
+        if (def == null)
+        {
+            // Unknown prefix name (a stale save from a since-removed prefix): fall back to a seed re-derive so
+            // the relic gets a valid grade rather than nothing.
+            Forge(relic, runSeed, floor, reforgeCount: reforgeCount, guaranteePrefix: reforgeCount > 0,
+                  character: character, gaugeReduction: gaugeReduction);
+            if (cleansed) ApplyCleanse(relic);
+            return RecordFor(relic);
+        }
+
+        // Reuse Forge with a FORCED prefix so the numeric scaling / tier tie-break / reforge floor all run
+        // deterministically (config/rng-independent), then OVERWRITE the curse + fallback fields with the
+        // persisted authoritative values (Forge would otherwise re-roll the curse from config). This restores
+        // the exact enchantment the save / host holds without duplicating Forge's numeric internals.
+        Forge(relic, runSeed, floor, forced: def, reforgeCount: reforgeCount, guaranteePrefix: reforgeCount > 0,
+              character: character, gaugeReduction: gaugeReduction);
+        var rec = RecordFor(relic);
+        if (rec == null) return null;
+        rec.EnemyRider = rider.Length > 0;
+        rec.EnemyRiderSuffix = rider;
+        rec.SelfCurse = self;
+        // Only overwrite the fallback-buff fields when the descriptor actually CARRIED them. A legacy
+        // 3-field descriptor ("prefix|rider|self") decodes fb as empty/0 — for a fallback-substituted relic
+        // Forge(forced) already re-derived a sensible default chance, so clobbering it to 0 would silence the
+        // buff. New (6-field) descriptors always carry a real stat when there is a buff, so this restores it.
+        if (fbStat.Length > 0 || fbPct > 0)
+        {
+            rec.FallbackStat = fbStat;
+            rec.FallbackAmount = fbAmt;
+            rec.FallbackPercent = fbPct;
+        }
+        if (cleansed) ApplyCleanse(relic);
+        return rec;
+    }
+
+    /// <summary>
     /// CO-OP reconnect repair: reconcile <paramref name="relic"/> to the HOST's authoritative reforge
     /// state (reforge <paramref name="count"/> + <paramref name="cleansed"/> flag). Those two values are
     /// the ONLY forge data that cannot cross the packet wire — the SavedProperties packet serializer strips
@@ -671,13 +788,20 @@ internal static class RelicForgeService
     /// (seed, floor, id, count), so any peer that DOES apply it agrees. Mirrors the undo+re-forge of
     /// <see cref="Reforge"/>, but targets an explicit count instead of incrementing.
     /// </summary>
-    public static void ReconcileToHost(RelicModel relic, Player player, int count, bool cleansed, int gaugeReduction)
+    public static void ReconcileToHost(RelicModel relic, Player player, int count, bool cleansed, int gaugeReduction, string? desc = null)
     {
         if (relic == null || player == null || IsCompanion(relic)) return;
+        // Idempotent: no-op when this peer already matches the host — count, cleanse, gauge reduction AND the
+        // authoritative enchantment descriptor. This is the host itself and every in-sync client in normal
+        // play, so the per-room re-broadcast costs only a cheap compare; only a DIVERGED (config-race or
+        // reconnected) client actually rebuilds — and it rebuilds to the host's EXACT descriptor, so the two
+        // converge instead of the old re-derive that could diverge again. A null desc = legacy caller (no
+        // descriptor on the wire) → fall back to the seed re-derive and skip the descriptor half of the check.
+        bool descMatches = string.IsNullOrEmpty(desc) || string.Equals(DescriptorOf(relic) ?? "", desc, StringComparison.Ordinal);
         if (ReforgeCountOf(relic) == count && IsCleansed(relic) == cleansed
-            && GaugeReductionOf(relic) == gaugeReduction) return;   // already in sync — no churn
+            && GaugeReductionOf(relic) == gaugeReduction && descMatches) return;   // already in sync — no churn
 
-        // Undo the current (wrong-count) grade so Forge scales from canonical again — same as Reforge().
+        // Undo the current (wrong) grade so the restore/re-derive scales from canonical again — same as Reforge().
         if (Records.TryGetValue(relic, out var rec))
         {
             RemoveCompanions(relic, rec, player);                 // scan-based: never strands an orphan companion
@@ -687,13 +811,19 @@ internal static class RelicForgeService
             Records.Remove(relic);
         }
 
-        // Re-derive at the host's count + gauge reduction (guaranteePrefix mirrors Reforge for count>0),
-        // graft, then cleanse — reproducing the exact state the host holds so checksums reconverge.
-        Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
-              reforgeCount: count, guaranteePrefix: count > 0, character: CharAffix.TitleOf(player), gaugeReduction: gaugeReduction);
+        // Prefer the host's AUTHORITATIVE descriptor (restore verbatim, no re-roll); fall back to a seed
+        // re-derive only when no descriptor was carried (legacy wire). Then graft, reproducing the exact
+        // state the host holds so checksums reconverge.
+        if (!string.IsNullOrEmpty(desc))
+            RestoreForged(relic, desc!, player.RunState.Rng.Seed, relic.FloorAddedToDeck, count, cleansed, gaugeReduction, CharAffix.TitleOf(player));
+        else
+        {
+            Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
+                  reforgeCount: count, guaranteePrefix: count > 0, character: CharAffix.TitleOf(player), gaugeReduction: gaugeReduction);
+            if (cleansed) ApplyCleanse(relic);
+        }
         GrantCompanionIfAny(relic, player);
-        if (cleansed) ApplyCleanse(relic);
-        MainFile.Logger.Info($"[{MainFile.ModId}] co-op reconcile {relic.Id.Entry} -> reforge #{count}{(cleansed ? " cleansed" : "")} gred {gaugeReduction}.");
+        MainFile.Logger.Info($"[{MainFile.ModId}] co-op reconcile {relic.Id.Entry} -> reforge #{count}{(cleansed ? " cleansed" : "")} gred {gaugeReduction}{(string.IsNullOrEmpty(desc) ? "" : $" '{desc}'")}.");
     }
 
     /// <summary>

@@ -41,15 +41,17 @@ internal static class ReforgeSaveInjectPatch
                 __result.Props.ints.Add(new SavedProperties.SavedProperty<int>(RelicForgeService.RfReductionKey, gred));
             }
 
-            // Compact forge summary ("prefix|rider|self") for the RUN-HISTORY view — history keeps only
-            // the display seed string, so the grade can't be re-derived there; we carry a readable
-            // summary instead. Only relics that actually rolled a prefix or curse get it.
+            // AUTHORITATIVE forge descriptor ("prefix|rider|self|fbStat|fbAmt|fbPct"). This is now the SOURCE
+            // OF TRUTH for the enchantment on load: RunLoadReforgePatch RESTORES from it verbatim instead of
+            // re-deriving the prefix from the seed (which drifted across save/load when any derivation input
+            // shifted). Still doubles as the run-history summary (which reads only the leading fields). Only
+            // relics that actually carry a prefix / curse / fallback buff get it.
             var rec = RelicForgeService.RecordFor(__instance);
-            if (rec != null && (rec.Prefix.Length > 0 || rec.EnemyRider || rec.SelfCurse.Length > 0))
+            string? desc = rec != null ? RelicForgeService.EncodeDescriptor(rec) : null;
+            if (desc != null)
             {
                 __result.Props ??= new SavedProperties();
                 __result.Props.strings ??= new List<SavedProperties.SavedProperty<string>>();
-                string desc = $"{rec.Prefix}|{(rec.EnemyRider ? rec.EnemyRiderSuffix : "")}|{rec.SelfCurse}";
                 __result.Props.strings.Add(new SavedProperties.SavedProperty<string>(RelicForgeService.RfDescKey, desc));
             }
 

@@ -1,6 +1,8 @@
 using System;
+using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
@@ -26,11 +28,20 @@ internal static class ReactiveAffixPatches
     [HarmonyPatch(typeof(Hook), nameof(Hook.AfterPowerAmountChanged))]
     internal static class AfterPowerAmountChangedPatch
     {
-        private static void Postfix(PlayerChoiceContext choiceContext, PowerModel power, decimal amount, Creature? applier)
+        private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, PowerModel power, decimal amount, Creature? applier)
         {
+            // CaptureCtx is a synchronous side-effect (Discharging's energy hook borrows the last ctx) — keep it
+            // immediate. The Resonant +1 grant, however, rides this mid-command hook, so CHAIN it onto the
+            // awaited __result and apply in-order (a detached apply desyncs co-op — the Cursefed class).
+            ReactiveAffix.CaptureCtx(choiceContext);
+            __result = GainAfter(__result, choiceContext, power, amount, applier);
+        }
+
+        private static async Task GainAfter(Task original, PlayerChoiceContext choiceContext, PowerModel power, decimal amount, Creature? applier)
+        {
+            await original;
             try
             {
-                ReactiveAffix.CaptureCtx(choiceContext);
                 if (amount <= 0m) return;
                 if (!(power is StrengthPower || power is DexterityPower)) return;
                 var owner = power.Owner;
@@ -38,7 +49,7 @@ internal static class ReactiveAffixPatches
                 if (applier?.Side != CombatSide.Player) return; // self-gain only (enemy-applied handled by Obstinate)
                 var player = owner.Player;
                 if (player == null) return;
-                ReactiveAffix.OnPlayerGainPower(choiceContext, player, power is DexterityPower, (int)amount);
+                await ReactiveAffix.OnPlayerGainPower(choiceContext, player, power is DexterityPower, (int)amount);
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] reactive power hook failed: {e.Message}"); }
         }
@@ -61,18 +72,31 @@ internal static class ReactiveAffixPatches
         }
     }
 
-    /// <summary>방전의 / Discharging — the player gained BONUS energy (the turn-start refill sets
-    /// energy directly and never reaches this hook). Deal the discharge damage to all enemies.
-    /// <c>__result</c> is the final energy gained after all modifiers.</summary>
-    [HarmonyPatch(typeof(Hook), nameof(Hook.ModifyEnergyGain))]
-    internal static class ModifyEnergyGainPatch
+    /// <summary>방전의 / Discharging — the player gained BONUS energy (the turn-start refill uses SetEnergy,
+    /// not GainEnergy, so it never reaches here). Deal the discharge damage to all enemies IN-ORDER.
+    ///
+    /// Patches the AWAITED <see cref="PlayerCmd.GainEnergy"/> command rather than the synchronous
+    /// <c>Hook.ModifyEnergyGain</c> modifier it used to ride: a modifier returns a decimal, so there was no
+    /// Task to chain onto and the discharge damage had to be dispatched DETACHED mid-GainEnergy — which
+    /// interleaves non-deterministically with the rest of the energy-gain flow and desyncs co-op (the
+    /// Cursefed class). Chaining onto GainEnergy's Task runs the discharge after the gain settles, in
+    /// lockstep on every peer. The input <paramref name="amount"/> &gt; 0 is the same "bonus energy gained"
+    /// gate the modifier used (a modifier could re-scale it, but the discharge is a fixed ping either way).</summary>
+    [HarmonyPatch(typeof(PlayerCmd), nameof(PlayerCmd.GainEnergy))]
+    internal static class GainEnergyPatch
     {
-        private static void Postfix(ICombatState combatState, Player player, decimal __result)
+        private static void Postfix(ref Task __result, decimal amount, Player player)
+            => __result = DischargeAfter(__result, amount, player);
+
+        private static async Task DischargeAfter(Task original, decimal amount, Player player)
         {
+            await original;
             try
             {
-                if (__result > 0m)
-                    ReactiveAffix.OnPlayerGainBonusEnergy(player, combatState, (int)__result);
+                if (amount <= 0m) return;
+                var cs = player.Creature?.CombatState;
+                if (cs != null)
+                    await ReactiveAffix.OnPlayerGainBonusEnergy(player, cs, (int)amount);
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] reactive energy hook failed: {e.Message}"); }
         }

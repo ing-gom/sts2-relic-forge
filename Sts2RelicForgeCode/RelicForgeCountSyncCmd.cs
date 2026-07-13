@@ -48,13 +48,17 @@ public sealed class RelicForgeCountSyncCmd : AbstractConsoleCmd
         foreach (var token in args)
         {
             var f = token.Split(':');
-            if (f.Length < 4) continue;   // netId:relicId:count:cleansed[:gaugeReduction] — 5th field is back-compat optional
+            // netId:relicId:count:cleansed[:gaugeReduction[:descriptor]] — fields 5 (gred) and 6 (desc) are
+            // back-compat optional. The descriptor is the LAST field and contains no ':' (its own separator is
+            // '|'), so rejoining f[5..] is defensive against a future field that might.
+            if (f.Length < 4) continue;
             if (!ulong.TryParse(f[0], NumberStyles.Integer, inv, out ulong netId)) continue;
             string relicId = f[1];
             if (!int.TryParse(f[2], NumberStyles.Integer, inv, out int count)) continue;
             bool cleansed = f[3] == "1";
             int gred = 0;
             if (f.Length >= 5) int.TryParse(f[4], NumberStyles.Integer, inv, out gred);
+            string? desc = f.Length >= 6 ? string.Join(":", f.Skip(5)) : null;
 
             var player = state.Players.FirstOrDefault(p => p.NetId == netId);
             if (player == null) continue;
@@ -62,7 +66,7 @@ public sealed class RelicForgeCountSyncCmd : AbstractConsoleCmd
                 r => r.Id.Entry == relicId && !RelicForgeService.IsCompanion(r));
             if (relic == null) continue;
 
-            RelicForgeService.ReconcileToHost(relic, player, count, cleansed, gred);
+            RelicForgeService.ReconcileToHost(relic, player, count, cleansed, gred, desc);
             applied++;
         }
         return new CmdResult(success: true, $"rf_counts applied ({applied}).");

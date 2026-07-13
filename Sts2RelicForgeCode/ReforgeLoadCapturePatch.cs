@@ -32,19 +32,22 @@ internal static class ReforgeLoadCapturePatch
                         RelicForgeService.SetPendingCleansed(__result);
                 }
 
-            // Run-history view ONLY (flag-gated so a normal run load — which re-derives the real forge
-            // — is never touched): attach a display-only record from the stored forge summary.
-            if (RelicForgeService.InHistoryLoad)
-            {
-                var strs = save.Props?.strings;
-                if (strs != null)
-                    foreach (var p in strs)
-                    {
-                        if (p.name != RelicForgeService.RfDescKey) continue;
+            // Grab the authoritative forge descriptor off the serialized relic before FillInternal drops it.
+            // Two consumers:
+            //   · RUN-HISTORY view (InHistoryLoad) — attach a display-only record (prefix + curse, no deltas);
+            //   · NORMAL run load — park it so RunLoadReforgePatch RESTORES the enchantment verbatim instead
+            //     of re-deriving it from the seed (the save/load prefix-drift fix).
+            var strs = save.Props?.strings;
+            if (strs != null)
+                foreach (var p in strs)
+                {
+                    if (p.name != RelicForgeService.RfDescKey) continue;
+                    if (RelicForgeService.InHistoryLoad)
                         RelicForgeService.RegisterDisplayRecord(__result, p.value);
-                        break;
-                    }
-            }
+                    else
+                        RelicForgeService.SetPendingDesc(__result, p.value);
+                    break;
+                }
         }
         catch (Exception e)
         {

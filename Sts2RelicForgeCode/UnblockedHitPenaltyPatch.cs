@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
@@ -32,8 +33,16 @@ namespace Sts2RelicForge;
 [HarmonyPatch(typeof(Hook), nameof(Hook.AfterDamageReceived))]
 internal static class UnblockedHitPenaltyPatch
 {
-    private static void Postfix(PlayerChoiceContext choiceContext, Creature target, DamageResult result, Creature? dealer)
+    // CHAIN onto the awaited damage hook: AfterDamageReceived fires once PER damage instance inside
+    // CreatureCmd.Damage (multi-hit loop), so a detached self-debuff / card-add races the remaining hits and
+    // the kill resolution → co-op lockstep desync (the Cursefed class). Reassigning __result runs the curse
+    // effect in-order on every peer.
+    private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, Creature target, DamageResult result, Creature? dealer)
+        => __result = After(__result, choiceContext, target, result, dealer);
+
+    private static async Task After(Task original, PlayerChoiceContext choiceContext, Creature target, DamageResult result, Creature? dealer)
     {
+        await original;
         try
         {
             if (result.UnblockedDamage <= 0) return;             // block held → no penalty
@@ -53,11 +62,11 @@ internal static class UnblockedHitPenaltyPatch
                 if (def.OnHitCard)
                 {
                     var card = target!.CombatState?.CreateCard<Dazed>(player);
-                    if (card != null) TaskHelper.RunSafely(CardPileCmd.Add(card, PileType.Draw));
+                    if (card != null) await CardPileCmd.Add(card, PileType.Draw);
                     continue;
                 }
                 string power = def.OnHitRandom ? RandomDebuff(player, relic, result) : def.OnHitPower;
-                Apply(choiceContext, player.Creature, power);
+                await Apply(choiceContext, player.Creature, power);
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] self-curse apply failed: {e.Message}"); }
@@ -77,13 +86,14 @@ internal static class UnblockedHitPenaltyPatch
         return Debuffs[i >= Debuffs.Length ? Debuffs.Length - 1 : i];
     }
 
-    private static void Apply(PlayerChoiceContext ctx, Creature self, string power)
+    private static Task Apply(PlayerChoiceContext ctx, Creature self, string power)
     {
         switch (power)
         {
-            case "Weak":       TaskHelper.RunSafely(PowerCmd.Apply<WeakPower>(ctx, self, 1m, self, null)); break;
-            case "Frail":      TaskHelper.RunSafely(PowerCmd.Apply<FrailPower>(ctx, self, 1m, self, null)); break;
-            case "Vulnerable": TaskHelper.RunSafely(PowerCmd.Apply<VulnerablePower>(ctx, self, 1m, self, null)); break;
+            case "Weak":       return PowerCmd.Apply<WeakPower>(ctx, self, 1m, self, null);
+            case "Frail":      return PowerCmd.Apply<FrailPower>(ctx, self, 1m, self, null);
+            case "Vulnerable": return PowerCmd.Apply<VulnerablePower>(ctx, self, 1m, self, null);
+            default:           return Task.CompletedTask;
         }
     }
 }

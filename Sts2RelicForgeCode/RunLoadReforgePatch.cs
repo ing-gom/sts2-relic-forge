@@ -36,11 +36,25 @@ internal static class RunLoadReforgePatch
                 var hosts = player.Relics.ToList();
                 foreach (var relic in hosts)
                 {
-                    // A re-forged relic persisted a count>0; re-derive with the same count, and
-                    // guarantee a prefix (reforge never lands "no prefix"), matching Reforge().
                     int rf = RelicForgeService.TakePendingReforgeCount(relic);
                     bool cleansed = RelicForgeService.TakePendingCleansed(relic);
                     int gred = RelicForgeService.TakePendingGaugeReduction(relic);
+                    string? desc = RelicForgeService.TakePendingDesc(relic);
+
+                    // RESTORE the enchantment from the persisted authoritative descriptor when present — the
+                    // prefix identity + curse are taken verbatim, only the numeric deltas recompute. This is
+                    // the save/load prefix-drift fix: no re-roll from (seed, floor, character, config), which
+                    // could differ from pickup and silently change the enchantment on the first load.
+                    if (!string.IsNullOrEmpty(desc))
+                    {
+                        if (RelicForgeService.RestoreForged(relic, desc!, seed, relic.FloorAddedToDeck,
+                                rf, cleansed, gred, CharAffix.TitleOf(player)) != null)
+                            count++;
+                        continue;
+                    }
+
+                    // No descriptor (legacy save, or a relic that was never forged): fall back to the
+                    // seed re-derive, guaranteeing a prefix for a re-forged (count>0) relic like Reforge().
                     if (RelicForgeService.Forge(relic, seed, relic.FloorAddedToDeck,
                             reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(player), gaugeReduction: gred) != null)
                         count++;

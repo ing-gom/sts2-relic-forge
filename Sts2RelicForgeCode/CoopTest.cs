@@ -76,6 +76,7 @@ internal static class CoopTest
         try
         {
             await Task.Delay(2000);
+            await Shot("01_run");   // ★mandatory visual evidence: this instance really entered the co-op run
             var me = LocalPlayerOf(run);
             if (me == null) { W("HOST: no local player"); Flush(false); return; }
 
@@ -93,6 +94,7 @@ internal static class CoopTest
             await Task.Delay(4000);
 
             W($"HOST: FINAL desc = '{RelicForgeService.DescriptorOf(relic) ?? "-"}' (count {RelicForgeService.ReforgeCountOf(relic)})");
+            await Shot("02_final"); // ★mandatory: the screen with the reforged relic applied
             W("=== coop host done ===");
             Flush(true);
         }
@@ -103,14 +105,59 @@ internal static class CoopTest
     {
         try
         {
-            await Task.Delay(13000);   // wait for grant + both reforges to replicate
+            await Task.Delay(2000);
+            await Shot("01_run");            // ★mandatory: the JOIN side also entered the run
+            await Task.Delay(11000);   // wait for grant + both reforges to replicate
             var host = run.State!.Players.OrderBy(p => p.NetId).First();
             var relic = FindRelic(host);
             W($"JOIN: FINAL desc = '{(relic != null ? RelicForgeService.DescriptorOf(relic) ?? "-" : "MISSING")}' (count {(relic != null ? RelicForgeService.ReforgeCountOf(relic) : -1)})");
+            await Shot("02_final");          // ★mandatory: what the client actually SEES after replication
             W("=== coop join done ===");
             Flush(true);
         }
         catch (Exception e) { W("JOIN exception: " + e); Flush(false); }
+    }
+
+    /// <summary>Save the root viewport to selftest.coop.&lt;role&gt;.&lt;name&gt;.png (role tag: both instances
+    /// share one mods folder, so untagged names would overwrite each other). Retries while the frame is
+    /// still BLACK — right after run-entry the viewport is often a loading/transition frame, and a pure
+    /// black png is worthless as visual evidence (found by the mandatory eyeball check). See coop-verify.</summary>
+    private static async Task Shot(string name, int tries = 6)
+    {
+        try
+        {
+            for (int i = 0; i < tries; i++)
+            {
+                if (Engine.GetMainLoop() is not SceneTree tree) return;
+                var img = tree.Root.GetTexture()?.GetImage();
+                if (img != null && !IsBlank(img))
+                {
+                    var err = img.SavePng(Path.Combine(ModDir(), $"selftest.coop.{_role}.{name}.png"));
+                    W($"shot {name}: {err} (try {i + 1})");
+                    return;
+                }
+                await Task.Delay(2000);   // frame not drawn yet — wait and retry
+            }
+            // Last resort: save whatever is there (flagged) so the evidence gap is visible in the log.
+            if (Engine.GetMainLoop() is SceneTree t2)
+                t2.Root.GetTexture()?.GetImage()?.SavePng(Path.Combine(ModDir(), $"selftest.coop.{_role}.{name}.png"));
+            W($"shot {name}: still black after {tries} tries (saved anyway)");
+        }
+        catch (Exception e) { W($"shot {name} failed: {e.Message}"); }
+    }
+
+    /// <summary>All-black check on a sparse pixel grid (cheap: ~81 samples, not 2M pixels).</summary>
+    private static bool IsBlank(Image img)
+    {
+        int w = img.GetWidth(), h = img.GetHeight();
+        if (w == 0 || h == 0) return true;
+        for (int x = w / 10; x < w; x += System.Math.Max(1, w / 10))
+            for (int y = h / 10; y < h; y += System.Math.Max(1, h / 10))
+            {
+                var c = img.GetPixel(x, y);
+                if (c.R + c.G + c.B > 0.05f) return false;
+            }
+        return true;
     }
 
     private static RelicModel? FindRelic(Player p)

@@ -266,7 +266,8 @@ internal static class SoloTest
         catch (Exception e) { W("relic fetch failed: " + e.Message.Split('\n')[0]); return null; }
     }
 
-    /// <summary>Save the root viewport to selftest.ui.&lt;name&gt;.png (visual evidence, no display needed).</summary>
+    /// <summary>Save the root viewport to selftest.sp.&lt;name&gt;.png — the solo-verify launcher lists
+    /// exactly this pattern under "=== SCREENSHOTS ===" for the mandatory visual check.</summary>
     private static void Shot(string name)
     {
         try
@@ -274,7 +275,7 @@ internal static class SoloTest
             if (Engine.GetMainLoop() is not SceneTree tree) return;
             var img = tree.Root.GetTexture()?.GetImage();
             if (img == null) { W($"shot {name}: no image"); return; }
-            var err = img.SavePng(Path.Combine(ModDir(), $"selftest.ui.{name}.png"));
+            var err = img.SavePng(Path.Combine(ModDir(), $"selftest.sp.{name}.png"));
             W($"shot {name}: {err}");
         }
         catch (Exception e) { W($"shot {name} failed: {e.Message}"); }

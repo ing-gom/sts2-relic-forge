@@ -283,6 +283,73 @@ internal static class SoloTest
                 return null;
             });
 
+            // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the
+            // relic's forge effect". Reproduce the exact scenario against the REAL Rewind mod: enter a
+            // monster combat with a forged relic (akabeko from T10), advance two turns, rewind to turn 1
+            // via TurnRewindManager (reflection — same call its UI button makes), then assert the
+            // descriptor, reforge count AND the live numeric var values all survived. Skips (pass) when
+            // the Rewind mod isn't loaded.
+            await TestAsync("T11 Rewind compat", async () =>
+            {
+                var trm = Type.GetType("Rewind.Scripts.TurnRewindManager, Rewind");
+                if (trm == null) { W("  Rewind mod not loaded — skipped"); return null; }
+                if (run == null || player == null) return "no run/player";
+
+                var relic0 = player.Relics.FirstOrDefault(
+                    r => !RelicForgeService.IsCompanion(r) && RelicForgeService.DescriptorOf(r) != null);
+                if (relic0 == null) return "no forged relic owned (T10 should have left one)";
+                string relicId = relic0.Id.Entry;
+
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster);
+                await Task.Delay(6000);                              // combat setup + turn 1
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+
+                // Re-find the relic (room transitions can swap instances) and snapshot the enchantment.
+                var relic = player.Relics.FirstOrDefault(r => r.Id.Entry == relicId && !RelicForgeService.IsCompanion(r));
+                if (relic == null) return "forged relic missing in combat";
+                string desc0 = RelicForgeService.DescriptorOf(relic) ?? "";
+                int count0 = RelicForgeService.ReforgeCountOf(relic);
+                W($"  combat turn 1: {relicId} desc='{desc0}' count={count0}");
+
+                // Advance to turn 3 (end turn twice; enemy turns play out in between).
+                for (int t = 0; t < 2; t++)
+                {
+                    cm.SetReadyToEndTurn(player, canBackOut: false);
+                    await Task.Delay(7000);
+                }
+                await Shot("04_combat_turn3");
+
+                // Rewind to turn 1 — the mod's own public entry point (what its UI button invokes).
+                var canM = trm.GetMethod("CanRewindToTurn");
+                var execM = trm.GetMethod("ExecuteRewindToTurn");
+                if (canM == null || execM == null) return "Rewind API not found (mod updated?)";
+                int target = (bool)canM.Invoke(null, new object[] { 1 })! ? 1
+                           : (bool)canM.Invoke(null, new object[] { 2 })! ? 2 : -1;
+                if (target < 0) return "Rewind: no rewindable turn (CanRewindToTurn(1/2)=false)";
+                execM.Invoke(null, new object[] { target });
+                await Task.Delay(9000);                              // replay executes + UI rebuilds
+                await Shot("05_after_rewind");
+
+                // Rewind rebuilds the run state — re-resolve player + relic instances.
+                var p2 = RunManager.Instance?.State?.Players?.FirstOrDefault();
+                var relic2 = p2?.Relics.FirstOrDefault(r => r.Id.Entry == relicId && !RelicForgeService.IsCompanion(r));
+                if (relic2 == null) return "relic gone after rewind";
+                string? descAfter = RelicForgeService.DescriptorOf(relic2);
+                int countAfter = RelicForgeService.ReforgeCountOf(relic2);
+                W($"  after rewind to turn {target}: desc='{descAfter ?? "(NULL — enchantment lost)"}' count={countAfter}");
+                if ((descAfter ?? "") != desc0) return $"descriptor lost/changed: '{descAfter}' != '{desc0}'";
+                if (countAfter != count0) return $"reforge count lost: {countAfter} != {count0}";
+                // The reported symptom = the EFFECT silently reverts: every recorded numeric change must
+                // still be live on the rebuilt instance's vars.
+                var rec2 = RelicForgeService.RecordFor(relic2);
+                if (rec2 != null)
+                    foreach (var c in rec2.Changes)
+                        if (relic2.DynamicVars.TryGetValue(c.VarName, out var dv) && dv.BaseValue != c.NewValue)
+                            return $"effect lost: {c.VarName}={dv.BaseValue}, expected {c.NewValue}";
+                return null;
+            });
+
             W($"=== solo test done: {_pass} passed, {_fail} failed ===");
             Flush(_fail == 0);
         }

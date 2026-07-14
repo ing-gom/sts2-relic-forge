@@ -120,6 +120,10 @@ internal static class RelicForgeService
     // single tokens with no ':' or space, so the whole descriptor rides one ':'-delimited rf_counts field).
     private static readonly ConditionalWeakTable<RelicModel, StrongBox<string>> PendingDesc = new();
     public static void SetPendingDesc(RelicModel relic, string desc) => PendingDesc.AddOrUpdate(relic, new StrongBox<string>(desc));
+
+    /// <summary>Non-consuming check — used by the in-process restore bridge to avoid overriding a
+    /// descriptor that the serialized props actually carried (disk saves keep our keys).</summary>
+    public static bool HasPendingDesc(RelicModel relic) => PendingDesc.TryGetValue(relic, out _);
     public static string? TakePendingDesc(RelicModel relic)
     {
         if (!PendingDesc.TryGetValue(relic, out var box)) return null;

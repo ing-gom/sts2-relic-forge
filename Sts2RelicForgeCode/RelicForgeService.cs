@@ -544,7 +544,10 @@ internal static class RelicForgeService
     /// CombatState IterateHookListeners include every non-melted relic). Called from the obtain
     /// path and the load re-forge path; the preview/tooltip path never grants.
     /// </summary>
-    public static void GrantCompanionIfAny(RelicModel host, Player player)
+    /// <param name="index">Insert position in player.Relics (-1 = append). The co-op replica re-graft
+    /// (ForgeReplicaSyncPatch) passes the companion's original index: the relic LIST ORDER is part of the
+    /// synced state a checksum hashes, so an appended re-graft would mismatch the owner's live order.</param>
+    public static void GrantCompanionIfAny(RelicModel host, Player player, int index = -1)
     {
         var rec = RecordFor(host);
         if (rec?.CompanionRelic == null || rec.CompanionGranted) return;
@@ -564,7 +567,8 @@ internal static class RelicForgeService
         RelicModel companion = template.ToMutable();
         WeakenCompanion(companion);                // grafted effect is a reduced version of the real relic
         Companions.Add(companion, host);           // tag (value=host) BEFORE adding so save/inventory/vfx patches see it
-        player.AddRelicInternal(companion, -1, silent: true);
+        if (index > player.Relics.Count) index = -1;   // stale position (list shrank) — fall back to append
+        player.AddRelicInternal(companion, index, silent: true);
         rec.CompanionGranted = true;
         rec.Companion = companion;
         // Mirror the companion's live counter (e.g. "attacks until trigger") on the HOST icon:

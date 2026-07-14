@@ -85,6 +85,7 @@ internal static class CoopTest
             await Task.Delay(4000);
             var relic = FindRelic(me);
             W($"HOST: after grant, relic={(relic?.Id.Entry ?? "MISSING")}, desc='{RelicForgeService.DescriptorOf(relic!) ?? "-"}'");
+            W($"HOST: relics after akabeko = {RelicLine(run)}");
             if (relic == null) { W("HOST: relic not granted"); Flush(false); return; }
 
             // Reforge twice through the mod's networked path (rf_sync → both peers re-derive).
@@ -95,6 +96,31 @@ internal static class CoopTest
 
             W($"HOST: FINAL desc = '{RelicForgeService.DescriptorOf(relic) ?? "-"}' (count {RelicForgeService.ReforgeCountOf(relic)})");
             await Shot("02_final"); // ★mandatory: the screen with the reforged relic applied
+
+            // SHOP PHASE — exercises the v1.0.10 gold-sync fix in REAL co-op: jump this player to a
+            // shop (networked `room` debug jump), grant a FRESH relic (akabeko may have rolled a curse
+            // = not reforgeable again), then run the exact PAID flow the merchant button runs
+            // (LoseGold + SyncLocalGoldLost + ReforgeNet.Reforge). The JOIN peer must see the same
+            // gold on the host player replica — without SyncLocalGoldLost it would still see the
+            // pre-purchase gold (the pre-fix desync).
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, "gold 200", inCombat: false));
+            await Task.Delay(2500);
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, "relic orichalcum", inCombat: false));
+            await Task.Delay(2500);
+            W($"HOST: relics after grants = {RelicLine(run)}");
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, "room shop", inCombat: false));
+            await Task.Delay(8000);
+            await Shot("03_shop");
+            var relic2 = me.Relics.FirstOrDefault(r => r.Id.Entry.Contains("ORICHALCUM") && !RelicForgeService.IsCompanion(r));
+            if (relic2 == null) { W("HOST: shop relic not granted"); Flush(false); return; }
+            int cost = 25;
+            await MegaCrit.Sts2.Core.Commands.PlayerCmd.LoseGold(cost, me,
+                MegaCrit.Sts2.Core.Entities.Gold.GoldLossType.Spent);
+            run.RewardSynchronizer?.SyncLocalGoldLost(cost);      // the pair under test
+            ReforgeNet.Reforge(relic2, me);
+            await Task.Delay(3500);
+            W($"HOST: SHOP gold={(int)me.Gold}, desc2='{RelicForgeService.DescriptorOf(relic2) ?? "-"}' (count {RelicForgeService.ReforgeCountOf(relic2)})");
+
             W("=== coop host done ===");
             Flush(true);
         }
@@ -107,10 +133,34 @@ internal static class CoopTest
         {
             await Task.Delay(2000);
             await Shot("01_run");            // ★mandatory: the JOIN side also entered the run
-            await Task.Delay(11000);   // wait for grant + both reforges to replicate
+            // Wait for the HOST to finish its whole script (incl. the shop phase) — the two instances
+            // share one mods folder, so the host's result FILE is a reliable done-signal (no timing guess).
+            // While waiting, record a TIMELINE of the host player's relic list as THIS peer sees it —
+            // diffing it against the host's own snapshots pins exactly when a graft/enchantment diverged.
+            string hostTxt = Path.Combine(ModDir(), "selftest.coop.host.txt");
+            string lastLine = "";
+            for (int i = 0; i < 45 && !File.Exists(hostTxt); i++)
+            {
+                string line = RelicLine(run);
+                if (line != lastLine) { W($"JOIN t+{i * 2}s: {line}"); lastLine = line; }
+                await Task.Delay(2000);
+            }
+            await Task.Delay(1500);          // let the last replicated actions settle
+            if (run.State == null || run.State.Players.Count == 0)
+            {
+                // The session was torn down under us — in this test that means the game DISCONNECTED this
+                // client (checksum divergence). Report it as the finding instead of crashing on a null.
+                W("JOIN: SESSION DROPPED (run state gone — the host disconnected us, e.g. state divergence)");
+                Flush(false);
+                return;
+            }
             var host = run.State!.Players.OrderBy(p => p.NetId).First();
             var relic = FindRelic(host);
             W($"JOIN: FINAL desc = '{(relic != null ? RelicForgeService.DescriptorOf(relic) ?? "-" : "MISSING")}' (count {(relic != null ? RelicForgeService.ReforgeCountOf(relic) : -1)})");
+            // The join's replica of the HOST player after the paid shop reforge — gold must match the
+            // host's own record (the v1.0.10 SyncLocalGoldLost fix under test).
+            var relic2 = host.Relics.FirstOrDefault(r => r.Id.Entry.Contains("ORICHALCUM") && !RelicForgeService.IsCompanion(r));
+            W($"JOIN: SHOP gold={(int)host.Gold}, desc2='{(relic2 != null ? RelicForgeService.DescriptorOf(relic2) ?? "-" : "MISSING")}' (count {(relic2 != null ? RelicForgeService.ReforgeCountOf(relic2) : -1)})");
             await Shot("02_final");          // ★mandatory: what the client actually SEES after replication
             W("=== coop join done ===");
             Flush(true);
@@ -158,6 +208,20 @@ internal static class CoopTest
                 if (c.R + c.G + c.B > 0.05f) return false;
             }
         return true;
+    }
+
+    /// <summary>One-line snapshot of the HOST player's relic list — id[descriptor] with (comp) for hidden
+    /// companions. Recorded on BOTH roles at several points; diffing the two timelines pins exactly when
+    /// and where a companion/enchantment diverged (the merged godot log is lossy across two instances).</summary>
+    private static string RelicLine(RunManager run)
+    {
+        var state = run.State;
+        if (state == null || state.Players.Count == 0) return "(state null — session dropped?)";
+        var host = state.Players.OrderBy(p => p.NetId).First();
+        return string.Join(", ", host.Relics.Select(r =>
+            r.Id.Entry
+            + (RelicForgeService.IsCompanion(r) ? "(comp)" : "")
+            + (RelicForgeService.DescriptorOf(r) is string d ? $"[{d}]" : "")));
     }
 
     private static RelicModel? FindRelic(Player p)

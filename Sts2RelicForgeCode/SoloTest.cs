@@ -87,7 +87,7 @@ internal static class SoloTest
                 await NGame.Instance.StartNewSingleplayerRun(character, shouldSave: false, acts,
                     Array.Empty<ModifierModel>(), "SOLOTEST", GameMode.Standard, 0);
                 await Task.Delay(3000);
-                Shot("01_run");   // visual evidence: the run actually started (map screen)
+                await Shot("01_run");   // visual evidence: the run actually started (map screen)
             }
             catch (Exception e) { W("run-start skipped (mod env): " + e.Message.Split('\n')[0]); }
 
@@ -229,6 +229,60 @@ internal static class SoloTest
                 finally { try { lm.SetLanguage(original); ForgeLoc.Invalidate(); } catch { } }
             });
 
+            // T9 — campfire, IN PLACE: jump the run to a REAL rest site (the networked `room` debug jump)
+            // and confirm the mod's reforge option was generated into the option list — plus a screenshot
+            // of the actual campfire screen showing it.
+            await TestAsync("T9 campfire option offered", async () =>
+            {
+                if (player == null || run == null) return "no run/player";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.RestSite);
+                await Task.Delay(3000);                             // rest-site UI builds; options generate
+                await Shot("02_restsite");                          // visual: campfire options incl. 유물 재련
+                return RestSiteReforgeSupport.ByPlayer.ContainsKey(player.NetId)
+                    ? null : "reforge option not generated at the rest site";
+            });
+
+            // T10 — shop, IN PLACE + PAID: jump to a REAL shop, confirm the mod's reforge button attached,
+            // top up gold if short (networked `gold` = GainGold), then run the exact paid flow the button
+            // runs (LoseGold + SyncLocalGoldLost + ReforgeNet.Reforge) and assert the charge + the reforge.
+            await TestAsync("T10 shop paid reforge", async () =>
+            {
+                if (player == null || run == null) return "no run/player";
+                // Networked grant (works in the hostile workshop env — proven by coop-verify) so the
+                // player owns a forgeable relic; starter relics are excluded from the reforge pool.
+                run.ActionQueueSynchronizer.RequestEnqueue(
+                    new MegaCrit.Sts2.Core.DevConsole.ConsoleCmdGameAction(player, "relic akabeko", inCombat: false));
+                await Task.Delay(2500);
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Shop);
+                await Task.Delay(4000);                             // shop UI builds; our button attaches on _Ready
+                if (Engine.GetMainLoop() is not SceneTree tree) return "no scene tree";
+                if (FindNode<NMerchantReforgeButton>(tree.Root) == null) return "shop reforge button not attached";
+                var relic = player.Relics.FirstOrDefault(
+                    r => r.Id.Entry.Contains("AKABEKO") && !RelicForgeService.IsCompanion(r));
+                if (relic == null) return "akabeko not granted";
+
+                int cost = ForgeConfig.ShopReforgeCostFor(1);       // the PAID step (step #0 can be 0g by config)
+                if (cost <= 0) cost = 15;                           // always exercise a real charge
+                if ((int)player.Gold < cost)                        // top up if short — `gold` adds (GainGold)
+                {
+                    run.ActionQueueSynchronizer.RequestEnqueue(
+                        new MegaCrit.Sts2.Core.DevConsole.ConsoleCmdGameAction(player, $"gold {cost + 100}", inCombat: false));
+                    await Task.Delay(2000);
+                    W($"  gold topped up to {(int)player.Gold}");
+                }
+                int before = (int)player.Gold;
+                await MegaCrit.Sts2.Core.Commands.PlayerCmd.LoseGold(cost, player,
+                    MegaCrit.Sts2.Core.Entities.Gold.GoldLossType.Spent);
+                run.RewardSynchronizer?.SyncLocalGoldLost(cost);    // the co-op gold pair (v1.0.10 fix)
+                ReforgeNet.Reforge(relic, player);
+                await Task.Delay(1500);
+                await Shot("03_shop");                              // visual: the shop with our button
+                if ((int)player.Gold != before - cost) return $"gold {before} -> {(int)player.Gold}, expected -{cost}";
+                if (RelicForgeService.ReforgeCountOf(relic) < 1) return "relic did not reforge";
+                W($"  shop reforge ok: -{cost}g ({before} -> {(int)player.Gold}), desc '{RelicForgeService.DescriptorOf(relic)}'");
+                return null;
+            });
+
             W($"=== solo test done: {_pass} passed, {_fail} failed ===");
             Flush(_fail == 0);
         }
@@ -240,6 +294,19 @@ internal static class SoloTest
         try
         {
             string? err = body();
+            if (err == null) { _pass++; W($"PASS  {name}"); }
+            else { _fail++; W($"FAIL  {name}: {err}"); }
+        }
+        catch (Exception e) { _fail++; W($"FAIL  {name}: EX {e.Message}"); }
+    }
+
+    /// <summary>Async twin of <see cref="Test"/> — for tests that drive the game (room jumps, awaited
+    /// commands, screenshots) rather than pure in-memory assertions.</summary>
+    private static async Task TestAsync(string name, Func<Task<string?>> body)
+    {
+        try
+        {
+            string? err = await body();
             if (err == null) { _pass++; W($"PASS  {name}"); }
             else { _fail++; W($"FAIL  {name}: {err}"); }
         }
@@ -267,18 +334,53 @@ internal static class SoloTest
     }
 
     /// <summary>Save the root viewport to selftest.sp.&lt;name&gt;.png — the solo-verify launcher lists
-    /// exactly this pattern under "=== SCREENSHOTS ===" for the mandatory visual check.</summary>
-    private static void Shot(string name)
+    /// exactly this pattern under "=== SCREENSHOTS ===" for the mandatory visual check. Retries while
+    /// the frame is still BLACK (room transitions render a loading frame first — a pure black png is
+    /// worthless as visual evidence; same lesson as coop-verify's Shot).</summary>
+    private static async Task Shot(string name, int tries = 6)
     {
         try
         {
-            if (Engine.GetMainLoop() is not SceneTree tree) return;
-            var img = tree.Root.GetTexture()?.GetImage();
-            if (img == null) { W($"shot {name}: no image"); return; }
-            var err = img.SavePng(Path.Combine(ModDir(), $"selftest.sp.{name}.png"));
-            W($"shot {name}: {err}");
+            for (int i = 0; i < tries; i++)
+            {
+                if (Engine.GetMainLoop() is not SceneTree tree) return;
+                var img = tree.Root.GetTexture()?.GetImage();
+                if (img != null && !IsBlank(img))
+                {
+                    var err = img.SavePng(Path.Combine(ModDir(), $"selftest.sp.{name}.png"));
+                    W($"shot {name}: {err} (try {i + 1})");
+                    return;
+                }
+                await Task.Delay(2000);   // frame not drawn yet — wait and retry
+            }
+            if (Engine.GetMainLoop() is SceneTree t2)   // last resort: keep the evidence gap visible
+                t2.Root.GetTexture()?.GetImage()?.SavePng(Path.Combine(ModDir(), $"selftest.sp.{name}.png"));
+            W($"shot {name}: still black after {tries} tries (saved anyway)");
         }
         catch (Exception e) { W($"shot {name} failed: {e.Message}"); }
+    }
+
+    /// <summary>All-black check on a sparse pixel grid (cheap: ~81 samples, not 2M pixels).</summary>
+    private static bool IsBlank(Godot.Image img)
+    {
+        int w = img.GetWidth(), h = img.GetHeight();
+        if (w == 0 || h == 0) return true;
+        for (int x = w / 10; x < w; x += Math.Max(1, w / 10))
+            for (int y = h / 10; y < h; y += Math.Max(1, h / 10))
+            {
+                var c = img.GetPixel(x, y);
+                if (c.R + c.G + c.B > 0.05f) return false;
+            }
+        return true;
+    }
+
+    /// <summary>First scene-tree node of type T (breadth-irrelevant recursive scan) — used to prove a
+    /// mod UI element actually attached to a REAL room (e.g. the shop reforge button).</summary>
+    private static T? FindNode<T>(Node n) where T : class
+    {
+        if (n is T t) return t;
+        foreach (var c in n.GetChildren()) { var r = FindNode<T>(c); if (r != null) return r; }
+        return null;
     }
 
     private static void W(string line) { _out.AppendLine(line); MainFile.Logger.Info($"[{MainFile.ModId}] SOLO | {line}"); }

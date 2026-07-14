@@ -31,6 +31,10 @@ public class MainFile
             if (Engine.GetMainLoop() is not SceneTree tree) return;
             // Defer so ModConfig has finished its own Initialize before we Register().
             tree.CreateTimer(0.0).Timeout += RegisterConfig;
+#if RELICFORGE_SELFTEST
+            SoloTest.ArmIfRequested();   // dormant unless selftest.sp.flag is present (solo-verify)
+            CoopTest.ArmIfRequested();   // dormant unless selftest.coop.flag is present (coop-verify)
+#endif
         });
 
     private static void RegisterConfig()

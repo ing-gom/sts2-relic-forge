@@ -167,7 +167,9 @@ internal static class RestSiteReforgeSupport
         var table = LocManager.Instance.GetTable("rest_site_ui");
         table.MergeWith(new Dictionary<string, string>
         {
-            ["OPTION_REFORGE.name"] = Localize("재련", "重铸", "Reforge"),
+            // "유물" is explicit in every language so the campfire option never reads the same as the
+            // game's card-upgrade (Smith, "재련" in KO) or any card-reforge option.
+            ["OPTION_REFORGE.name"] = Localize("유물 재련", "重铸遗物", "Reforge Relic"),
             ["OPTION_REFORGE.description"] =
                 Localize("유물을 재련합니다(휴식 소모 없음, 반복 가능). 재련할수록 저주 기운이 차오르고, 가득 차면 유물 효과가 멈춥니다 — 저주만 남습니다. 상점 정화로 되살립니다.",
                          "重铸遗物（不消耗休息，可重复）。诅咒之气积满后遗物效果停止——仅留诅咒。可在商店净化使其恢复。",

@@ -36,7 +36,7 @@ internal static class ForgeLoc
         ["UI.CURSE_TITLE"] = ("Curse", "저주", "诅咒"),
         ["UI.PICKER_BANNER_REFORGE"] = ("Choose a relic to reforge", "재련할 유물 선택", "选择要重铸的遗物"),
         ["UI.SKIP"] = ("Skip", "건너뛰기", "跳过"),
-        ["UI.SHOP_REFORGE_TITLE"] = ("Reforge", "재련", "重铸"),
+        ["UI.SHOP_REFORGE_TITLE"] = ("Reforge Relic", "유물 재련", "重铸遗物"),   // "relic" explicit — never collide with card reforge/smith
         ["UI.SHOP_REFORGE_BODY"] = ("Reforge a relic (cost rises each time). Its curse-aura fills; when full, its effect stops — only the curse remains. Cleanse to revive it.",
                                     "유물을 재련합니다(재련할수록 비용↑). 저주 기운이 차오르고, 가득 차면 유물 효과가 멈춥니다 — 저주만 남습니다. 정화로 되살립니다.",
                                     "重铸遗物（费用递增）。诅咒之气积满后遗物效果停止——仅留诅咒。净化可使其恢复。"),

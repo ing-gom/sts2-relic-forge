@@ -53,7 +53,32 @@ public sealed class RelicForgeConfigSyncCmd : AbstractConsoleCmd
             MainFile.Logger.Warn($"[{MainFile.ModId}] rf_config apply failed: {e.Message}");
             return new CmdResult(success: false, $"rf_config error: {e.Message}");
         }
+
+        // Optional 6th arg (new hosts): the host's prefix/curse POOL fingerprint. Roll/PickCombined walk
+        // the pool IN ORDER, so a sister mod registered on one peer but not the other — or in a different
+        // init order — makes the same seeded roll land a different prefix per peer (a divergence the
+        // descriptor reconcile can then never converge, ByName failing on the unknown name). We can't fix
+        // a peer's mod set from here, but we CAN name the root cause loudly the moment it exists.
+        if (args.Length >= 6 && args[5] != PoolFingerprint())
+            MainFile.Logger.Warn($"[{MainFile.ModId}] ★ PREFIX POOL MISMATCH vs host (local '{PoolFingerprint()}' " +
+                $"vs host '{args[5]}') — a sister mod's prefixes/curses are not registered identically on every " +
+                "peer. Forge rolls WILL diverge in co-op until every player runs the same mod set.");
         return new CmdResult(success: true, "rf_config applied.");
+    }
+
+    /// <summary>Order-sensitive fingerprint of the combined prefix + self-curse pools ("count/count:hash").
+    /// Identical pools (same members, same registration order) ⇔ identical fingerprint on every peer.</summary>
+    internal static string PoolFingerprint()
+    {
+        unchecked
+        {
+            uint h = 2166136261u;                                  // FNV-1a over names, order-sensitive
+            void Mix(string s) { foreach (char c in s) { h ^= c; h *= 16777619u; } h ^= '\n'; h *= 16777619u; }
+            int np = 0, nc = 0;
+            foreach (var p in PrefixTable.Pool) { Mix(p.Name); np++; }
+            foreach (var c in SelfCurseTable.Pool) { Mix(c.En); nc++; }
+            return $"{np}/{nc}:{h:x8}";
+        }
     }
 }
 
@@ -72,13 +97,17 @@ internal static class ForgeConfigBroadcaster
         if (me == null) return;   // no resolvable local player yet — a later trigger will re-broadcast
 
         var inv = CultureInfo.InvariantCulture;
-        string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5}",
+        // Arg 6 = the host's prefix/curse pool fingerprint (order-sensitive) so clients can detect a
+        // sister-mod registration mismatch — the one API-contract violation that silently desyncs rolls.
+        // Old clients simply ignore the extra arg (they parse the first five positionally).
+        string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5} {6}",
             Verb(),
             ForgeConfig.NoPrefixChance.ToString("R", inv),
             ForgeConfig.CurseChance.ToString("R", inv),
             ForgeConfig.SelfCurseShare.ToString("R", inv),
             ForgeConfig.ForgeAncientRelics ? "1" : "0",
-            ForgeConfig.EnemyForgeEnabled ? "1" : "0");
+            ForgeConfig.EnemyForgeEnabled ? "1" : "0",
+            RelicForgeConfigSyncCmd.PoolFingerprint());
 
         // Never in combat (shop / rest / menu only), so inCombat is false — matches the reforge dispatch.
         run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, synced, inCombat: false));
@@ -105,23 +134,32 @@ internal static class ForgeConfigBroadcaster
 
         var sb = new System.Text.StringBuilder(RelicForgeCountSyncCmd.Verb);
         int n = 0;
+        // Occurrence index per (player, relic id): with TWO copies of the same relic id, a token keyed on
+        // id alone would resolve to the FIRST instance on every peer — instance #2 never reconciles, and
+        // the host's own replay would even "reconcile" its instance #1 to instance #2's enchantment. The
+        // index is appended as an optional 7th field (old decoders ignore it; missing = 0 on new ones).
+        var occ = new System.Collections.Generic.Dictionary<(ulong, string), int>();
         foreach (var player in state.Players)
             foreach (var relic in player.Relics)
             {
                 if (RelicForgeService.IsCompanion(relic)) continue;      // hidden donors re-derive from their host
+                var key = (player.NetId, relic.Id.Entry);
+                occ.TryGetValue(key, out int idx);                        // 0 for the first instance
+                occ[key] = idx + 1;
                 int count = RelicForgeService.ReforgeCountOf(relic);
                 bool cleansed = RelicForgeService.IsCleansed(relic);
                 int gred = RelicForgeService.GaugeReductionOf(relic);
                 string? desc = RelicForgeService.DescriptorOf(relic);
                 // Carry any relic the host has FORGED (has a descriptor) so a config-diverged / reconnected
                 // client converges to the host's EXACT enchantment — not just re-forged/cleansed relics. The
-                // descriptor rides as a trailing ':' field ("prefix|rider|self|fbStat|fbAmt|fbPct" — no ':' or
-                // space, so it never breaks the token split). A relic with no descriptor and no non-derivable
+                // descriptor rides as a ':' field ("prefix|rider|self|fbStat|fbAmt|fbPct" — escaped, so no ':'
+                // or space survives to break the token split). A relic with no descriptor and no non-derivable
                 // state is vanilla to the mod: nothing to sync.
                 if (string.IsNullOrEmpty(desc) && count <= 0 && !cleansed && gred <= 0) continue;
                 sb.Append(' ').Append(player.NetId).Append(':').Append(relic.Id.Entry)
                   .Append(':').Append(count).Append(':').Append(cleansed ? '1' : '0').Append(':').Append(gred)
-                  .Append(':').Append(RelicForgeService.EscapeWireDesc(desc ?? ""));   // ★escape: rider suffixes may contain a space
+                  .Append(':').Append(RelicForgeService.EscapeWireDesc(desc ?? ""))   // ★escape: rider suffixes may contain a space
+                  .Append(':').Append(idx);                                          // duplicate-id disambiguator
                 n++;
             }
         if (n == 0) return;   // nothing reforged/cleansed yet — skip the enqueue entirely

@@ -457,6 +457,14 @@ internal static class PrefixTable
     internal static bool RegisterExternal(Prefix p)
     {
         if (p == null || string.IsNullOrEmpty(p.Name)) return false;
+        // '|' is the forge-descriptor field delimiter (prefix|rider|self|fbStat|fbAmt|fbPct). A name
+        // containing it would corrupt every save/wire descriptor of a relic that rolls this prefix —
+        // on decode the leading token could even alias a REAL built-in prefix plus a phantom rider curse.
+        if (p.Name.IndexOf('|') >= 0)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] RegisterPrefix: '{p.Name}' contains the descriptor delimiter '|' — rejected.");
+            return false;
+        }
         if (ByName(p.Name) != null)
         {
             MainFile.Logger.Warn($"[{MainFile.ModId}] RegisterPrefix: '{p.Name}' collides with an existing prefix — ignored.");

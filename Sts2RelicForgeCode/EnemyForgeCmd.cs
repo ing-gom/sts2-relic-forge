@@ -26,6 +26,7 @@ public class EnemyForgeCmd : AbstractConsoleCmd
 
     public override CmdResult Process(Player? issuingPlayer, string[] args)
     {
+        if (LocalCmdGuard.BlockInRealCoop() is { } blocked) return blocked;   // local-only mutation = desync in real co-op
         if (args.Length >= 1)
         {
             string a = args[0].ToLowerInvariant();

@@ -264,7 +264,13 @@ internal sealed partial class NMerchantCleanseButton : Control
             // would desync each peer's re-derived enemy-rider / self-curse effects).
             if (chosen != null && _player != null && _player.Gold >= cost && ReforgeNet.Cleanse(chosen, _player))
             {
-                if (cost > 0) await PlayerCmd.LoseGold(cost, _player);
+                if (cost > 0)
+                {
+                    // Game purchase idiom: LoseGold mutates only the LOCAL player — peers get the gold
+                    // change via SyncLocalGoldLost. Gold is checksummed; see MerchantReforgeButton.Flow.
+                    await PlayerCmd.LoseGold(cost, _player, MegaCrit.Sts2.Core.Entities.Gold.GoldLossType.Spent);
+                    RunManager.Instance?.RewardSynchronizer?.SyncLocalGoldLost(cost);
+                }
                 chosen.Flash();
                 _cleanseCount++;                              // next cleanse in this shop costs more (see ForgeConfig)
                 MainFile.Logger.Info($"[{MainFile.ModId}] shop cleanse #{_cleanseCount}: {chosen.Id.Entry} for {cost}g.");

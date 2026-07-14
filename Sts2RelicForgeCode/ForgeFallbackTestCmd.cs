@@ -36,6 +36,7 @@ public class ForgeFallbackTestCmd : AbstractConsoleCmd
 
     public override CmdResult Process(Player? issuingPlayer, string[] args)
     {
+        if (LocalCmdGuard.BlockInRealCoop() is { } blocked) return blocked;   // local-only mutation = desync in real co-op
         if (issuingPlayer == null)
             return new CmdResult(success: false, "No active player — start a run first.");
 

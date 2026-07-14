@@ -80,24 +80,34 @@ internal sealed class ReforgeRestSiteOption : RestSiteOption
         if (run != null && !run.IsSingleplayerOrFakeMultiplayer && !LocalContext.IsMe(Owner))
             return false;
 
-        var candidates = RestSiteReforgeSupport.Reforgeable(Owner).ToList();
-        if (candidates.Count == 0) return false;
-
-        // Our own scrolling grid picker (game's screen clips a full inventory into one row). Returns
-        // null only if the player cancels with Escape.
-        RelicModel? chosen = await NReforgeRelicPicker.Show(candidates, NRestSiteRoom.Instance);
-
-        if (chosen != null)
+        // This whole flow runs inside the awaited rest-site option task (RestSiteSynchronizer.ChooseOption)
+        // — an escaped exception faults that chain = the campfire black-screen class. Guard everything past
+        // the cheap gates; on failure log + return false (rest not consumed, campfire still usable).
+        try
         {
-            ReforgeNet.Reforge(chosen, Owner);
-            chosen.Flash();                                  // pulse the re-forged relic for feedback
-            // Fill this campfire's location aura 5–20%; at 100% the forge goes cold here for the visit.
-            _locGauge = Math.Min(RelicForgeService.LocationGaugeFull,
-                                 _locGauge + RelicForgeService.LocationGaugeStep(Owner, _reforges));
-            _reforges++;
-            if (_locGauge >= RelicForgeService.LocationGaugeFull) _ended = true;
-            // Rebuild the options so THIS one reflects the new aura band (or greys when full / all relics gone).
-            NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
+            var candidates = RestSiteReforgeSupport.Reforgeable(Owner).ToList();
+            if (candidates.Count == 0) return false;
+
+            // Our own scrolling grid picker (game's screen clips a full inventory into one row). Returns
+            // null only if the player cancels with Escape.
+            RelicModel? chosen = await NReforgeRelicPicker.Show(candidates, NRestSiteRoom.Instance);
+
+            if (chosen != null)
+            {
+                ReforgeNet.Reforge(chosen, Owner);
+                chosen.Flash();                                  // pulse the re-forged relic for feedback
+                // Fill this campfire's location aura 5–20%; at 100% the forge goes cold here for the visit.
+                _locGauge = Math.Min(RelicForgeService.LocationGaugeFull,
+                                     _locGauge + RelicForgeService.LocationGaugeStep(Owner, _reforges));
+                _reforges++;
+                if (_locGauge >= RelicForgeService.LocationGaugeFull) _ended = true;
+                // Rebuild the options so THIS one reflects the new aura band (or greys when full / all relics gone).
+                NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
+            }
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] campfire reforge failed: {e}");
         }
 
         // Return false so the rest is NOT consumed — the player can pick "Reforge" again to re-roll more

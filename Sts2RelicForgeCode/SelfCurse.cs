@@ -58,6 +58,13 @@ internal static class SelfCurseTable
     internal static bool RegisterExternal(SelfCurseDef c)
     {
         if (c == null || string.IsNullOrEmpty(c.En)) return false;
+        // '|' is the forge-descriptor field delimiter — a curse key containing it would corrupt the
+        // saved/wire descriptor of every relic that rolls this curse (see PrefixTable.RegisterExternal).
+        if (c.En.IndexOf('|') >= 0)
+        {
+            MainFile.Logger.Warn($"[{MainFile.ModId}] RegisterSelfCurse: '{c.En}' contains the descriptor delimiter '|' — rejected.");
+            return false;
+        }
         if (ByKey(c.En) != null)
         {
             MainFile.Logger.Warn($"[{MainFile.ModId}] RegisterSelfCurse: '{c.En}' collides with an existing curse — ignored.");

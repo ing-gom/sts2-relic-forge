@@ -19,24 +19,37 @@ namespace Sts2RelicForge;
 [HarmonyPatch(typeof(NCreatureStateDisplay), "RefreshValues")]
 internal static class EnemyNamePlatePatch
 {
+    private static bool _dead;   // permanently disable after a structural failure (don't spam per frame)
+
     private static void Postfix(NCreatureStateDisplay __instance)
     {
+        if (_dead) return;
         try
         {
-            var creature = __instance._creature;
-            var label = __instance._nameplateLabel;
-            if (creature == null || label == null) return;
-
-            var tag = EnemyForge.TagOf(creature);
-            if (tag == null) return;
-
-            // RefreshValues already set the label to the bare name; re-stamp from _creature.Name (not
-            // the label text) so we never double-prefix on repeated calls.
-            label.SetTextAutoSize(tag.Prefix + " " + creature.Name);
-            label.Modulate = Color.FromHtml(tag.Color.TrimStart('#'));
+            Stamp(__instance);
         }
         // Combat render path: a freed nameplate node (enemy just died/removed) or a bad color would
         // otherwise throw straight into NCreatureStateDisplay.RefreshValues and black-screen the fight.
+        // Stamp is a separate NoInlining method so even a publicized-field rename in a future game build
+        // (a MissingField/TypeLoad raised when Stamp is JITted) lands in THIS catch instead of escaping.
+        catch (System.MissingMemberException e) { _dead = true; MainFile.Logger.Warn($"[{MainFile.ModId}] nameplate patch disabled (game field changed): {e.Message}"); }
+        catch (System.TypeLoadException e) { _dead = true; MainFile.Logger.Warn($"[{MainFile.ModId}] nameplate patch disabled (game type changed): {e.Message}"); }
         catch (System.Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] enemy nameplate stamp failed: {e.Message}"); }
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void Stamp(NCreatureStateDisplay display)
+    {
+        var creature = display._creature;
+        var label = display._nameplateLabel;
+        if (creature == null || label == null) return;
+
+        var tag = EnemyForge.TagOf(creature);
+        if (tag == null) return;
+
+        // RefreshValues already set the label to the bare name; re-stamp from _creature.Name (not
+        // the label text) so we never double-prefix on repeated calls.
+        label.SetTextAutoSize(tag.Prefix + " " + creature.Name);
+        label.Modulate = Color.FromHtml(tag.Color.TrimStart('#'));
     }
 }

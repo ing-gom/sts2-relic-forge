@@ -549,7 +549,13 @@ internal static class RelicForgeService
         var rec = RecordFor(host);
         if (rec?.CompanionRelic == null || rec.CompanionGranted) return;
 
-        var template = ModelDb.AllRelics.FirstOrDefault(r => r.GetType() == rec.CompanionRelic);
+        // Flat _contentById lookup — NEVER ModelDb.AllRelics here: AllRelics is built from the character
+        // relic pools, which a broken workshop custom-character mod makes THROW (KeyNotFoundException on
+        // CHARACTER.*). This runs on the campfire reforge path, so an unguarded throw there is a black
+        // screen. GetByIdOrNull is pool-independent and returns null gracefully.
+        RelicModel? template;
+        try { template = ModelDb.GetByIdOrNull<RelicModel>(ModelDb.GetId(rec.CompanionRelic)); }
+        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] companion lookup failed: {e.Message}"); return; }
         if (template == null)
         {
             MainFile.Logger.Warn($"[{MainFile.ModId}] companion type {rec.CompanionRelic.Name} not found in ModelDb.");
@@ -770,20 +776,39 @@ internal static class RelicForgeService
         Prefix? def = PrefixTable.ByName(prefixName);
         if (def == null)
         {
-            // Unknown prefix name (a stale save from a since-removed prefix): fall back to a seed re-derive so
-            // the relic gets a valid grade rather than nothing.
+            // Unknown prefix name (a stale save from a since-removed prefix, or a sibling-mod prefix whose
+            // mod was uninstalled): fall back to a seed re-derive so the relic gets a valid grade rather
+            // than nothing — but the CURSE stays authoritative from the descriptor (the re-derive would
+            // otherwise re-roll it from seed+config, silently dropping a cleanse-worthy curse or conjuring
+            // a different one, and in co-op the descriptor would then never match the host's).
             Forge(relic, runSeed, floor, reforgeCount: reforgeCount, guaranteePrefix: reforgeCount > 0,
-                  character: character, gaugeReduction: gaugeReduction);
+                  character: character, gaugeReduction: gaugeReduction, suppressCurse: true);
+            var rederived = RecordFor(relic);
+            if (rederived != null)
+            {
+                rederived.EnemyRider = rider.Length > 0;
+                rederived.EnemyRiderSuffix = rider;
+                rederived.SelfCurse = self;
+                if (fbStat.Length > 0 || fbPct > 0)
+                {
+                    rederived.FallbackStat = fbStat;
+                    rederived.FallbackAmount = fbAmt;
+                    rederived.FallbackPercent = fbPct;
+                }
+            }
             if (cleansed) ApplyCleanse(relic);
-            return RecordFor(relic);
+            return rederived;
         }
 
         // Reuse Forge with a FORCED prefix so the numeric scaling / tier tie-break / reforge floor all run
         // deterministically (config/rng-independent), then OVERWRITE the curse + fallback fields with the
-        // persisted authoritative values (Forge would otherwise re-roll the curse from config). This restores
-        // the exact enchantment the save / host holds without duplicating Forge's numeric internals.
+        // persisted authoritative values. suppressCurse blocks Forge's INTERNAL curse roll entirely (the
+        // rng draws still happen, so the stream is unchanged): without it, a forced restore could land a
+        // curse the original pickup never rolled (allowCurse=true because forced!=null), and that curse
+        // enables the fallback substitution — silently mutating e.g. a fizzled "Keen" into "Honed"+buff on
+        // load, breaking round-trip idempotency and diverging from the host's state in co-op.
         Forge(relic, runSeed, floor, forced: def, reforgeCount: reforgeCount, guaranteePrefix: reforgeCount > 0,
-              character: character, gaugeReduction: gaugeReduction);
+              character: character, gaugeReduction: gaugeReduction, suppressCurse: true);
         var rec = RecordFor(relic);
         if (rec == null) return null;
         rec.EnemyRider = rider.Length > 0;
@@ -840,9 +865,17 @@ internal static class RelicForgeService
         string beforeDesc = DescriptorOf(relic) ?? "";
         int beforeCount = ReforgeCountOf(relic);
 
-        // Undo the current (wrong) grade so the restore/re-derive scales from canonical again — same as Reforge().
+        // Undo the current (wrong) grade so the restore/re-derive scales from canonical again — same as
+        // Reforge(). The undo is DESTRUCTIVE (companions removed, vars reverted, record dropped), so the
+        // rebuild below runs under a catch that puts the snapshot back on failure: a reconcile fires only
+        // on the already-diverged peer (the host no-ops via descMatches), so a half-torn-down relic here
+        // would be an ASYMMETRIC state — e.g. a missing hidden companion shifts player.Relics count, which
+        // is checksummed → permanent desync. Restoring the snapshot leaves the peer diverged-but-STABLE,
+        // healable by the next room's re-broadcast (or at worst the same divergence it already had).
+        ForgeRecord? old = null;
         if (Records.TryGetValue(relic, out var rec))
         {
+            old = rec;
             RemoveCompanions(relic, rec, player);                 // scan-based: never strands an orphan companion
             foreach (var c in rec.Changes)
                 if (relic.DynamicVars.TryGetValue(c.VarName, out var dv))
@@ -850,18 +883,45 @@ internal static class RelicForgeService
             Records.Remove(relic);
         }
 
-        // Prefer the host's AUTHORITATIVE descriptor (restore verbatim, no re-roll); fall back to a seed
-        // re-derive only when no descriptor was carried (legacy wire). Then graft, reproducing the exact
-        // state the host holds so checksums reconverge.
-        if (!string.IsNullOrEmpty(desc))
-            RestoreForged(relic, desc!, player.RunState.Rng.Seed, relic.FloorAddedToDeck, count, cleansed, gaugeReduction, CharAffix.TitleOf(player));
-        else
+        try
         {
-            Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
-                  reforgeCount: count, guaranteePrefix: count > 0, character: CharAffix.TitleOf(player), gaugeReduction: gaugeReduction);
-            if (cleansed) ApplyCleanse(relic);
+            // Prefer the host's AUTHORITATIVE descriptor (restore verbatim, no re-roll); fall back to a seed
+            // re-derive only when no descriptor was carried (legacy wire). Then graft, reproducing the exact
+            // state the host holds so checksums reconverge.
+            if (!string.IsNullOrEmpty(desc))
+                RestoreForged(relic, desc!, player.RunState.Rng.Seed, relic.FloorAddedToDeck, count, cleansed, gaugeReduction, CharAffix.TitleOf(player));
+            else
+            {
+                Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
+                      reforgeCount: count, guaranteePrefix: count > 0, character: CharAffix.TitleOf(player), gaugeReduction: gaugeReduction);
+                if (cleansed) ApplyCleanse(relic);
+            }
+            GrantCompanionIfAny(relic, player);
         }
-        GrantCompanionIfAny(relic, player);
+        catch (Exception e)
+        {
+            // Roll back to the pre-reconcile state: re-apply the old numeric deltas, re-insert the old
+            // record, and re-graft its companion (CompanionGranted was left true on the old record, so
+            // clear the stale instance ref first — GrantCompanionIfAny re-checks the flag).
+            MainFile.Logger.Warn($"[{MainFile.ModId}] co-op reconcile of {relic.Id.Entry} failed — rolling back: {e.Message}");
+            try
+            {
+                RemoveCompanions(relic, null, player);            // clear any half-granted companion (scan-based)
+                Records.Remove(relic);                            // drop any half-built record from the failed rebuild
+                if (old != null)
+                {
+                    foreach (var c in old.Changes)
+                        if (relic.DynamicVars.TryGetValue(c.VarName, out var dv))
+                            dv.BaseValue = c.NewValue;
+                    old.CompanionGranted = false;                 // companion was removed in the undo — re-graft
+                    old.Companion = null;
+                    Records.Add(relic, old);
+                    GrantCompanionIfAny(relic, player);
+                }
+            }
+            catch (Exception e2) { MainFile.Logger.Warn($"[{MainFile.ModId}] reconcile rollback failed: {e2.Message}"); }
+            return;
+        }
         // Divergence breadcrumb: client-before -> host-after. If a black screen still follows, this line
         // (compared across the two peers' logs) names the relic + enchantment that failed to converge.
         MainFile.Logger.Info($"[{MainFile.ModId}] co-op reconcile {relic.Id.Entry}: client [#{beforeCount} '{beforeDesc}'] "
@@ -1080,7 +1140,7 @@ internal static class RelicForgeService
     /// </summary>
     public static string? Forge(RelicModel relic, uint runSeed, int floor, Prefix? forced = null,
                                 int reforgeCount = 0, bool guaranteePrefix = false, string? character = null,
-                                int gaugeReduction = 0)
+                                int gaugeReduction = 0, bool suppressCurse = false)
     {
         if (Records.TryGetValue(relic, out _)) return null; // already processed
 
@@ -1140,7 +1200,12 @@ internal static class RelicForgeService
         // (negative-magnitude) prefix — which on a reforge becomes a pure curse — is dropped to no-prefix
         // (vanilla) here instead, so pickups are boon-or-nothing. The reforge path is unchanged: it still
         // re-homes those to a "curse-only" roll (the gamble's worst outcome).
-        bool allowCurse = guaranteePrefix || forced != null;
+        // suppressCurse: the RESTORE path (RestoreForged) forces the saved prefix through here just to
+        // recompute the numeric deltas — the curse is overwritten verbatim from the descriptor afterward.
+        // Without this, the internal curse roll (same seed, but allowCurse=true because forced!=null)
+        // could LAND a curse the original pickup never had, which then satisfies the fallback-substitution
+        // gate below and silently mutates the saved prefix into a fallback one on every load.
+        bool allowCurse = !suppressCurse && (guaranteePrefix || forced != null);
         if (!allowCurse && prefix != null
             && (prefix.Penalty || (prefix.PowerPct < 0 && !prefix.Amplify && !prefix.IsCompanionPrefix)))
             prefix = null;

@@ -21,12 +21,16 @@ internal static class LostCofferPatch
 {
     private static bool Prefix(LostCoffer __instance, ref Task __result)
     {
+        // Build the reward list SYNCHRONOUSLY so this catch is real. (The old shape wrapped
+        // `__result = Run(...)` where Run was async — an async method captures every exception,
+        // including from its pre-await body, into the returned Task, so the catch was dead code
+        // and any throw faulted the game's obtain await chain instead of falling back to vanilla.)
         try
         {
-            __result = Run(__instance);
+            var list = BuildRewards(__instance);
+            __result = RewardsCmd.OfferCustom(__instance.Owner, list);
             return false; // replace the original
         }
-        // Replaces AfterObtained, so a synchronous throw here would crash the pickup. Fall back to vanilla.
         catch (Exception e)
         {
             MainFile.Logger.Warn($"[{MainFile.ModId}] LostCoffer forge run failed, using vanilla: {e.Message}");
@@ -34,7 +38,7 @@ internal static class LostCofferPatch
         }
     }
 
-    private static async Task Run(RelicModel relic)
+    private static List<Reward> BuildRewards(RelicModel relic)
     {
         ForgeRecord? rec = RelicForgeService.RecordFor(relic);
         bool active = rec != null && rec.Prefix.Length > 0;
@@ -52,7 +56,6 @@ internal static class LostCofferPatch
         int potions = Math.Max(0, 1 + extraPotions);
         for (int i = 0; i < potions; i++)
             list.Add(new PotionReward(relic.Owner));
-
-        await RewardsCmd.OfferCustom(relic.Owner, list);
+        return list;
     }
 }

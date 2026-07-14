@@ -175,6 +175,24 @@ internal static class SoloTest
                 return null;
             });
 
+            // T8 — restore idempotency (bug-audit fix): RestoreForged must reproduce the descriptor
+            // VERBATIM — Forge's internal curse roll is suppressed on the restore path, so a fizzled
+            // uncursed "Keen" pickup can never mutate into a fallback prefix ("Honed"+buff) on load.
+            // 30 seeds: under the pre-fix code each seed had ~CurseChance odds of mutating.
+            Test("T8 restore idempotency", () =>
+            {
+                const string desc = "Keen||||0|0";     // fizzled uncursed pickup shape (6-field)
+                for (uint s = 100; s < 130; s++)
+                {
+                    var clone = FirstNumericRelic();   // fresh instance each seed (Records is instance-keyed)
+                    if (clone == null) return "no relic available";
+                    RelicForgeService.RestoreForged(clone, desc, s, 3, 0, false, 0, null);
+                    string? back = RelicForgeService.DescriptorOf(clone);
+                    if (back != desc) return $"round-trip mutated at seed {s}: '{back}'";
+                }
+                return null;
+            });
+
             // T7 — multilingual: switch the LIVE game language to Korean / Chinese / English and confirm
             // the campfire option + shop title render THAT language's relic-explicit string (ko="유물 재련",
             // zh="重铸遗物", en="Reforge Relic"). Game codes are 3-letter (kor/zhs/eng); ForgeLoc matches

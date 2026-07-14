@@ -61,11 +61,16 @@ public sealed class RelicForgeCountSyncCmd : AbstractConsoleCmd
             // Descriptor is escaped on the wire (rider suffixes like "the Tyrant" contain a space that would
             // otherwise split the token). It no longer contains ':', so f[5] is the whole field; unescape it.
             string? desc = f.Length >= 6 ? RelicForgeService.UnescapeWireDesc(f[5]) : null;
+            // Optional 7th field: occurrence index for duplicate relic ids (0 = first instance). Absent on
+            // a legacy host → 0, which is the old FirstOrDefault behavior.
+            int occIdx = 0;
+            if (f.Length >= 7) int.TryParse(f[6], NumberStyles.Integer, inv, out occIdx);
 
             var player = state.Players.FirstOrDefault(p => p.NetId == netId);
             if (player == null) continue;
-            var relic = player.Relics.FirstOrDefault(
-                r => r.Id.Entry == relicId && !RelicForgeService.IsCompanion(r));
+            var relic = player.Relics.Where(
+                r => r.Id.Entry == relicId && !RelicForgeService.IsCompanion(r))
+                .Skip(occIdx).FirstOrDefault();
             if (relic == null) continue;
 
             // Per-relic guard: a throw while reconciling ONE relic must NOT abort the whole rf_counts

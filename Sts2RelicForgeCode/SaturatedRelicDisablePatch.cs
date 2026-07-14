@@ -34,8 +34,19 @@ internal static class SaturatedRelicFilter
         if (src == null) yield break;
         foreach (var m in src)
         {
-            if (m is RelicModel r && RelicForgeService.IsEffectDisabled(r)) continue;
-            yield return m;
+            // The Postfix try/catch only covers CONSTRUCTING this lazy iterator — the body here runs
+            // later, inside the game's hook-dispatch loop, OUTSIDE that catch. A throw from the
+            // saturation test (exotic foreign relic, null owner state) would crash combat command
+            // processing (black screen), so the per-item test is guarded itself: on any failure the
+            // listener passes through (vanilla behavior) rather than killing the dispatch.
+            bool disabled;
+            try { disabled = m is RelicModel r && RelicForgeService.IsEffectDisabled(r); }
+            catch (Exception e)
+            {
+                disabled = false;
+                MainFile.Logger.Warn($"[{MainFile.ModId}] saturation test failed (listener kept): {e.Message}");
+            }
+            if (!disabled) yield return m;
         }
     }
 }

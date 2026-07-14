@@ -298,7 +298,15 @@ internal sealed partial class NMerchantReforgeButton : Control
             // Charge only on a real pick, and re-check gold at purchase time.
             if (chosen != null && _player != null && _player.Gold >= cost)
             {
-                if (cost > 0) await PlayerCmd.LoseGold(cost, _player);
+                if (cost > 0)
+                {
+                    // Mirror the game's own purchase idiom (MerchantRelicEntry): LoseGold is a LOCAL
+                    // mutation only — the peer replicas learn of it via SyncLocalGoldLost's GoldLostMessage.
+                    // Gold is part of the combat checksum, so skipping the sync desyncs the next combat
+                    // in co-op. (Throws only if in combat — never true in a shop. SP: harmless no-op path.)
+                    await PlayerCmd.LoseGold(cost, _player, MegaCrit.Sts2.Core.Entities.Gold.GoldLossType.Spent);
+                    RunManager.Instance?.RewardSynchronizer?.SyncLocalGoldLost(cost);
+                }
                 ReforgeNet.Reforge(chosen, _player);         // a curse may roll — the paid gamble
                 chosen.Flash();
                 // Fill this shop's location aura 5–20% (indexed by reforges done); at 100% reforging ends here.

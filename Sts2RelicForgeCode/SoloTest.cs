@@ -175,6 +175,42 @@ internal static class SoloTest
                 return null;
             });
 
+            // T7 — multilingual: switch the LIVE game language to Korean / Chinese / English and confirm
+            // the campfire option + shop title render THAT language's relic-explicit string (ko="유물 재련",
+            // zh="重铸遗物", en="Reforge Relic"). Game codes are 3-letter (kor/zhs/eng); ForgeLoc matches
+            // by "ko"/"zh" prefix, everything else → English. Restores the original language afterward.
+            Test("T7 multilingual (ko/zh/en)", () =>
+            {
+                var lm = MegaCrit.Sts2.Core.Localization.LocManager.Instance;
+                if (lm == null) return "no LocManager";
+                string original = lm.Language;
+                var langs = MegaCrit.Sts2.Core.Localization.LocManager.Languages;
+                (string? code, string expect)[] cases =
+                {
+                    (langs.FirstOrDefault(l => l.StartsWith("ko")), "유물 재련"),
+                    (langs.FirstOrDefault(l => l.StartsWith("zh")), "重铸遗物"),
+                    (langs.FirstOrDefault(l => l.StartsWith("en")) ?? "eng", "Reforge Relic"),
+                };
+                try
+                {
+                    foreach (var (code, expect) in cases)
+                    {
+                        if (code == null) { W($"  (no game language for '{expect}' — not installed, skipped)"); continue; }
+                        lm.SetLanguage(code);
+                        ForgeLoc.Invalidate();
+                        string title = ForgeLoc.Ui("SHOP_REFORGE_TITLE");
+                        RestSiteReforgeSupport.EnsureLoc();
+                        var t = lm.GetTable("rest_site_ui");
+                        string opt = t != null && t.HasEntry("OPTION_REFORGE.name") ? t.GetRawText("OPTION_REFORGE.name") : "(missing)";
+                        W($"  [{code}] title='{title}' campfire='{opt}'");
+                        if (title != expect) return $"[{code}] title '{title}' != '{expect}'";
+                        if (opt != expect) return $"[{code}] campfire '{opt}' != '{expect}'";
+                    }
+                    return null;
+                }
+                finally { try { lm.SetLanguage(original); ForgeLoc.Invalidate(); } catch { } }
+            });
+
             W($"=== solo test done: {_pass} passed, {_fail} failed ===");
             Flush(_fail == 0);
         }

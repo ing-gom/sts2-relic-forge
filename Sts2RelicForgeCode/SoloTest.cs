@@ -312,20 +312,25 @@ internal static class SoloTest
                 int count0 = RelicForgeService.ReforgeCountOf(relic);
                 W($"  combat turn 1: {relicId} desc='{desc0}' count={count0}");
 
-                // Advance to turn 3 (end turn twice; enemy turns play out in between).
+                // Play a CARD on turns 1 and 2 — the real scenario: the reported rewind (turn 4 → 2)
+                // rolls back turns in which cards were PLAYED, so the replay re-executes card events;
+                // and each play fires ForgeReassertOnPlayPatch (the v1.0.8 fix's live trigger).
+                await PlayNoTargetCard(player);
                 for (int t = 0; t < 2; t++)
                 {
                     cm.SetReadyToEndTurn(player, canBackOut: false);
                     await Task.Delay(7000);
+                    await PlayNoTargetCard(player);                  // turn 2 and turn 3 plays
                 }
                 await Shot("04_combat_turn3");
 
-                // Rewind to turn 1 — the mod's own public entry point (what its UI button invokes).
+                // Rewind — prefer turn 2 (replays turn 1's card events, the reported 4→2 shape);
+                // fall back to turn 1. The mod's own public entry point (what its UI button invokes).
                 var canM = trm.GetMethod("CanRewindToTurn");
                 var execM = trm.GetMethod("ExecuteRewindToTurn");
                 if (canM == null || execM == null) return "Rewind API not found (mod updated?)";
-                int target = (bool)canM.Invoke(null, new object[] { 1 })! ? 1
-                           : (bool)canM.Invoke(null, new object[] { 2 })! ? 2 : -1;
+                int target = (bool)canM.Invoke(null, new object[] { 2 })! ? 2
+                           : (bool)canM.Invoke(null, new object[] { 1 })! ? 1 : -1;
                 if (target < 0) return "Rewind: no rewindable turn (CanRewindToTurn(1/2)=false)";
                 execM.Invoke(null, new object[] { target });
                 await Task.Delay(9000);                              // replay executes + UI rebuilds
@@ -340,8 +345,25 @@ internal static class SoloTest
                 W($"  after rewind to turn {target}: desc='{descAfter ?? "(NULL — enchantment lost)"}' count={countAfter}");
                 if ((descAfter ?? "") != desc0) return $"descriptor lost/changed: '{descAfter}' != '{desc0}'";
                 if (countAfter != count0) return $"reforge count lost: {countAfter} != {count0}";
+                // Play a card ON THE REWOUND TURN — the exact user flow after a rewind, and the live
+                // trigger of ForgeReassertOnPlayPatch on the REBUILT instances. The replay can still be
+                // settling right after ExecuteRewindToTurn, so wait for combat to be interactable.
+                bool played = false;
+                for (int w = 0; w < 8 && p2 != null; w++)
+                {
+                    if (MegaCrit.Sts2.Core.Combat.CombatManager.Instance?.IsInProgress == true
+                        && p2.PlayerCombatState?.Hand?.Cards.Count > 0)
+                    {
+                        await PlayNoTargetCard(p2);
+                        played = true;
+                        await Task.Delay(1500);
+                        break;
+                    }
+                    await Task.Delay(2000);
+                }
+                if (!played) W("  (post-rewind card play skipped — combat not interactable in time)");
                 // The reported symptom = the EFFECT silently reverts: every recorded numeric change must
-                // still be live on the rebuilt instance's vars.
+                // still be live on the rebuilt instance's vars (after the post-rewind card play).
                 var rec2 = RelicForgeService.RecordFor(relic2);
                 if (rec2 != null)
                     foreach (var c in rec2.Changes)
@@ -448,6 +470,32 @@ internal static class SoloTest
         if (n is T t) return t;
         foreach (var c in n.GetChildren()) { var r = FindNode<T>(c); if (r != null) return r; }
         return null;
+    }
+
+    /// <summary>Play a no-target card from the hand through the game's REAL play pipeline —
+    /// SpendResources + CardCmd.AutoPlay with a BlockingPlayerChoiceContext (the proven Vakuu
+    /// auto-play idiom). Prefers DEFEND (self skill, no target); logs and skips gracefully when
+    /// the hand has nothing safely playable (test flow must not die on hand RNG).</summary>
+    private static async Task PlayNoTargetCard(Player p)
+    {
+        try
+        {
+            var hand = p.PlayerCombatState?.Hand?.Cards;
+            if (hand == null || hand.Count == 0) { W("  (no hand — skip card play)"); return; }
+            var card = hand.FirstOrDefault(c => c.Id.Entry.Contains("DEFEND") && SafeCanPlay(c));
+            if (card == null) { W("  (no playable DEFEND in hand — skip card play)"); return; }
+            await card.SpendResources();
+            await MegaCrit.Sts2.Core.Commands.CardCmd.AutoPlay(
+                new MegaCrit.Sts2.Core.GameActions.Multiplayer.BlockingPlayerChoiceContext(),
+                card, null, MegaCrit.Sts2.Core.Entities.Cards.AutoPlayType.Default, skipXCapture: true);
+            W($"  played {card.Id.Entry}");
+        }
+        catch (Exception e) { W($"  card play failed: {e.Message}"); }
+    }
+
+    private static bool SafeCanPlay(MegaCrit.Sts2.Core.Models.CardModel c)
+    {
+        try { return c.CanPlay(); } catch { return false; }
     }
 
     private static void W(string line) { _out.AppendLine(line); MainFile.Logger.Info($"[{MainFile.ModId}] SOLO | {line}"); }

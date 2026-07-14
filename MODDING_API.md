@@ -127,10 +127,21 @@ Relic Forge derivation is **seed‑deterministic over the prefix / curse pool**.
 
 1. **Register at mod init**, before any run starts. (A registration during an active run still applies
    but is logged as unsafe — it changes the pool mid‑run.)
-2. **Every co‑op peer must register the identical set of prefixes / curses, in the identical order.**
-   This holds automatically when both players run the same extension mods with a load‑order syncer.
-   A divergent pool (different mods, or a different registration order) desyncs the lockstep the same
-   way mismatched settings would.
-3. Names ride the save + the co‑op state sync as **strings**. If a peer/save is missing the extension
-   mod, that prefix can't be resolved and the relic degrades gracefully (re‑rolls a valid prefix) — no
-   crash, but the inheritance/enchantment for that entry is lost.
+2. **Every co‑op peer must register the identical SET of prefixes / curses.** Registration **order no
+   longer matters** (v1.0.13+): external entries are name‑sorted into the roll pool, so the pool is a
+   pure function of the set. This holds automatically when both players run the same extension mods.
+3. **Mismatch detection = symmetric safe mode (v1.0.13+).** Peers exchange a pool *fingerprint* on run
+   start (`rf_fp` announce + the `rf_config` broadcast). If any two peers' fingerprints differ, **every
+   peer trips into safe mode together**: the forge deactivates for that session (no pickup rolls, no
+   reforge UI, no restores — pure vanilla relics) and an ERROR log names the mismatch. This replaces a
+   guaranteed mystery desync with a loud, convergent no‑op. Fix: align the sister‑mod set on all
+   players and restart the session.
+4. Names ride the save + the co‑op state sync as **strings**. If a peer/save is missing the extension
+   mod, that prefix can't be resolved and the relic degrades gracefully (re‑rolls a valid prefix, the
+   saved curse is kept verbatim) — no crash, but the enchantment identity for that entry is lost.
+
+## Naming rules
+
+- `Name` / self‑curse `En` must be **unique** and must **not contain `|`** — it is the forge‑descriptor
+  field delimiter; registration is rejected (logged) otherwise. Spaces, `:` and `%` are fine (they are
+  escaped on the wire automatically).

@@ -471,6 +471,11 @@ internal static class PrefixTable
             return false;
         }
         _external.Add(p);
+        // Externals are ORDER-INSENSITIVE in the combined pool: Roll walks the pool in order, so two
+        // peers whose sister mods initialized in a different order would otherwise pick different
+        // prefixes from the same seeded roll. Sorting by name makes the pool a pure function of the
+        // registered SET — only a genuinely different mod set can still diverge (→ ForgeSafeMode).
+        _external.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
         var combined = new Prefix[All.Length + _external.Count];
         All.CopyTo(combined, 0);
         for (int i = 0; i < _external.Count; i++) combined[All.Length + i] = _external[i];

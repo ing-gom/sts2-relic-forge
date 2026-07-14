@@ -41,6 +41,7 @@ internal static class ReforgeNet
     {
         var run = RunManager.Instance;
         if (run == null) return false;
+        if (ForgeSafeMode.Active) return false;                // safe mode: hide the reforge UIs entirely
         if (run.IsSingleplayerOrFakeMultiplayer) return true;
         return TransportReady;
     }

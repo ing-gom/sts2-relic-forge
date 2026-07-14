@@ -762,6 +762,7 @@ internal static class RelicForgeService
     public static ForgeRecord? RestoreForged(RelicModel relic, string desc, uint runSeed, int floor,
                                              int reforgeCount, bool cleansed, int gaugeReduction, string? character)
     {
+        if (ForgeSafeMode.Active) return null;                 // sister-mod mismatch — forge inert
         if (relic == null || string.IsNullOrEmpty(desc)) return null;
         if (Records.TryGetValue(relic, out _)) return null;   // already has a record — caller must clear first
         var (prefixName, rider, self, fbStat, fbAmt, fbPct) = DecodeDescriptor(desc);
@@ -855,6 +856,7 @@ internal static class RelicForgeService
     /// </summary>
     public static void ReconcileToHost(RelicModel relic, Player player, int count, bool cleansed, int gaugeReduction, string? desc = null)
     {
+        if (ForgeSafeMode.Active) return;                      // safe mode: never undo/rebuild (would half-tear)
         if (relic == null || player == null || IsCompanion(relic)) return;
         // Idempotent: no-op when this peer already matches the host — count, cleanse, gauge reduction AND the
         // authoritative enchantment descriptor. This is the host itself and every in-sync client in normal
@@ -1150,6 +1152,7 @@ internal static class RelicForgeService
                                 int reforgeCount = 0, bool guaranteePrefix = false, string? character = null,
                                 int gaugeReduction = 0, bool suppressCurse = false)
     {
+        if (ForgeSafeMode.Active) return null;              // sister-mod mismatch — forge inert (see ForgeSafeMode)
         if (Records.TryGetValue(relic, out _)) return null; // already processed
 
         bool test = forced != null;

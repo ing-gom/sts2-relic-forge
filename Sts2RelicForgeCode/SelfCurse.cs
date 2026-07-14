@@ -71,6 +71,8 @@ internal static class SelfCurseTable
             return false;
         }
         _external.Add(c);
+        // Order-insensitive combined pool — see PrefixTable.RegisterExternal (same rationale).
+        _external.Sort((a, b) => string.CompareOrdinal(a.En, b.En));
         var combined = new SelfCurseDef[All.Length + _external.Count];
         All.CopyTo(combined, 0);
         for (int i = 0; i < _external.Count; i++) combined[All.Length + i] = _external[i];

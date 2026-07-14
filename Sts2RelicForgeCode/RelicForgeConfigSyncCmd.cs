@@ -55,19 +55,18 @@ public sealed class RelicForgeConfigSyncCmd : AbstractConsoleCmd
         }
 
         // Optional 6th arg (new hosts): the host's prefix/curse POOL fingerprint. Roll/PickCombined walk
-        // the pool IN ORDER, so a sister mod registered on one peer but not the other — or in a different
-        // init order — makes the same seeded roll land a different prefix per peer (a divergence the
-        // descriptor reconcile can then never converge, ByName failing on the unknown name). We can't fix
-        // a peer's mod set from here, but we CAN name the root cause loudly the moment it exists.
+        // the pool in order, so a sister mod registered on one peer but not another makes the same seeded
+        // roll land a different prefix per peer — an unconvergeable divergence. A mismatch trips the
+        // SYMMETRIC safe mode (see ForgeSafeMode): the client trips here, the host trips from the client's
+        // own rf_fp announce, so every peer deactivates the forge identically (vanilla = converged).
         if (args.Length >= 6 && args[5] != PoolFingerprint())
-            MainFile.Logger.Warn($"[{MainFile.ModId}] ★ PREFIX POOL MISMATCH vs host (local '{PoolFingerprint()}' " +
-                $"vs host '{args[5]}') — a sister mod's prefixes/curses are not registered identically on every " +
-                "peer. Forge rolls WILL diverge in co-op until every player runs the same mod set.");
+            ForgeSafeMode.Trip($"host '{args[5]}' vs local '{PoolFingerprint()}'");
         return new CmdResult(success: true, "rf_config applied.");
     }
 
-    /// <summary>Order-sensitive fingerprint of the combined prefix + self-curse pools ("count/count:hash").
-    /// Identical pools (same members, same registration order) ⇔ identical fingerprint on every peer.</summary>
+    /// <summary>Fingerprint of the combined prefix + self-curse pools ("count/count:hash"). External
+    /// registrations are name-sorted into the pool (RegisterExternal), so this is a pure function of
+    /// the registered SET — identical sister-mod sets ⇔ identical fingerprint, regardless of load order.</summary>
     internal static string PoolFingerprint()
     {
         unchecked
@@ -126,6 +125,7 @@ internal static class ForgeConfigBroadcaster
     /// </summary>
     public static void BroadcastCountsIfHost()
     {
+        if (ForgeSafeMode.Active) return;                      // nothing to reconcile — the forge is inert everywhere
         if (!HostForgeConfig.IsHost) return;
         var run = RunManager.Instance;
         var state = run?.State;

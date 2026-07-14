@@ -372,6 +372,28 @@ internal static class SoloTest
                 return null;
             });
 
+            // T12 — safe mode gates (sister-mod mismatch): tripping via the real rf_fp comparison path
+            // must make every forge entry point inert. LAST test — it flips global state (reset after).
+            Test("T12 safe-mode gates", () =>
+            {
+                try
+                {
+                    string local = RelicForgeConfigSyncCmd.PoolFingerprint();
+                    new RelicForgeFpCmd().Process(player, new[] { local });          // matching fp — must NOT trip
+                    if (ForgeSafeMode.Active) return "matching fingerprint tripped safe mode";
+                    new RelicForgeFpCmd().Process(player, new[] { "0/0:deadbeef" }); // mismatch — must trip
+                    if (!ForgeSafeMode.Active) return "mismatched fingerprint did not trip safe mode";
+                    var relic = FirstNumericRelic();
+                    if (relic != null && RelicForgeService.Forge(relic, 42u, 1, forced: FirstNumericPrefix()) != null)
+                        return "Forge still ran in safe mode";
+                    if (relic != null && RelicForgeService.RestoreForged(relic, "Keen||||0|0", 42u, 1, 0, false, 0, null) != null)
+                        return "RestoreForged still ran in safe mode";
+                    if (ReforgeNet.Available()) { /* SP: Available is true pre-trip; must be false now */ }
+                    return ReforgeNet.Available() ? "reforge UI still offered in safe mode" : null;
+                }
+                finally { ForgeSafeMode.ResetForTest(); }
+            });
+
             W($"=== solo test done: {_pass} passed, {_fail} failed ===");
             Flush(_fail == 0);
         }

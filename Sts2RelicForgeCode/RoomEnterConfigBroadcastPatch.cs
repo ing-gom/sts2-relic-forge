@@ -25,6 +25,11 @@ internal static class RoomEnterConfigBroadcastPatch
         if (!ForgeConfig.RoomBroadcastEnabled) return;
         try
         {
+            // EVERY peer (not just the host): announce this peer's prefix/curse pool fingerprint once
+            // per run, so the HOST also observes a client's sister-mod mismatch — the symmetric half
+            // of ForgeSafeMode (the client-side half rides rf_config's fingerprint arg).
+            ForgeSafeMode.AnnounceOncePerRun();
+
             ForgeConfigBroadcaster.BroadcastIfHost();
             // Also re-send per-relic reforge counts, so a client that rebuilt its relics on RECONNECT
             // (their counts can't cross the packet wire) reconciles at the next room boundary. Idempotent

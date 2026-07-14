@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -13,12 +14,37 @@ namespace Sts2RelicForge;
 /// enhance it before it is added to the player and before AfterObtained() fires
 /// (important for on-pickup relics like MaxHp/Gold that read their value immediately).
 ///
-/// There are two Obtain overloads; we target the non-generic (RelicModel, Player, int)
+/// There are two Obtain overloads; we target the non-generic (RelicModel, Player, …)
 /// one — the generic Obtain&lt;T&gt; funnels into it, so this covers every path.
+///
+/// Resolved via <see cref="TargetMethod"/> (runtime probing) rather than an attribute-pinned exact
+/// signature: this is the SINGLE choke point for the whole pickup-forge feature, and an exact pin
+/// silently kills it when a game update adds/renames a trailing parameter (the LethalSummonDamagePatch
+/// lesson — CreatureCmd.Damage grew a tail param and the pinned patch just vanished). Probing by
+/// name + (RelicModel, Player) parameter prefix survives signature drift; a total miss logs loudly.
 /// </summary>
-[HarmonyPatch(typeof(RelicCmd), nameof(RelicCmd.Obtain), new[] { typeof(RelicModel), typeof(Player), typeof(int) })]
+[HarmonyPatch]
 internal static class RelicObtainPatch
 {
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        var m = typeof(RelicCmd)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(x => x.Name == nameof(RelicCmd.Obtain) && !x.IsGenericMethodDefinition)
+            .Where(x =>
+            {
+                var p = x.GetParameters();
+                return p.Length >= 2 && p[0].ParameterType == typeof(RelicModel)
+                                     && p[1].ParameterType == typeof(Player);
+            })
+            .OrderByDescending(x => x.GetParameters().Length)   // most specific (the real worker) first
+            .FirstOrDefault();
+        if (m == null)
+            MainFile.Logger.Warn($"[{MainFile.ModId}] RelicCmd.Obtain(RelicModel, Player, …) not found — " +
+                                 "PICKUP FORGE DISABLED (game update changed the signature?).");
+        return m;
+    }
+
     private static void Prefix(RelicModel relic, Player player)
     {
         try

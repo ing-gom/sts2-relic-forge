@@ -158,6 +158,23 @@ internal static class SoloTest
                 return null;
             });
 
+            // T6 — v1.0.9 loc differentiation: the campfire option + shop title resolve to a relic-explicit
+            // "유물 재련" / "Reforge Relic" / "重铸遗物" via the LIVE loc tables — never the bare "재련"
+            // that collided with the game's card upgrade (Smith). Drives the real EnsureLoc() merge.
+            Test("T6 loc differentiation (v1.0.9)", () =>
+            {
+                var ok = new[] { "유물 재련", "重铸遗物", "Reforge Relic" };
+                string title = ForgeLoc.Ui("SHOP_REFORGE_TITLE");        // relic_forge table
+                if (Array.IndexOf(ok, title) < 0) return $"shop title '{title}' not relic-explicit";
+                RestSiteReforgeSupport.EnsureLoc();                       // production merge into rest_site_ui
+                var table = MegaCrit.Sts2.Core.Localization.LocManager.Instance?.GetTable("rest_site_ui");
+                string opt = table != null && table.HasEntry("OPTION_REFORGE.name")
+                    ? table.GetRawText("OPTION_REFORGE.name") : "(missing)";
+                if (Array.IndexOf(ok, opt) < 0) return $"campfire option '{opt}' not relic-explicit";
+                W($"loc ok: title='{title}', campfire='{opt}'");
+                return null;
+            });
+
             W($"=== solo test done: {_pass} passed, {_fail} failed ===");
             Flush(_fail == 0);
         }

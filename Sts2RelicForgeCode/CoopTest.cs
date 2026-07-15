@@ -88,11 +88,18 @@ internal static class CoopTest
             W($"HOST: relics after akabeko = {RelicLine(run)}");
             if (relic == null) { W("HOST: relic not granted"); Flush(false); return; }
 
-            // Reforge twice through the mod's networked path (rf_sync → both peers re-derive).
-            ReforgeNet.Reforge(relic, me);
-            await Task.Delay(2500);
-            ReforgeNet.Reforge(relic, me);
-            await Task.Delay(4000);
+            // Reforge up to 4x through the mod's networked path (rf_sync → both peers re-derive). Going past
+            // the first reforge exercises the NEW pity / exponential curse ramp (curse chance climbs 0 →
+            // 20 → 32 → 39%), so a curse is likely to land here — and the descriptor convergence below then
+            // verifies BOTH peers agree on that curse. Stop early if the relic locks (cursed/saturated).
+            for (int i = 0; i < 4; i++)
+            {
+                if (!RestSiteReforgeSupport.Reforgeable(me).Any(r => ReferenceEquals(r, relic)))
+                { W($"HOST: relic no longer reforgeable after {i} reforge(s)"); break; }
+                ReforgeNet.Reforge(relic, me);
+                await Task.Delay(2500);
+            }
+            await Task.Delay(2000);
 
             W($"HOST: FINAL desc = '{RelicForgeService.DescriptorOf(relic) ?? "-"}' (count {RelicForgeService.ReforgeCountOf(relic)})");
             await Shot("02_final"); // ★mandatory: the screen with the reforged relic applied

@@ -13,7 +13,7 @@ namespace Sts2RelicForge;
 /// <summary>
 /// Dev-console command <c>forgefallback</c> — grants test relics for the FALLBACK feature so it can be
 /// verified in one combat: one relic per fallback prefix (buff Honed/Bulwarked/Nimble/Barbed + penalty
-/// Sapped/Wilted/Exposed), each pinned to FallbackPercent 100 so its combat-start chance buff fires every
+/// Sapped/Wilted/Exposed/Enervated/Sluggish), each pinned to FallbackPercent 100 so its combat-start chance buff fires every
 /// fight; plus a few tier TIE-BREAK demos (a low tier forced onto a mappable-var relic where it rounds to
 /// the same delta as the tier below it, so the tie-break chance buff kicks in), also pinned to 100%.
 ///

@@ -77,10 +77,16 @@ internal static class FallbackBuffPatch
                         TaskHelper.RunSafely(PowerCmd.Apply<FrailPower>(choiceContext, creature, amt, creature, null)); break;
                     case "Vulnerable":
                         TaskHelper.RunSafely(PowerCmd.Apply<VulnerablePower>(choiceContext, creature, amt, creature, null)); break;
+                    // Stat-down penalty fallbacks: NEGATE the amount so Strength/Dexterity are REDUCED
+                    // (the mirror of Honed/Nimble). Applier = self, so it's a self-inflicted combat-long loss.
+                    case "StrengthDown":
+                        TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(choiceContext, creature, -amt, creature, null)); break;
+                    case "DexterityDown":
+                        TaskHelper.RunSafely(PowerCmd.Apply<DexterityPower>(choiceContext, creature, -amt, creature, null)); break;
                     default:
                         continue;
                 }
-                MainFile.Logger.Info($"[{MainFile.ModId}] fallback fired ({rec.FallbackPercent}% {rec.FallbackStat} +{rec.FallbackAmount}) on {relic.Id.Entry} [{rec.Prefix}].");
+                MainFile.Logger.Info($"[{MainFile.ModId}] fallback fired ({rec.FallbackPercent}% {rec.FallbackStat} {rec.FallbackAmount:+#;-#;0}) on {relic.Id.Entry} [{rec.Prefix}].");
             }
         }
         catch (Exception e)

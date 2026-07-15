@@ -317,6 +317,16 @@ internal static class RelicForgeService
     private static int FallbackChanceFor(double pct)
         => pct >= 0.25 ? 50 : pct >= 0.12 ? 35 : 20;
 
+    /// <summary>Chance (percent) a PENALTY fallback fires — the darker mirror of <see cref="FallbackChanceFor"/>
+    /// for a re-homed weakening prefix's self-downside. Lower bands (10 / 15 / 20 vs 20 / 35 / 50) so the
+    /// combat-start self-debuff bites far less often than a boon fallback grants — it's the mild variant of a
+    /// downside, not a guaranteed curse. Banded on the |power| of the fizzled negative prefix's tier.</summary>
+    private static int FallbackPenaltyChanceFor(double pct)
+    {
+        double a = System.Math.Abs(pct);
+        return a >= 0.25 ? 20 : a >= 0.12 ? 15 : 10;
+    }
+
     /// <summary>Scaled vars that map to a combat-grantable stat, so a tier tie-break can grant "a chance
     /// of +1 more of the same stat". Non-power vars (Gold, Cards, MaxHp…) can't, and get no tie-break.</summary>
     private static readonly System.Collections.Generic.Dictionary<string, string> VarStat = new()
@@ -359,6 +369,9 @@ internal static class RelicForgeService
 
     private static double CurseChanceFor(Prefix prefix)
     {
+        // Curses fully disabled (knob at 0): honor it literally — the CurseFloor must NOT re-introduce a
+        // 5% minimum. Only when curses are ON does the per-power scaling (and its floor) apply.
+        if (HostForgeConfig.CurseChance <= 0) return 0;
         double boon = prefix.PowerPct > 0 ? prefix.PowerPct
                     : prefix.PowerPct < 0 ? 0.02
                     : CurseRefPower;
@@ -369,7 +382,30 @@ internal static class RelicForgeService
     /// the reference (zero-power) curse chance scaled down by <see cref="CurseOnlyFactor"/>. Same host-
     /// authoritative CurseChance knob as everything else, so it stays co-op consistent and user-tunable.</summary>
     private static double CurseOnlyChance()
-        => Math.Clamp(HostForgeConfig.CurseChance * CurseOnlyFactor, CurseFloor, CurseCap);
+        => HostForgeConfig.CurseChance <= 0 ? 0   // curses disabled → no curse-only either (bypass the floor)
+         : Math.Clamp(HostForgeConfig.CurseChance * CurseOnlyFactor, CurseFloor, CurseCap);
+
+    /// <summary>A prefix that would become a CURSE on a reforge: an explicit penalty, or a negative-magnitude
+    /// (weakening) prefix that is neither an Amplify nor a companion/effect prefix. The single predicate the
+    /// prefix gate and the curses-off re-roll share, so they stay in lockstep.</summary>
+    private static bool IsWeakeningOrPenalty(Prefix p)
+        => p.Penalty || (p.PowerPct < 0 && !p.Amplify && !p.IsCompanionPrefix);
+
+    /// <summary>Curses-off reforge re-roll: a paid reforge with curses disabled must never land a downside,
+    /// but it also shouldn't waste the gold on a dud — so draw fresh prefixes until one is a BOON (or a
+    /// neutral companion/effect prefix). The pool is ~90% boons, so this converges in ~1 extra draw; bounded
+    /// at 8 tries, and on the astronomically unlikely all-weakening streak it returns null (a safe no-prefix,
+    /// never a curse). Deterministic — the local per-relic <paramref name="rng"/> is seeded from
+    /// (runSeed, floor, relicId, reforgeCount), so both peers and every reload reproduce the exact result.</summary>
+    private static Prefix? RerollBoonPrefix(Rng rng, string? charTitle)
+    {
+        for (int i = 0; i < 8; i++)
+        {
+            Prefix p = PrefixTable.Roll(rng, charTitle);
+            if (!IsWeakeningOrPenalty(p)) return p;
+        }
+        return null;   // exhausted → safe dud (no curse); effectively unreachable at ~90% boon pool
+    }
 
     // --- Per-relic CURSE GAUGE (reforge fatigue) ---------------------------------------------------
     // Each reforge fills the picked relic's gauge; at 100% the relic SATURATES and can no longer be
@@ -972,12 +1008,15 @@ internal static class RelicForgeService
         rng.NextFloat();                        // gate draw — ignored under guaranteePrefix, kept for rng order
         string? charTitle = character ?? CharAffix.TitleOf(relic.Owner) ?? CharAffix.LocalTitle();
         Prefix rolled = PrefixTable.Roll(rng, charTitle);
-        if (rolled.Penalty) return true;        // defensive: Roll can no longer return a penalty
-        // A weakening prefix is re-homed to a curse in Forge (guaranteed) — match that here.
-        if (rolled.PowerPct < 0 && !rolled.Amplify && !rolled.IsCompanionPrefix) return true;
+        // Curses disabled (chance 0): Forge drops a rolled penalty / weakening prefix to no-prefix and never
+        // rides an AlwaysCurse, so NO reforge lands a curse — mirror that here or the co-op UI would mispredict.
+        bool cursesOn = HostForgeConfig.CurseChance > 0;
+        if (rolled.Penalty) return cursesOn;    // defensive: Roll can no longer return a penalty
+        // A weakening prefix is re-homed to a curse in Forge (guaranteed, unless curses are off) — match that.
+        if (rolled.PowerPct < 0 && !rolled.Amplify && !rolled.IsCompanionPrefix) return cursesOn;
         // Otherwise a boon prefix may still roll a curse (the first curse draw, same rng order as Forge).
         double curseRoll = rng.NextFloat();
-        return rolled.AlwaysCurse || curseRoll < CurseChanceFor(rolled);
+        return (rolled.AlwaysCurse && cursesOn) || curseRoll < CurseChanceFor(rolled);
     }
 
     /// <summary>
@@ -1217,9 +1256,19 @@ internal static class RelicForgeService
         // could LAND a curse the original pickup never had, which then satisfies the fallback-substitution
         // gate below and silently mutates the saved prefix into a fallback one on every load.
         bool allowCurse = !suppressCurse && (guaranteePrefix || forced != null);
-        if (!allowCurse && prefix != null
-            && (prefix.Penalty || (prefix.PowerPct < 0 && !prefix.Amplify && !prefix.IsCompanionPrefix)))
-            prefix = null;
+        // A rolled penalty / weakening (negative-magnitude) prefix becomes a CURSE downstream (re-home).
+        // When it must NOT (pickup, or curses fully disabled), handle it here instead — never letting it
+        // reach the curse re-home. Skipped for a FORCED (test) prefix so `forge <relic> Broken` still demos
+        // the re-home on demand.
+        bool cursesDisabled = HostForgeConfig.CurseChance <= 0 && forced == null;
+        if (prefix != null && IsWeakeningOrPenalty(prefix))
+        {
+            if (!allowCurse)
+                prefix = null;                                 // pickup: "curses come from greed, not loot" → vanilla
+            else if (cursesDisabled)
+                prefix = RerollBoonPrefix(rng, charTitle);     // reforge, curses OFF: re-roll to a boon, never a dud
+            // else (reforge, curses ON): keep it — the negative re-home below turns it into a curse (by design)
+        }
 
         // Enemy-rider roll (a Terraria-style curse): any forged relic MIGHT also strengthen enemies.
         // Drawn in fixed rng order so the stream stays stable if the chance is retuned; whether it
@@ -1284,7 +1333,23 @@ internal static class RelicForgeService
             record.Amplify = false;
             bool self = !HostForgeConfig.EnemyForgeEnabled || curseTypeRoll < HostForgeConfig.SelfCurseShare;
             if (self)
-                record.SelfCurse = SelfCurseTable.PickCombined(cursePickRoll, charTitle);
+            {
+                // The self-side downside manifests as EITHER an on-hit self-curse (the primary flavor) OR —
+                // reviving the penalty-fallback family — a combat-start chance-gated self-debuff
+                // (FallbackBuffPatch). A stream-safe SplitMix bit (no rng draw, so the curse dice stay
+                // untouched and co-op/load reproduce it) picks: ~1/3 penalty fallback, ~2/3 on-hit curse,
+                // keeping the harsher per-hit curse dominant while the milder timed debuff adds variety.
+                if (SplitMix32(seed ^ 0x7A3B1D2Fu) % 3u == 0u)
+                {
+                    Prefix pf = PrefixTable.PickFallbackPenalty(SplitMix32(seed ^ 0x2C9E7F15u));
+                    record.Prefix = pf.Name;                 // named so the tooltip shows the penalty note + odds
+                    record.FallbackPercent = FallbackPenaltyChanceFor(pct);
+                    record.FallbackStat = pf.FallbackStat;
+                    record.FallbackAmount = pf.FallbackAmount;
+                }
+                else
+                    record.SelfCurse = SelfCurseTable.PickCombined(cursePickRoll, charTitle);
+            }
             else
             {
                 record.EnemyRider = true;
@@ -1293,10 +1358,11 @@ internal static class RelicForgeService
             rehomedNegative = true;
         }
         // Exactly one curse (or none) rides on a beneficial prefix. AlwaysCurse prefixes (e.g. 공명의/Resonant)
-        // always take the enemy-rider — their designed cost. Otherwise CurseChance gates whether there's a
-        // curse; SelfCurseShare decides the kind. The self-curse pool is now the COMBINED pool (on-hit curses
-        // + re-homed penalty identities), so a penalty's downside now rides a boon instead of replacing it.
-        else if (allowCurse && (prefix.AlwaysCurse || curseRoll < CurseChanceFor(prefix)))
+        // always take the enemy-rider — their designed cost — UNLESS curses are fully disabled (chance 0), in
+        // which case even AlwaysCurse yields no curse (Resonant becomes a pure boon; the knob wins). Otherwise
+        // CurseChance gates whether there's a curse; SelfCurseShare decides the kind. The self-curse pool is now
+        // the COMBINED pool (on-hit curses + re-homed penalty identities), so a penalty's downside rides a boon.
+        else if (allowCurse && ((prefix.AlwaysCurse && HostForgeConfig.CurseChance > 0) || curseRoll < CurseChanceFor(prefix)))
         {
             // Curse rides a boon ONLY on a reforge/test (E — pickups are curse-free). With enemy-forge OFF an
             // enemy-rider is inert, so a NON-AlwaysCurse curse manifests as a self-curse instead.
@@ -1315,8 +1381,12 @@ internal static class RelicForgeService
         // A re-homed weakening prefix is a pure curse — skip companion graft, var scaling, the reforge
         // floor and the fallback substitution entirely (there is no boon to scale or rescue).
         if (rehomedNegative)
+        {
+            if (record.FallbackStat.Length > 0)
+                return $"{prefix.Name}->{record.Prefix} {relicId}: {record.FallbackPercent}% {record.FallbackStat} (penalty fallback)";
             return $"{prefix.Name}->curse {relicId}: " +
                    (record.SelfCurse.Length > 0 ? record.SelfCurse : "rider " + record.EnemyRiderSuffix);
+        }
 
         // Companion-family prefix (grafted OR delayed): don't scale the host's vars. Grafted
         // prefixes graft a donor later (GrantCompanionIfAny); delayed prefixes apply a fixed
@@ -1431,9 +1501,9 @@ internal static class RelicForgeService
             record.FallbackAmount = fb.FallbackAmount;
             return $"{original}->{fb.Name} {relicId}: {chance}% {fb.FallbackStat} +{fb.FallbackAmount}";
         }
-        // (A negative-magnitude prefix never reaches here: it was re-homed to a curse and early-returned
-        // above, so there is no "fizzled downside" left to rescue. Penalty fallbacks now exist only for the
-        // forced test command.)
+        // (A negative-magnitude prefix never reaches here: it was re-homed above — to a self-curse, an
+        // enemy-rider, or (~1/3 of self downsides) a penalty fallback — and early-returned, so there is no
+        // "fizzled downside" left to rescue here.)
 
         if (!record.HasChanges) return null;
         var sb = new StringBuilder();

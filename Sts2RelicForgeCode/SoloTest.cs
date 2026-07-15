@@ -476,6 +476,48 @@ internal static class SoloTest
                 return null;
             });
 
+            // T14 — CurseChance = 0 means ZERO curses (user report: "set curse chance to 0%, still got a
+            // curse on the first shop reforge"). Three paths used to ignore the knob: the 5% CurseFloor
+            // clamp, the unconditional negative-prefix re-home, and AlwaysCurse (Resonant). With curses off
+            // a paid reforge must land a BOON (never a curse, never a dud — the negative-roll re-roll). Then
+            // a sanity pass at 100% proves the gate isn't stuck off. Pure logic — fresh relic clone / seed.
+            Test("T14 curse-chance 0 = no curses + no duds", () =>
+            {
+                double saved = ForgeConfig.CurseChance;
+                try
+                {
+                    ForgeConfig.CurseChance = 0.0;                    // SP: HostForgeConfig falls through to this
+                    int curses = 0, duds = 0, n = 0;
+                    for (uint s = 200; s < 260; s++)                  // 60 seeds → ~5 hit the negative re-roll
+                    {
+                        var clone = FirstNumericRelic();
+                        if (clone == null) return "no relic available";
+                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true);   // paid-reforge path (allowCurse)
+                        var rec = RelicForgeService.RecordFor(clone);
+                        n++;
+                        if (rec == null || (rec.Prefix.Length == 0 && rec.FallbackStat.Length == 0)) { duds++; continue; }
+                        if (RelicForgeService.IsCursedRecord(rec)) curses++;   // penalty prefix / rider / self-curse
+                    }
+                    if (curses > 0) return $"CurseChance=0 still produced {curses}/{n} curses";
+                    if (duds > 0) return $"CurseChance=0 produced {duds}/{n} duds (re-roll should land a boon)";
+
+                    ForgeConfig.CurseChance = 1.0;                    // sanity: curses DO fire when enabled
+                    int curses2 = 0;
+                    for (uint s = 200; s < 260; s++)
+                    {
+                        var clone = FirstNumericRelic();
+                        if (clone == null) return "no relic available";
+                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true);
+                        var rec = RelicForgeService.RecordFor(clone);
+                        if (rec != null && RelicForgeService.IsCursedRecord(rec)) curses2++;
+                    }
+                    if (curses2 == 0) return "CurseChance=1.0 produced no curses (gate stuck off?)";
+                    W($"  curse gate: 0% -> {curses} curses / {duds} duds over {n}; 100% -> {curses2} curses");
+                    return null;
+                }
+                finally { ForgeConfig.CurseChance = saved; }
+            });
+
             // T12 — safe mode gates (sister-mod mismatch): tripping via the real rf_fp comparison path
             // must make every forge entry point inert. LAST test — it flips global state (reset after).
             Test("T12 safe-mode gates", () =>

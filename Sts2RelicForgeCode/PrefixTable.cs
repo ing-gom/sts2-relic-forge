@@ -344,6 +344,14 @@ internal static class PrefixTable
             NoteKo = "전투 시작 시 {0}% 확률로 자신에게 손상 1", NoteEn = "At combat start, {0}% chance to gain 1 Frail", NoteZh = "战斗开始时，{0}%概率给予自己1脆弱" },
         new Prefix { Name = "Exposed", Ko = "허술한", Zh = "破绽的", Weight = 0, FallbackStat = "Vulnerable", FallbackAmount = 1, Penalty = true, Color = "#9a6b8f",
             NoteKo = "전투 시작 시 {0}% 확률로 자신에게 취약 1", NoteEn = "At combat start, {0}% chance to gain 1 Vulnerable", NoteZh = "战斗开始时，{0}%概率给予自己1易伤" },
+        // Stat-down penalty fallbacks: the mirror of Honed (Strength) / Nimble (Dexterity). FallbackStat
+        // carries the "Down" suffix so FallbackBuffPatch applies the power with a NEGATIVE amount (a combat-
+        // long self Strength/Dexterity reduction) instead of buffing. FallbackAmount stays positive (the
+        // magnitude); the sign lives in the patch.
+        new Prefix { Name = "Enervated", Ko = "쇠약한", Zh = "衰弱的", Weight = 0, FallbackStat = "StrengthDown", FallbackAmount = 1, Penalty = true, Color = "#b0554d",
+            NoteKo = "전투 시작 시 {0}% 확률로 자신에게 힘 1 감소", NoteEn = "At combat start, {0}% chance to lose 1 Strength", NoteZh = "战斗开始时，{0}%概率失去1点力量" },
+        new Prefix { Name = "Sluggish", Ko = "굼뜬", Zh = "迟钝的", Weight = 0, FallbackStat = "DexterityDown", FallbackAmount = 1, Penalty = true, Color = "#9a7a5a",
+            NoteKo = "전투 시작 시 {0}% 확률로 자신에게 민첩 1 감소", NoteEn = "At combat start, {0}% chance to lose 1 Dexterity", NoteZh = "战斗开始时，{0}%概率失去1点敏捷" },
 
         // ============================ Character-gated affixes ============================
         // Each rolls ONLY when the owner plays the named character (CharAffix + RequiredCharacter),

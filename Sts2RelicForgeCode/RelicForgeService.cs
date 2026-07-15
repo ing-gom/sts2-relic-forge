@@ -367,22 +367,28 @@ internal static class RelicForgeService
         record.FallbackAmount = fb.FallbackAmount;
     }
 
-    // --- First-reforge PITY / gauge-ramp -----------------------------------------------------------
-    // A relic's curse risk RAMPS with how many times it has been reforged, so the FIRST reforge of any
-    // relic is GUARANTEED curse-free (the "curse aura 0% = safe" the player expects) and later reforges
-    // get progressively riskier. Count-based (not gauge-derived) so it stays a pure function of the
-    // reforge index — no circular dependency with the gauge (which itself counts curse steps), and
-    // deterministic on every peer / reload. reforgeCount is 1-based (the k-th reforge).
-    private const int CursePityRamp = 4;   // reforges over which risk climbs from 0 (first) to full
-    private static double CursePityFactor(int reforgeCount)
-        => Math.Clamp((reforgeCount - 1) / (double)CursePityRamp, 0.0, 1.0);
+    // --- First-reforge PITY / EXPONENTIAL curse-risk ramp ------------------------------------------
+    // A relic's curse risk RAMPS with how many times it has been reforged: the FIRST reforge is GUARANTEED
+    // curse-free (the "curse risk 0% = safe" the player expects) and each further reforge closes a fixed
+    // FRACTION of the gap to a hard 50% ceiling — an exponential approach (fast early, tapering near the
+    // cap). Count-based (not gauge-derived) so it stays a pure function of the reforge index — no circular
+    // dependency with the gauge — and deterministic on every peer / reload. reforgeCount is 1-based.
+    private const double CurseChanceMax = 0.50;    // HARD ceiling the ramp approaches (was ~33%, the knob base)
+    private const double CurseRefChance = 0.33;    // knob the 50% ceiling is calibrated against (the default)
+    private const double CursePityGrowth = 0.40;   // fraction of the remaining gap to the ceiling closed per reforge
 
-    /// <summary>The actual chance THIS reforge lands a curse: the prefix's power-scaled base
-    /// (<see cref="CurseChanceFor"/>) throttled by the first-reforge pity ramp. 0 on a relic's first
-    /// reforge (the guaranteed-safe floor) and when curses are disabled; climbs to the full base as the
-    /// relic is reforged again and again.</summary>
+    /// <summary>Exponential ramp 0 → 1: 0 on a relic's FIRST reforge (the guaranteed-safe pity), climbing
+    /// toward 1 as it is reforged again (each reforge closes <see cref="CursePityGrowth"/> of the gap).</summary>
+    private static double CursePityRamp(int reforgeCount)
+        => 1.0 - Math.Pow(1.0 - CursePityGrowth, Math.Max(0, reforgeCount - 1));
+
+    /// <summary>The actual chance THIS reforge lands a curse: the prefix's power/knob base
+    /// (<see cref="CurseChanceFor"/>) LIFTED toward the hard <see cref="CurseChanceMax"/> (50%) ceiling and
+    /// throttled by the exponential first-reforge pity. 0 on the first reforge and when curses are disabled;
+    /// a heavily-reforged reference-power relic approaches 50%, weaker prefixes / a lower knob approach less.</summary>
     private static double EffectiveCurseChance(Prefix prefix, int reforgeCount)
-        => CurseChanceFor(prefix) * CursePityFactor(reforgeCount);
+        => Math.Min(CurseChanceMax, CurseChanceFor(prefix) * (CurseChanceMax / CurseRefChance))
+           * CursePityRamp(reforgeCount);
 
     private static double CurseChanceFor(Prefix prefix)
     {
@@ -1288,16 +1294,16 @@ internal static class RelicForgeService
         double cursePickRoll = rng.NextFloat();
 
         // First-reforge PITY: this reforge's curse risk is throttled by the reforge index — 0 on a relic's
-        // FIRST reforge (the "curse aura 0% = safe" the player expects), climbing to full as it's reforged
-        // again (see CursePityFactor). Count-based → no circular dependency with the curse gauge.
-        double pityFactor = CursePityFactor(reforgeCount);
+        // FIRST reforge (the "curse risk 0% = safe" the player expects), climbing EXPONENTIALLY toward the
+        // 50% ceiling as it's reforged again (see CursePityRamp). Count-based → no gauge circular dependency.
+        double pityRamp = CursePityRamp(reforgeCount);
 
         if (prefix == null)
         {
             // No prefix (a pickup dud, or the ~impossible re-roll exhaustion below): a curse may still land
-            // on its OWN on a reforge — gauge/pity-scaled, so NEVER on the first reforge and NEVER on a pickup.
+            // on its OWN on a reforge — pity-scaled, so NEVER on the first reforge and NEVER on a pickup.
             var bare = new ForgeRecord { Rarity = relic.Rarity, Prefix = "", Percent = 0, ReforgeCount = reforgeCount, GaugeReduction = gaugeReduction };
-            if (allowCurse && curseRoll < CurseOnlyChance() * pityFactor)
+            if (allowCurse && curseRoll < Math.Min(CurseChanceMax, CurseOnlyChance() * (CurseChanceMax / CurseRefChance)) * pityRamp)
             {
                 bool selfC = !HostForgeConfig.EnemyForgeEnabled || curseTypeRoll < HostForgeConfig.SelfCurseShare;
                 if (selfC)

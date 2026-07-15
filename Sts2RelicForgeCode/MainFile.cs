@@ -45,10 +45,10 @@ public class MainFile
         // real default. Persisted values are then applied just below.
         ModConfigBridge.For(ModId, "Relic Forge", Logger)
             .Slider(EntryKeyPrefix, "Prefix chance (%)",
-                defaultValue: 35.0,
+                defaultValue: 15.0,
                 onChanged: v => { ForgeConfig.NoPrefixChance = 1.0 - v / 100.0; ForgeConfigBroadcaster.BroadcastIfHost(); })
                 .Range(0f, 100f, 5f, format: "F0")
-                .Description("Chance a PICKED-UP relic gets a prefix (pure upside — no curse; curses come only from reforging). 35 = ~35% of relics are enhanced on pickup, the rest stay vanilla; 100 = every eligible relic gets one. Reforging always lands a prefix regardless. Affects relics forged (or re-derived on load) afterward.")
+                .Description("Chance a PICKED-UP relic gets a prefix (pure upside — no curse; curses come only from reforging). Kept low by default (15) so you pick relics on their base effect and CRAFT affixes by reforging at a campfire, rather than pickups arriving pre-enhanced. 0 = all pickups vanilla; 100 = every eligible relic gets one. Reforging always lands a prefix regardless.")
             .Toggle(EntryKeyEnemyForge, "Enemy forge (elites & bosses fight back)",
                 defaultValue: true,
                 onChanged: v => { ForgeConfig.EnemyForgeEnabled = v; ForgeConfigBroadcaster.BroadcastIfHost(); })
@@ -79,7 +79,7 @@ public class MainFile
             .Register();
 
         // Now that the keys are registered, read the saved-or-default values.
-        ForgeConfig.NoPrefixChance = 1.0 - ModConfigBridge.GetValue<double>(ModId, EntryKeyPrefix, 35.0) / 100.0;
+        ForgeConfig.NoPrefixChance = 1.0 - ModConfigBridge.GetValue<double>(ModId, EntryKeyPrefix, 15.0) / 100.0;
         ForgeConfig.ShopCleanseCost = (int)ModConfigBridge.GetValue<double>(ModId, EntryKeyCleanseCost, 100.0);
         ForgeConfig.EnemyForgeEnabled = ModConfigBridge.GetValue<bool>(ModId, EntryKeyEnemyForge, true);
         ForgeConfig.CurseChance = ModConfigBridge.GetValue<double>(ModId, EntryKeyRiderChance, 33.0) / 100.0;

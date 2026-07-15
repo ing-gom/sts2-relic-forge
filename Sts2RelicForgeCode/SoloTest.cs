@@ -476,43 +476,56 @@ internal static class SoloTest
                 return null;
             });
 
-            // T14 — CurseChance = 0 means ZERO curses (user report: "set curse chance to 0%, still got a
-            // curse on the first shop reforge"). Three paths used to ignore the knob: the 5% CurseFloor
-            // clamp, the unconditional negative-prefix re-home, and AlwaysCurse (Resonant). With curses off
-            // a paid reforge must land a BOON (never a curse, never a dud — the negative-roll re-roll). Then
-            // a sanity pass at 100% proves the gate isn't stuck off. Pure logic — fresh relic clone / seed.
-            Test("T14 curse-chance 0 = no curses + no duds", () =>
+            // T14 — curse mechanics: (a) CurseChance 0 → never curses / never a dud (re-roll), (b) the
+            // FIRST reforge of a relic is the PITY — guaranteed curse-free even at 100% (the "curse aura 0%
+            // = safe" the players expected), (c) a LATER reforge (pity ramped up) DOES curse at 100% so the
+            // gate isn't stuck off. Uses a fresh relic clone per (seed, count). Pure logic — no run needed.
+            Test("T14 curse chance-0 + first-reforge pity", () =>
             {
                 double saved = ForgeConfig.CurseChance;
                 try
                 {
-                    ForgeConfig.CurseChance = 0.0;                    // SP: HostForgeConfig falls through to this
+                    // (a) knob 0 → zero curses, zero duds (a re-rolled boon), at any reforge count.
+                    ForgeConfig.CurseChance = 0.0;
                     int curses = 0, duds = 0, n = 0;
-                    for (uint s = 200; s < 260; s++)                  // 60 seeds → ~5 hit the negative re-roll
-                    {
-                        var clone = FirstNumericRelic();
-                        if (clone == null) return "no relic available";
-                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true);   // paid-reforge path (allowCurse)
-                        var rec = RelicForgeService.RecordFor(clone);
-                        n++;
-                        if (rec == null || (rec.Prefix.Length == 0 && rec.FallbackStat.Length == 0)) { duds++; continue; }
-                        if (RelicForgeService.IsCursedRecord(rec)) curses++;   // penalty prefix / rider / self-curse
-                    }
-                    if (curses > 0) return $"CurseChance=0 still produced {curses}/{n} curses";
-                    if (duds > 0) return $"CurseChance=0 produced {duds}/{n} duds (re-roll should land a boon)";
-
-                    ForgeConfig.CurseChance = 1.0;                    // sanity: curses DO fire when enabled
-                    int curses2 = 0;
                     for (uint s = 200; s < 260; s++)
                     {
                         var clone = FirstNumericRelic();
                         if (clone == null) return "no relic available";
-                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true);
+                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true, reforgeCount: 3);
                         var rec = RelicForgeService.RecordFor(clone);
-                        if (rec != null && RelicForgeService.IsCursedRecord(rec)) curses2++;
+                        n++;
+                        if (rec == null || (rec.Prefix.Length == 0 && rec.FallbackStat.Length == 0)) { duds++; continue; }
+                        if (RelicForgeService.IsCursedRecord(rec)) curses++;
                     }
-                    if (curses2 == 0) return "CurseChance=1.0 produced no curses (gate stuck off?)";
-                    W($"  curse gate: 0% -> {curses} curses / {duds} duds over {n}; 100% -> {curses2} curses");
+                    if (curses > 0) return $"CurseChance=0 produced {curses}/{n} curses";
+                    if (duds > 0) return $"CurseChance=0 produced {duds}/{n} duds (re-roll should land a boon)";
+
+                    // (b) FIRST reforge (count 1) is the pity — no curse even at 100%.
+                    ForgeConfig.CurseChance = 1.0;
+                    int firstCurses = 0;
+                    for (uint s = 200; s < 260; s++)
+                    {
+                        var clone = FirstNumericRelic();
+                        if (clone == null) return "no relic available";
+                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true, reforgeCount: 1);
+                        var rec = RelicForgeService.RecordFor(clone);
+                        if (rec != null && RelicForgeService.IsCursedRecord(rec)) firstCurses++;
+                    }
+                    if (firstCurses > 0) return $"first reforge (pity) cursed {firstCurses}/60 at 100%";
+
+                    // (c) a LATER reforge (count 5, pity full) DOES curse at 100% — the gate lives.
+                    int lateCurses = 0;
+                    for (uint s = 200; s < 260; s++)
+                    {
+                        var clone = FirstNumericRelic();
+                        if (clone == null) return "no relic available";
+                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true, reforgeCount: 5);
+                        var rec = RelicForgeService.RecordFor(clone);
+                        if (rec != null && RelicForgeService.IsCursedRecord(rec)) lateCurses++;
+                    }
+                    if (lateCurses == 0) return "5th reforge produced no curses at 100% (pity/gate stuck off?)";
+                    W($"  curse: chance0 -> {curses}c/{duds}dud; first(pity) -> {firstCurses}c; 5th@100% -> {lateCurses}c / 60");
                     return null;
                 }
                 finally { ForgeConfig.CurseChance = saved; }

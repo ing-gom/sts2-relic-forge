@@ -6,12 +6,14 @@ namespace Sts2RelicForge;
 internal static class ForgeConfig
 {
     /// <summary>
-    /// Probability that a relic receives NO prefix (stays vanilla). Default 0.65, i.e. ~35% of PICKED-UP
-    /// relics get a prefix — a prefix is a lucky find, and (since E) a pickup prefix is pure upside with no
-    /// curse. Surfaced in-game as the POSITIVE "Prefix chance" slider (1 - this); 0 = every eligible relic
-    /// is prefixed. Reforging ignores this entirely — it always lands a prefix.
+    /// Probability that a relic receives NO prefix (stays vanilla). Default 0.85, i.e. ~15% of PICKED-UP
+    /// relics get a prefix — a prefix is a LUCKY find, kept deliberately rare so the player evaluates a
+    /// relic on its base effect (a random pickup affix would muddy every treasure/reward decision) and so
+    /// REFORGING at a campfire is the real way to craft an affix, not a passive pickup bonus. Surfaced
+    /// in-game as the POSITIVE "Prefix chance" slider (1 - this); 0 = every eligible relic is prefixed,
+    /// 100% = all pickups vanilla. Reforging ignores this entirely — it always lands a prefix.
     /// </summary>
-    public static double NoPrefixChance = 0.65;
+    public static double NoPrefixChance = 0.85;
 
     /// <summary>
     /// Enemy-forge strength multiplier, FIXED at the designed 1.0 (100%). Formerly a 0–200% ModConfig

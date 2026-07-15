@@ -37,9 +37,9 @@ internal static class ForgeLoc
         ["UI.PICKER_BANNER_REFORGE"] = ("Choose a relic to reforge", "재련할 유물 선택", "选择要重铸的遗物"),
         ["UI.SKIP"] = ("Skip", "건너뛰기", "跳过"),
         ["UI.SHOP_REFORGE_TITLE"] = ("Reforge Relic", "유물 재련", "重铸遗物"),   // "relic" explicit — never collide with card reforge/smith
-        ["UI.SHOP_REFORGE_BODY"] = ("Reforge a relic (cost rises each time). Its curse-aura fills; when full, its effect stops — only the curse remains. Cleanse to revive it.",
-                                    "유물을 재련합니다(재련할수록 비용↑). 저주 기운이 차오르고, 가득 차면 유물 효과가 멈춥니다 — 저주만 남습니다. 정화로 되살립니다.",
-                                    "重铸遗物（费用递增）。诅咒之气积满后遗物效果停止——仅留诅咒。净化可使其恢复。"),
+        ["UI.SHOP_REFORGE_BODY"] = ("Reforge a relic (cost rises each time). The FIRST reforge of a relic is always curse-free; each further reforge raises its curse risk (shown as the curse-risk %). At 100% its effect stops — only the curse remains. Cleanse to revive it.",
+                                    "유물을 재련합니다(재련할수록 비용↑). 유물의 첫 재련은 항상 저주 없이 안전하며, 재련을 거듭할수록 저주 위험(% 표시)이 커집니다. 100%가 되면 유물 효과가 멈추고 저주만 남습니다. 정화로 되살립니다.",
+                                    "重铸遗物（费用递增）。遗物的首次重铸必定无诅咒；此后每次重铸都会提高其诅咒风险（显示为诅咒风险%）。达到100%时遗物效果停止，仅留诅咒。净化可使其恢复。"),
         // Shop location aura (per-visit reforge budget). SHOP_REFORGE_AURA takes a {0} percent.
         ["UI.SHOP_REFORGE_AURA"] = ("This shop's curse-aura: {0}%. Each reforge stirs the aura; when it fills, reforging ends here.",
                                     "이 상점의 저주 기운: {0}%. 재련마다 저주의 기운이 맴돌며, 저주가 가득 차면 재련이 종료됩니다.",
@@ -48,9 +48,9 @@ internal static class ForgeLoc
                                      "이 상점의 저주 기운이 가득 차 대장간의 불이 식었습니다. 다음 상점에서 다시 재련하세요.",
                                      "本店诅咒之气已满——炉火已冷。请到下一个商店再重铸。"),
         // Curse-gauge panel (see RelicExtraPanelsPatch / ForgeText.GaugeBody). GAUGE_FILL takes a {0} percent.
-        ["UI.GAUGE_TITLE"] = ("Curse Aura", "저주 기운", "诅咒之气"),
-        ["UI.GAUGE_FILL"] = ("Curse aura {0}%", "저주 기운 {0}%", "诅咒之气 {0}%"),
-        ["UI.GAUGE_BAND0"] = ("A faint curse-aura clings to it.", "저주의 기운이 희미하게 서려 있다.", "隐约萦绕着一丝诅咒之气。"),
+        ["UI.GAUGE_TITLE"] = ("Curse Risk", "저주 위험", "诅咒风险"),
+        ["UI.GAUGE_FILL"] = ("Curse risk {0}% (rises each reforge)", "저주 위험 {0}% (재련할수록 상승)", "诅咒风险 {0}%（每次重铸上升）"),
+        ["UI.GAUGE_BAND0"] = ("Still safe to reforge — curse risk climbs the more you reforge it.", "아직 재련해도 안전한 편 — 재련을 거듭할수록 저주 위험이 커진다.", "重铸尚且安全——越是反复重铸，诅咒风险越高。"),
         ["UI.GAUGE_BAND1"] = ("The curse-aura is settling in.", "저주의 기운이 서리기 시작한다.", "诅咒之气开始凝聚。"),
         ["UI.GAUGE_BAND2"] = ("The curse-aura thickens.", "저주의 기운이 짙어진다.", "诅咒之气渐浓。"),
         ["UI.GAUGE_BAND3"] = ("The curse-aura hangs heavy — nearly saturated.", "저주의 기운이 자욱하다 — 곧 포화된다.", "诅咒之气弥漫——即将饱和。"),

@@ -129,6 +129,12 @@ internal static class RestSiteReforgeSupport
     /// option and the synchronizer's per-player option lists stay identical across clients.</summary>
     public static readonly Dictionary<ulong, ReforgeRestSiteOption> ByPlayer = new();
 
+    /// <summary>The CLEANSE option instance for each player at the current rest site, keyed by NetId —
+    /// the cleanse sibling of <see cref="ByPlayer"/>, used the same way (per-player so the synced re-add
+    /// after Heal/Smith preserves each option's per-visit "already used" state and co-op peers resolve
+    /// the right owner). See <see cref="CleanseRestSiteOption"/>.</summary>
+    public static readonly Dictionary<ulong, CleanseRestSiteOption> CleanseByPlayer = new();
+
     /// <summary>
     /// Every owned, player-chosen relic can be reforged — whether it currently has a prefix, rolled
     /// "no prefix", or was never eligible on pickup (a deliberate reforge always lands a prefix) — EXCEPT
@@ -211,6 +217,22 @@ internal static class RestSiteReforgeSupport
                 Localize("저주 기운이 가득 차 이 대장간의 불이 식었습니다. 다른 휴식처에서 다시 재련하세요.",
                          "诅咒之气缠满，这座熔炉的炉火已冷。请在其他休息处再重铸。",
                          "The curse-aura fills and this forge goes cold — reforge again at another rest site."),
+
+            // CLEANSE rest-site option — ONE free cleanse per visit (see CleanseRestSiteOption). "유물"
+            // is explicit in every language so it never reads like the shop's card-removal / card-reforge.
+            ["OPTION_CLEANSE.name"] = Localize("유물 정화", "净化遗物", "Cleanse Relic"),
+            ["OPTION_CLEANSE.description"] =
+                Localize("저주받은 유물 하나를 정화합니다 — 저주를 없애고 저주 기운을 줄입니다 (휴식처당 한 번, 무료).",
+                         "净化一件被诅咒的遗物 — 移除诅咒并降低诅咒之气（每处休息一次，免费）。",
+                         "Cleanse one cursed relic — remove its curse and lower its curse-aura (once per rest site, free)."),
+            ["OPTION_CLEANSE.descriptionDisabled"] =
+                Localize("정화할 저주받은 유물이 없습니다.",
+                         "没有可净化的被诅咒遗物。",
+                         "No cursed relic to cleanse."),
+            ["OPTION_CLEANSE.descriptionEnded"] =
+                Localize("이 휴식처에서는 이미 정화했습니다. 다른 휴식처에서 다시 정화하세요.",
+                         "本次休息已净化过。请在其他休息处再净化。",
+                         "You have already cleansed at this rest site — cleanse again at another one."),
         });
     }
 }

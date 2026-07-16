@@ -58,11 +58,11 @@ public class MainFile
                 onChanged: v => { ForgeConfig.CurseChance = v / 100.0; ForgeConfigBroadcaster.BroadcastIfHost(); })
                 .Range(0f, 100f, 1f, format: "F0")
                 .Description("Reference chance a forged relic carries ONE curse — either an enemy-rider curse (strengthens elites & bosses) OR a self-curse (punishes you on unblocked hits), never both. The real chance SCALES with the prefix's power: a weak prefix is rarely cursed, a Legendary almost always. Which kind is set by 'Self-curse share'. Re-forge to re-roll it.")
-            .Slider(EntryKeyCleanseCost, "Shop cleanse base cost (gold)",
+            .Slider(EntryKeyCleanseCost, "Shop cleanse cost (gold)",
                 defaultValue: 100.0,
                 onChanged: v => ForgeConfig.ShopCleanseCost = (int)v)
                 .Range(0f, 300f, 10f, format: "F0")
-                .Description("BASE gold for the FIRST cleanse at a merchant — removes the curse from a relic (a penalty prefix reverts to no prefix; an enemy-rider / self-curse is stripped, keeping the prefix). Each further cleanse in the SAME shop costs +50 more (resets at the next shop). A cursed relic can no longer be reforged at all, so cleanse is the only way to shed a curse. 0 = free first cleanse.")
+                .Description("FLAT gold to cleanse at a merchant — removes the curse from a relic (a penalty prefix reverts to no prefix; an enemy-rider / self-curse is stripped, keeping the prefix). The cost does NOT escalate — every cleanse this shop costs the same. A cursed relic can no longer be reforged at all, so cleanse is the only way to shed a curse. A rest site also offers ONE free cleanse per visit. 0 = free.")
             .Toggle(EntryKeyForgeAncient, "Forge Ancient relics",
                 defaultValue: true,
                 onChanged: v => { ForgeConfig.ForgeAncientRelics = v; ForgeConfigBroadcaster.BroadcastIfHost(); })

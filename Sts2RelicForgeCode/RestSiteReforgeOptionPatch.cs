@@ -8,9 +8,10 @@ using MegaCrit.Sts2.Core.Runs;                 // RunManager
 namespace Sts2RelicForge;
 
 /// <summary>
-/// Adds the Reforge option to every rest site. RestSiteOption.Generate builds the Heal/Smith list
-/// and returns it to the synchronizer, so appending here means our option is part of the synced,
-/// index-selectable list. We also inject the option's loc keys + icon at this exact moment (rest
+/// Adds the Reforge AND Cleanse options to every rest site. RestSiteOption.Generate builds the
+/// Heal/Smith list and returns it to the synchronizer, so appending here means our options are part
+/// of the synced, index-selectable list (added in a fixed order — Reforge then Cleanse — so every
+/// client's list matches). We also inject the options' loc keys + icons at this exact moment (rest
 /// site build time), which keeps them correct across language changes without a separate hook.
 ///
 /// SINGLE-PLAYER ONLY. Selecting the option opens <see cref="NReforgeRelicPicker"/> (a local,
@@ -32,13 +33,21 @@ internal static class RestSiteReforgeOptionPatch
 
             if (!ReforgeNet.Available())
             {
-                RestSiteReforgeSupport.ByPlayer.Remove(player.NetId); // don't let a stale option be re-added
+                RestSiteReforgeSupport.ByPlayer.Remove(player.NetId);        // don't let a stale option be re-added
+                RestSiteReforgeSupport.CleanseByPlayer.Remove(player.NetId);
                 return;                                               // reforge unavailable (e.g. no active run)
             }
             RestSiteReforgeSupport.EnsureLoc();
+
             var option = new ReforgeRestSiteOption(player);
             RestSiteReforgeSupport.ByPlayer[player.NetId] = option; // per-player, for the synced re-add after Heal/Smith
             __result.Add(option);
+
+            // The cleanse sibling — one free cleanse per visit (see CleanseRestSiteOption). Always added
+            // (greys via IsEnabled when there's nothing cursed), so the co-op option lists stay identical.
+            var cleanse = new CleanseRestSiteOption(player);
+            RestSiteReforgeSupport.CleanseByPlayer[player.NetId] = cleanse;
+            __result.Add(cleanse);
         }
         catch (Exception e)
         {

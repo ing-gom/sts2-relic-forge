@@ -47,24 +47,23 @@ internal static class ForgeConfig
         ShopReforgeBaseCost + ShopReforgeCostStep * Math.Max(0, reforgesThisShop);
 
     /// <summary>
-    /// BASE gold cost of the FIRST shop CLEANSE this visit — remove the curse from a relic, keeping its
-    /// prefix (see <see cref="NMerchantCleanseButton"/>). A cursed relic can no longer be reforged at all
-    /// (the reforge picker excludes it), so Cleanse is the ONLY way to shed a curse — priced as the
-    /// premium, guaranteed (no-gamble) removal. Like the shop reforge, the cost ESCALATES within a single
-    /// shop visit (base + <see cref="ShopCleanseCostStep"/> per cleanse already done — see
-    /// <see cref="ShopCleanseCostFor"/>), so clearing several curses at once gets progressively expensive;
-    /// the per-visit counter lives on the button instance (<see cref="NMerchantCleanseButton"/>), so it
-    /// resets to this base at the next shop. Default 100, adjustable in-game; 0 = free first cleanse.
+    /// FLAT gold cost of a shop CLEANSE — remove the curse from a relic, keeping its prefix (see
+    /// <see cref="NMerchantCleanseButton"/>). A cursed relic can no longer be reforged at all (the reforge
+    /// picker excludes it), so Cleanse is the ONLY way to shed a curse — priced as the premium, guaranteed
+    /// (no-gamble) removal. The cost does NOT escalate within a visit (<see cref="ShopCleanseCostStep"/> = 0),
+    /// so every cleanse this shop costs the same, predictable amount. Default 100, adjustable in-game;
+    /// 0 = free. (A rest site also offers ONE free cleanse per visit — see <see cref="CleanseRestSiteOption"/>.)
     /// </summary>
     public static int ShopCleanseCost = 100;
 
-    /// <summary>Gold added to the shop cleanse cost per cleanse already done this shop visit. Fixed
-    /// (not user-tunable), mirroring <see cref="ShopReforgeCostStep"/>. See <see cref="ShopCleanseCostFor"/>.</summary>
-    public const int ShopCleanseCostStep = 50;
+    /// <summary>Gold added to the shop cleanse cost per cleanse already done this shop visit. Fixed at 0 —
+    /// the shop cleanse cost is a FLAT <see cref="ShopCleanseCost"/> that does not escalate. Kept as a code
+    /// constant so <see cref="ShopCleanseCostFor"/> stays a single retune anchor if escalation is ever wanted.</summary>
+    public const int ShopCleanseCostStep = 0;
 
-    /// <summary>Gold cost of the next shop cleanse given how many have already been done in the current
-    /// shop visit (<paramref name="cleansesThisShop"/> = 0 for the first). Base is the tunable
-    /// <see cref="ShopCleanseCost"/>; each prior cleanse this visit adds <see cref="ShopCleanseCostStep"/>.</summary>
+    /// <summary>Gold cost of a shop cleanse. With <see cref="ShopCleanseCostStep"/> = 0 this is just the flat
+    /// <see cref="ShopCleanseCost"/> regardless of how many cleanses were already done this visit
+    /// (<paramref name="cleansesThisShop"/>).</summary>
     public static int ShopCleanseCostFor(int cleansesThisShop) =>
         ShopCleanseCost + ShopCleanseCostStep * Math.Max(0, cleansesThisShop);
 

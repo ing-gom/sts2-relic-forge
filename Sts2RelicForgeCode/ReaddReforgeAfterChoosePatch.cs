@@ -65,16 +65,34 @@ internal static class ReaddReforgeAfterChoosePatch
                 try
                 {
                     if (player != null
-                        && RestSiteReforgeSupport.ByPlayer.TryGetValue(player.NetId, out var reforge)
-                        && RestSiteReforgeSupport.HasReforgeable(player)
-                        && sync.GetOptionsForPlayer(player) is List<RestSiteOption> opts
-                        && !opts.Contains(reforge))
+                        && sync.GetOptionsForPlayer(player) is List<RestSiteOption> opts)
                     {
+                        bool changed = false;
+
+                        // Re-add REFORGE (free + repeatable). Membership keys on HasReforgeable (replicated
+                        // → identical on all clients); its per-visit "ended" state only greys the button.
+                        if (RestSiteReforgeSupport.ByPlayer.TryGetValue(player.NetId, out var reforge)
+                            && RestSiteReforgeSupport.HasReforgeable(player)
+                            && !opts.Contains(reforge))
+                        {
+                            opts.Add(reforge);
+                            changed = true;
+                        }
+
+                        // Re-add CLEANSE (one per visit). Membership keys on HasCleansable (replicated); its
+                        // per-visit "used" state only greys the button, so the lists can't diverge.
+                        if (RestSiteReforgeSupport.CleanseByPlayer.TryGetValue(player.NetId, out var cleanse)
+                            && RestSiteReforgeSupport.HasCleansable(player)
+                            && !opts.Contains(cleanse))
+                        {
+                            opts.Add(cleanse);
+                            changed = true;
+                        }
+
                         // Runs on every client for this player, so all copies of the list stay identical
                         // (index-based selection therefore stays consistent). Only refresh the button UI
                         // on the client actually viewing this player's rest site.
-                        opts.Add(reforge);
-                        if (LocalContext.IsMe(player))
+                        if (changed && LocalContext.IsMe(player))
                             NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
                     }
                 }

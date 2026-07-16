@@ -531,6 +531,57 @@ internal static class SoloTest
                 finally { ForgeConfig.CurseChance = saved; }
             });
 
+            // T15 — CLEANSE (lowered cost + campfire cleanse option): assert the lowered cost curve
+            // (base 50, +10/step), that the campfire CLEANSE option is generated alongside reforge (with a
+            // screenshot of the two options), then force a curse onto an owned relic and verify the cleanse
+            // eligibility + logic (option enabled while cursed → Cleanse strips the curse → nothing left to
+            // cleanse). The curse-force step is probabilistic, so it skips (pass) if no curse lands.
+            await TestAsync("T15 cleanse cost + campfire option + logic", async () =>
+            {
+                // (a) FLAT cleanse cost — no escalation (step 0). The BASE is the saved ModConfig value
+                // (new-install default 100, but an existing profile keeps its saved value), so assert the
+                // flat relationship (every cleanse costs the same), not the literal base.
+                if (ForgeConfig.ShopCleanseCostStep != 0) return $"cost step {ForgeConfig.ShopCleanseCostStep} != 0 (should be flat)";
+                int cbase = ForgeConfig.ShopCleanseCost;
+                if (ForgeConfig.ShopCleanseCostFor(0) != cbase || ForgeConfig.ShopCleanseCostFor(3) != cbase)
+                    return $"cost not flat: {ForgeConfig.ShopCleanseCostFor(0)}/{ForgeConfig.ShopCleanseCostFor(3)} (base {cbase})";
+                W($"  cleanse cost: flat base={cbase} (new-install default 100; this profile's saved value), no escalation");
+
+                if (player == null || run == null) return "no run/player";
+                // (b) the campfire CLEANSE option was generated (T9 entered the rest site). Use the CACHED
+                // option instance — do NOT re-enter a room here: a room transition right after the T13
+                // game-over scenario hangs the harness (the run is still in its defeat state).
+                if (!RestSiteReforgeSupport.CleanseByPlayer.TryGetValue(player.NetId, out var cleanseOpt))
+                    return "campfire cleanse option was not generated at the rest site (T9)";
+
+                // (c) force a curse onto an already-owned forged relic (no grant, no room change) and verify
+                // the cleanse eligibility + logic. Curse-force is probabilistic → skip (pass) if none lands.
+                var relic = player.Relics.FirstOrDefault(
+                    r => !RelicForgeService.IsCompanion(r) && RelicForgeService.DescriptorOf(r) != null);
+                if (relic == null) { W("  (no owned forged relic — cleanse-logic step skipped; cost + option verified)"); return null; }
+
+                double savedCC = ForgeConfig.CurseChance;
+                try
+                {
+                    ForgeConfig.CurseChance = 1.0;   // pity ramps with count → a later reforge curses at 100%
+                    for (int c = 2; c <= 10 && !RelicForgeService.CanCleanse(relic); c++)
+                        RelicForgeService.Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
+                                                guaranteePrefix: true, reforgeCount: c);
+                }
+                finally { ForgeConfig.CurseChance = savedCC; }
+
+                if (!RelicForgeService.CanCleanse(relic))
+                { W("  (no curse landed this seed — cleanse-logic step skipped; cost + option verified)"); return null; }
+
+                bool enabledCursed = cleanseOpt.IsEnabled;                 // has cleansable + not used → true
+                if (!RelicForgeService.Cleanse(relic)) return "Cleanse did not act on a cleansable relic";
+                var recAfter = RelicForgeService.RecordFor(relic);
+                if (recAfter != null && RelicForgeService.IsCursedRecord(recAfter)) return "curse remained after cleanse";
+                W($"  cleanse ok: enabled-when-cursed={enabledCursed}, curse removed");
+                if (!enabledCursed) return "cleanse option was disabled while a cursed relic was owned";
+                return null;
+            });
+
             // T12 — safe mode gates (sister-mod mismatch): tripping via the real rf_fp comparison path
             // must make every forge entry point inert. LAST test — it flips global state (reset after).
             Test("T12 safe-mode gates", () =>

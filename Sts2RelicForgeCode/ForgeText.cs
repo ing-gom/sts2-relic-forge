@@ -98,6 +98,18 @@ internal static class ForgeText
         return sb.ToString();
     }
 
+    /// <summary>The QUALITATIVE prefix note(s) only — companion/mixed/penalty note + tie-break — WITHOUT the
+    /// numeric var deltas. Used by the consolidated <see cref="ForgeSummary"/>, which groups the numeric
+    /// deltas by variable itself (into ranges) and groups these notes by identical text.</summary>
+    public static string NotesOnly(ForgeRecord rec)
+    {
+        var sb = new StringBuilder();
+        void Add(string s) { if (s.Length == 0) return; if (sb.Length > 0) sb.Append('\n'); sb.Append(s); }
+        Add(PrefixNote(rec));
+        Add(TieBreakNote(rec));
+        return sb.ToString();
+    }
+
     /// <summary>Title of the curse-gauge panel.</summary>
     public static string GaugeTitle() => ForgeLoc.Ui("GAUGE_TITLE");
 

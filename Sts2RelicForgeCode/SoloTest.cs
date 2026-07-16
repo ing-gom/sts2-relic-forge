@@ -283,6 +283,54 @@ internal static class SoloTest
                 return null;
             });
 
+            // T16 — forge SUMMARY on the portrait hover: after the T10 forge, hovering the character portrait
+            // shows the ascension penalties + a forge summary (prefix effects + curses) in one native panel.
+            // Directly invoke the portrait tooltip's OnFocus (our patch rebuilds + shows the combined tip) and
+            // screenshot it under the portrait.
+            await TestAsync("T16 forge summary on portrait hover", async () =>
+            {
+                if (player == null) return "no player";
+                // grant + force-forge several relics so the summary has MANY entries — the shot then proves
+                // the chunked panels wrap into columns (right) instead of one tall panel overflowing.
+                if (run != null)
+                {
+                    // grant several NUMERIC relics that share stats (Block: anchor/orichalcum; MaxHp:
+                    // strawberry/pear/mango) so the grouped summary shows RANGES, plus some others.
+                    foreach (var rid in new[] { "anchor", "orichalcum", "strawberry", "pear", "mango", "toolbox", "whetstone", "lantern", "sozu", "warpaint" })
+                        run.ActionQueueSynchronizer.RequestEnqueue(
+                            new MegaCrit.Sts2.Core.DevConsole.ConsoleCmdGameAction(player, "relic " + rid, inCombat: false));
+                    await Task.Delay(3500);
+                    foreach (var r in player.Relics.ToList())   // force-forge ALL owned relics (guaranteePrefix)
+                    {
+                        if (RelicForgeService.IsCompanion(r)) continue;
+                        try { RelicForgeService.Forge(r, player.RunState.Rng.Seed, r.FloorAddedToDeck, guaranteePrefix: true, reforgeCount: 1); } catch { }
+                    }
+                }
+                // test-only: inject a self-curse onto a forged relic so the CURSE panel renders beside the
+                // prefix one (the shot then proves the side-by-side multi-panel layout).
+                var forged = player.Relics.FirstOrDefault(r => !RelicForgeService.IsCompanion(r) && RelicForgeService.RecordFor(r) != null);
+                var frec = forged != null ? RelicForgeService.RecordFor(forged) : null;
+                if (frec != null && frec.SelfCurse.Length == 0 && !frec.EnemyRider) { frec.SelfCurse = "Enfeebling"; W("  (injected test self-curse)"); }
+                if (!ForgeSummary.HasAny(player)) return "no forged relic to summarize";
+                // log the GROUPED content so ranges/×counts can be verified from text (screenshots can be
+                // covered by a stray relic hover tooltip).
+                foreach (var p in ForgeSummary.PrefixPanels(player)) W("  PFX> " + p.Replace("\n", " | "));
+                foreach (var p in ForgeSummary.CursePanels(player)) W("  CUR> " + p.Replace("\n", " | "));
+                Godot.Input.WarpMouse(new Godot.Vector2(1400f, 950f));   // off the relic row so its tooltip clears
+                await Task.Delay(250);
+                if (Engine.GetMainLoop() is not SceneTree tree) return "no scene tree";
+                var tip = FindByTypeName(tree.Root, "NTopBarPortraitTip") as Control;
+                if (tip == null) return "portrait tooltip control not found";
+                tip.GetType().GetMethod("OnFocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                    ?.Invoke(tip, null);                       // → our Prefix builds + shows the combined tooltip
+                await Task.Delay(900);
+                await Shot("09_summary");
+                tip.GetType().GetMethod("OnUnfocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                    ?.Invoke(tip, null);
+                W($"  portrait summary shown ({ForgeSummary.PrefixPanels(player).Count} prefix panel(s), {ForgeSummary.CursePanels(player).Count} curse panel(s))");
+                return null;
+            });
+
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the
             // relic's forge effect". Reproduce the exact scenario against the REAL Rewind mod: enter a
             // monster combat with a forged relic (akabeko from T10), advance two turns, rewind to turn 1
@@ -701,6 +749,14 @@ internal static class SoloTest
     {
         if (n is T t) return t;
         foreach (var c in n.GetChildren()) { var r = FindNode<T>(c); if (r != null) return r; }
+        return null;
+    }
+
+    // Find a node by its runtime type NAME (for game types we don't reference at compile time).
+    private static Node? FindByTypeName(Node n, string typeName)
+    {
+        if (n.GetType().Name == typeName) return n;
+        foreach (var c in n.GetChildren()) { var r = FindByTypeName(c, typeName); if (r != null) return r; }
         return null;
     }
 

@@ -34,6 +34,11 @@ internal static class ForgeLoc
     {
         ["UI.CURSED_MARK"] = ("(Cursed)", "〈저주〉", "〈诅咒〉"),
         ["UI.CURSE_TITLE"] = ("Curse", "저주", "诅咒"),
+        // Top-bar forge-summary tooltip (see ForgeSummary / ForgeSummaryIcon).
+        ["UI.SUMMARY_TITLE"] = ("Forge Summary", "재련 요약", "重铸总览"),
+        ["UI.SUMMARY_PREFIXES"] = ("Prefix effects", "접두사 효과", "词缀效果"),
+        ["UI.SUMMARY_CURSES"] = ("Curses", "저주", "诅咒"),
+        ["UI.SUMMARY_EMPTY"] = ("No forged relics yet.", "아직 재련한 유물이 없습니다.", "还没有重铸的遗物。"),
         ["UI.PICKER_BANNER_REFORGE"] = ("Choose a relic to reforge", "재련할 유물 선택", "选择要重铸的遗物"),
         ["UI.SKIP"] = ("Skip", "건너뛰기", "跳过"),
         ["UI.SHOP_REFORGE_TITLE"] = ("Reforge Relic", "유물 재련", "重铸遗物"),   // "relic" explicit — never collide with card reforge/smith

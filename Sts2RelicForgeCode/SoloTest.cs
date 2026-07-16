@@ -436,6 +436,23 @@ internal static class SoloTest
                 return null;
             });
 
+            // T18 — unified HP-curse ramp (feature C, HP side): the four Max-HP curses (Vigor/Girth/Titan/
+            // Eternity) now share ONE stacking ramp keyed on how many reach a fight — 5/10/20/40/70/100%,
+            // hard-capped — replacing per-curse fixed fractions that summed with no ceiling. Verify the curve
+            // directly (EnemyForge.HpRampFor is same-assembly internal). Pure numbers, no combat needed.
+            Test("T18 unified HP-curse ramp", () =>
+            {
+                var expected = new (int n, double f)[]
+                { (0, 0.0), (1, 0.05), (2, 0.10), (3, 0.20), (4, 0.40), (5, 0.70), (6, 1.00), (7, 1.00), (99, 1.00) };
+                foreach (var (n, f) in expected)
+                {
+                    double got = EnemyForge.HpRampFor(n);
+                    if (Math.Abs(got - f) > 1e-9) return $"HpRampFor({n})={got}, expected {f}";
+                }
+                W("  HP ramp: 0/5/10/20/40/70/100% (hard-capped) ✓");
+                return null;
+            });
+
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the
             // relic's forge effect". Reproduce the exact scenario against the REAL Rewind mod: enter a
             // monster combat with a forged relic (akabeko from T10), advance two turns, rewind to turn 1

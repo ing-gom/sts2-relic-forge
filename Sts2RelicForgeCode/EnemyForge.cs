@@ -88,7 +88,10 @@ internal static class EnemyPrefixTable
 
     private static EnemyEffect Pow(PowerApply apply, int amount, int period = 0, double chance = 0)
         => new() { Apply = apply, Base = amount, Period = period, Chance = chance };
-    private static EnemyEffect Hp(double frac) => new() { IsHp = true, Base = frac };
+    // HP curses no longer carry a per-prefix magnitude — the UNIFIED stacking ramp in EnemyForge.HpFractionFor
+    // sets the amount from how many HP curses reach a fight. Hp() is now just the "this is an HP curse" marker
+    // (Base is unused for HP). The four HP curses differ ONLY by scope (which fights they reach).
+    private static EnemyEffect Hp() => new() { IsHp = true };
 
     // Only the prefixes the rider suffixes map to (see RiderSuffix). Amounts are FIXED — each carried
     // rider curse applies exactly this, stacking if duplicated.
@@ -111,17 +114,18 @@ internal static class EnemyPrefixTable
         new EnemyPrefix { Name = "Frenzied", Ko = "광란의", Zh = "狂乱的", Color = "#ff6b4d",
             Effects = new[] { Pow(Str, 2, period: 3) } },                         // Strength 2 every 3rd turn
 
-        // Max-HP curses — a FIXED fraction of each enemy's spawn MaxHp, broadcast to ALL enemies in a
-        // scope-matching fight by EnemyForge.ApplyHpCurses (NOT the per-enemy decoration path).
-        // GainMaxHp also heals, so they're genuinely tankier from turn 1.
+        // Max-HP curses — broadcast to ALL enemies in a scope-matching fight by EnemyForge.ApplyHpCurses
+        // (NOT the per-enemy decoration path). GainMaxHp also heals, so they're tankier from turn 1. All four
+        // share ONE unified stacking ramp (see EnemyForge.HpFractionFor: the Nth HP curse reaching a fight ->
+        // 5/10/20/40/70/100% of spawn MaxHp, hard-capped). They differ ONLY by SCOPE — which fights they reach.
         new EnemyPrefix { Name = "Vigor",    Ko = "활력", Zh = "活力", Color = "#c0335a", Scope = HpScope.Normal,
-            Effects = new[] { Hp(0.20) } },   // normal fights: every enemy +20% Max HP
+            Effects = new[] { Hp() } },   // reaches: normal fights
         new EnemyPrefix { Name = "Girth",    Ko = "비대", Zh = "臃肿", Color = "#a03a5a", Scope = HpScope.Any,
-            Effects = new[] { Hp(0.12) } },   // all fights: every enemy +12% Max HP
+            Effects = new[] { Hp() } },   // reaches: every fight
         new EnemyPrefix { Name = "Titan",    Ko = "거인", Zh = "巨人", Color = "#c04d33", Scope = HpScope.Elite,
-            Effects = new[] { Hp(0.30) } },   // elites: +30% Max HP
+            Effects = new[] { Hp() } },   // reaches: elites
         new EnemyPrefix { Name = "Eternity", Ko = "영겁", Zh = "永恒", Color = "#7a5ac0", Scope = HpScope.Boss,
-            Effects = new[] { Hp(0.25) } },   // boss: +25% Max HP
+            Effects = new[] { Hp() } },   // reaches: boss
     };
 
     /// <summary>Find a prefix by English name (case-insensitive), for the test console command.</summary>
@@ -341,8 +345,9 @@ internal static class EnemyForge
 
     /// <summary>
     /// Apply the player's Max-HP curses (Vigor/Girth/Titan/Eternity riders) to EVERY enemy in the
-    /// current fight whose room matches the curse's scope. Each enemy's bonus is the summed fraction of
-    /// its own spawn MaxHp (stacks if multiple HP-curse relics are carried), applied once per combat.
+    /// current fight whose room matches the curse's scope. The bonus is a fraction of each enemy's own
+    /// spawn MaxHp, set by the UNIFIED stacking ramp (<see cref="HpFractionFor"/>): the more HP curses
+    /// reach this fight, the steeper the bonus (5→10→20→40→70→100%, capped). Applied once per combat.
     /// <see cref="CreatureCmd.GainMaxHp"/> also heals, so they're tankier from turn 1. Gated by the same
     /// master toggle as the rest of the enemy forge.
     /// </summary>
@@ -361,16 +366,29 @@ internal static class EnemyForge
         }
     }
 
-    /// <summary>Sum of the Max-HP fraction the player's HP-curse riders grant in the current room scope.</summary>
+    /// <summary>
+    /// The UNIFIED HP-curse ramp: cumulative Max-HP fraction granted when <paramref name="count"/> HP curses
+    /// reach a fight. Convex and HARD-CAPPED at 100% (enemies at most double their HP), so a single HP curse
+    /// barely stings (5%) while stacking them compounds toward the ceiling — the "greed has a price" curve.
+    /// </summary>
+    internal static double HpRampFor(int count)
+    {
+        if (count <= 0) return 0;
+        return HpRamp[Math.Min(count, HpRamp.Length) - 1];
+    }
+    private static readonly double[] HpRamp = { 0.05, 0.10, 0.20, 0.40, 0.70, 1.00 };
+
+    /// <summary>Max-HP fraction for the current fight: COUNT the HP curses whose scope reaches this room
+    /// (every HP-curse type counts toward the same stack — see <see cref="HpRampFor"/>), then ramp. Curse
+    /// TYPE affects only which fights it reaches (scope), never the per-curse magnitude.</summary>
     private static double HpFractionFor(Player player, RoomType room, bool isBoss)
     {
-        double frac = 0;
-        if (TestForce)   // console preview: apply every HP curse whose scope matches this room
+        int count = 0;
+        if (TestForce)   // console preview: count every HP curse whose scope matches this room
         {
             foreach (var p in EnemyPrefixTable.All)
-                foreach (var eff in p.Effects)
-                    if (eff.IsHp && ScopeMatches(p.Scope, room, isBoss)) frac += eff.Base;
-            return frac;
+                if (p.Effects.Any(e => e.IsHp) && ScopeMatches(p.Scope, room, isBoss)) count++;
+            return HpRampFor(count);
         }
         foreach (var relic in player.Relics)
         {
@@ -380,10 +398,9 @@ internal static class EnemyForge
             var def = RiderSuffix.ByKey(rec.EnemyRiderSuffix);
             var prefix = def == null ? null : EnemyPrefixTable.ByName(def.PrefixName);
             if (prefix == null) continue;
-            foreach (var eff in prefix.Effects)
-                if (eff.IsHp && ScopeMatches(prefix.Scope, room, isBoss)) frac += eff.Base;
+            if (prefix.Effects.Any(e => e.IsHp) && ScopeMatches(prefix.Scope, room, isBoss)) count++;
         }
-        return frac;
+        return HpRampFor(count);
     }
 
     private static bool ScopeMatches(HpScope scope, RoomType room, bool isBoss) => scope switch

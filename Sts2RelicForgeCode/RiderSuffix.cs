@@ -50,13 +50,13 @@ internal static class RiderSuffix
         //     room type. Applied to ALL enemies in a matching fight (see EnemyForge.ApplyHpCurses),
         //     not just the one decorated elite/boss — so "normal-mob HP up" reaches every enemy. ---
         new RiderSuffixDef { En = "Vigor",     Ko = "활력", Zh = "活力", Color = "#c0335a", PrefixName = "Vigor",
-            EffKo = "일반 전투의 모든 적이 최대 체력을 얻습니다", EffEn = "Normal-fight enemies gain Max HP", EffZh = "普通战斗的所有敌人获得最大生命" },
+            EffKo = "일반 전투의 적이 최대 체력을 얻습니다 (HP 저주가 겹칠수록 커짐)", EffEn = "Normal-fight enemies gain Max HP (stacks with other HP curses)", EffZh = "普通战斗的敌人获得最大生命（HP诅咒叠加越多越强）" },
         new RiderSuffixDef { En = "Girth",     Ko = "비대", Zh = "臃肿", Color = "#a03a5a", PrefixName = "Girth",
-            EffKo = "모든 적이 최대 체력을 얻습니다", EffEn = "All enemies gain Max HP", EffZh = "所有敌人获得最大生命" },
+            EffKo = "모든 적이 최대 체력을 얻습니다 (HP 저주가 겹칠수록 커짐)", EffEn = "All enemies gain Max HP (stacks with other HP curses)", EffZh = "所有敌人获得最大生命（HP诅咒叠加越多越强）" },
         new RiderSuffixDef { En = "the Titan", Ko = "거인", Zh = "巨人", Color = "#c04d33", PrefixName = "Titan",
-            EffKo = "엘리트가 최대 체력을 크게 얻습니다", EffEn = "Elites gain a lot of Max HP", EffZh = "精英获得大量最大生命" },
+            EffKo = "엘리트가 최대 체력을 얻습니다 (HP 저주가 겹칠수록 커짐)", EffEn = "Elites gain Max HP (stacks with other HP curses)", EffZh = "精英获得最大生命（HP诅咒叠加越多越强）" },
         new RiderSuffixDef { En = "Eternity",  Ko = "영겁", Zh = "永恒", Color = "#7a5ac0", PrefixName = "Eternity",
-            EffKo = "보스가 최대 체력을 얻습니다", EffEn = "Bosses gain Max HP", EffZh = "首领获得最大生命" },
+            EffKo = "보스가 최대 체력을 얻습니다 (HP 저주가 겹칠수록 커짐)", EffEn = "Bosses gain Max HP (stacks with other HP curses)", EffZh = "首领获得最大生命（HP诅咒叠加越多越强）" },
     };
 
     /// <summary>Deterministic WEIGHTED pick from a 0..1 roll; returns the English key stored on the record.

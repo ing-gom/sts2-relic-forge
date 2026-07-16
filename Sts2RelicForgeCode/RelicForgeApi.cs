@@ -41,6 +41,17 @@ public static class RelicForgeApi
     /// without the game marking it — so an integrating mod can exclude it from its own actions.</summary>
     public static bool IsEffectDisabled(RelicModel relic) => relic != null && RelicForgeService.IsEffectDisabled(relic);
 
+    /// <summary>Whether this relic is a HIDDEN COMPANION — a donor instance grafted onto a forged host to
+    /// realize a companion prefix (e.g. "Quicksilver" grants a weakened Mercury Hourglass). It lives in
+    /// <c>player.Relics</c> so its native hooks fire, but the player does NOT own it: it has no inventory
+    /// icon, is never serialized, and is re-derived from its host's forge record on load.
+    ///
+    /// ★An integrating mod that enumerates <c>player.Relics</c> and ACTS on the result MUST exclude these —
+    /// every internal RelicForge enumeration does. Treating a companion as an owned relic lets the player
+    /// remove/consume a relic that simply reappears on the next load (a duplication exploit), and silently
+    /// kills the host's prefix for the session.</summary>
+    public static bool IsCompanion(RelicModel relic) => relic != null && RelicForgeService.IsCompanion(relic);
+
     /// <summary>Stash a forge state on <paramref name="relic"/> to be RESTORED verbatim the next time it is
     /// obtained (RelicCmd.Obtain) — the enchantment-inheritance seam (a transmuted relic keeps the source's
     /// prefix + curse + reforge count + curse-gauge). A pure no-op for a relic that is never re-obtained.

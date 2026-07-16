@@ -45,13 +45,14 @@ internal static class ForgeLoc
         ["UI.SHOP_REFORGE_BODY"] = ("Reforge a relic (cost rises each time). The FIRST reforge of a relic is always curse-free; each further reforge raises its curse risk (shown as the curse-risk %). At 100% its effect stops — only the curse remains. Cleanse to revive it.",
                                     "유물을 재련합니다(재련할수록 비용↑). 유물의 첫 재련은 항상 저주 없이 안전하며, 재련을 거듭할수록 저주 위험(% 표시)이 커집니다. 100%가 되면 유물 효과가 멈추고 저주만 남습니다. 정화로 되살립니다.",
                                     "重铸遗物（费用递增）。遗物的首次重铸必定无诅咒；此后每次重铸都会提高其诅咒风险（显示为诅咒风险%）。达到100%时遗物效果停止，仅留诅咒。净化可使其恢复。"),
-        // Shop location aura (per-visit reforge budget). SHOP_REFORGE_AURA takes a {0} percent.
-        ["UI.SHOP_REFORGE_AURA"] = ("This shop's curse-aura: {0}%. Each reforge stirs the aura; when it fills, reforging ends here.",
-                                    "이 상점의 저주 기운: {0}%. 재련마다 저주의 기운이 맴돌며, 저주가 가득 차면 재련이 종료됩니다.",
-                                    "本店诅咒之气：{0}%。每次重铸都会牵动诅咒之气，积满后重铸即结束。"),
-        ["UI.SHOP_REFORGE_ENDED"] = ("This shop's curse-aura is full — the forge is cold here. Reforge again at the next shop.",
-                                     "이 상점의 저주 기운이 가득 차 대장간의 불이 식었습니다. 다음 상점에서 다시 재련하세요.",
-                                     "本店诅咒之气已满——炉火已冷。请到下一个商店再重铸。"),
+        // Shop FORGE HEAT (per-visit reforge budget — NOT a curse; amber, distinct from the relic's red
+        // curse-risk gauge). Rises each reforge; when it maxes the forge must cool. SHOP_REFORGE_AURA takes {0}%.
+        ["UI.SHOP_REFORGE_AURA"] = ("[color=#e0913a]This forge's heat: {0}%. Each reforge stokes it — when it maxes, the forge must cool before you can reforge here again.[/color]",
+                                    "[color=#e0913a]이 화로의 열기: {0}%. 재련마다 화로가 달아오르며, 가득 차면 식을 때까지 이곳에서 재련할 수 없습니다.[/color]",
+                                    "[color=#e0913a]本熔炉炉温：{0}%。每次重铸都会升温，炉温积满后须先冷却才能在此继续重铸。[/color]"),
+        ["UI.SHOP_REFORGE_ENDED"] = ("[color=#e0913a]This forge has overheated and must cool — reforge again at the next shop.[/color]",
+                                     "[color=#e0913a]이 화로가 과열되어 식혀야 합니다 — 다음 상점에서 다시 재련하세요.[/color]",
+                                     "[color=#e0913a]本熔炉已过热，需要冷却——请到下一个商店再重铸。[/color]"),
         // Curse-gauge panel (see RelicExtraPanelsPatch / ForgeText.GaugeBody). GAUGE_FILL takes a {0} percent.
         ["UI.GAUGE_TITLE"] = ("Curse Risk", "저주 위험", "诅咒风险"),
         ["UI.GAUGE_FILL"] = ("Curse risk {0}% (rises each reforge)", "저주 위험 {0}% (재련할수록 상승)", "诅咒风险 {0}%（每次重铸上升）"),

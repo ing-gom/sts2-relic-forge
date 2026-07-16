@@ -318,6 +318,22 @@ internal static class SoloTest
                 if ((int)player.Gold != before - cost) return $"gold {before} -> {(int)player.Gold}, expected -{cost}";
                 if (RelicForgeService.ReforgeCountOf(relic) < 1) return "relic did not reforge";
                 W($"  shop reforge ok: -{cost}g ({before} -> {(int)player.Gold}), desc '{RelicForgeService.DescriptorOf(relic)}'");
+
+                // B1: the per-VISIT reforge budget now reads as FORGE HEAT (amber), NOT a curse — the relic's
+                // own red curse-risk is the only "저주" gauge. Read the campfire option's live band text at a
+                // mid gauge (akabeko is now forgeable, so it isn't the disabled line) and assert it carries the
+                // amber tag and dropped every curse word. Skips quietly if no campfire option is registered.
+                if (RestSiteReforgeSupport.ByPlayer.TryGetValue(player.NetId, out var opt))
+                {
+                    var lf = typeof(ReforgeRestSiteOption).GetField("_locGauge", BindingFlags.NonPublic | BindingFlags.Instance);
+                    lf?.SetValue(opt, 50);
+                    string heat = opt.Description.GetFormattedText();
+                    lf?.SetValue(opt, 0);                          // restore so the live UI is unaffected
+                    W("  forge-heat band: " + heat.Replace("\n", " "));
+                    if (!heat.Contains("[color=#e0913a]")) return "forge-heat band missing amber color tag";
+                    if (heat.Contains("저주") || heat.Contains("诅咒") || heat.ToLowerInvariant().Contains("curse"))
+                        return "forge-heat band still uses curse wording";
+                }
                 return null;
             });
 

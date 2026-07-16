@@ -194,29 +194,32 @@ internal static class RestSiteReforgeSupport
                 Localize("재련할 유물이 없습니다 (모두 저주에 걸렸거나 저주 기운이 가득 찼습니다).",
                          "没有可重铸的遗物（都已被诅咒或诅咒之气已满）。",
                          "No relic left to reforge (all cursed or curse-saturated)."),
-            // Location aura bands: this campfire's own reforge aura fills 5–20% per reforge; at 100% it ends.
+            // FORGE HEAT bands (per-visit reforge budget — NOT a curse; amber #e0913a, distinct from the
+            // relic's red curse-risk). This campfire's heat rises 5–20% per reforge; at 100% the forge must
+            // cool and the option greys for the visit. Kept separate from the relic curse so the two red/amber
+            // gauges never read as the same thing.
             ["OPTION_REFORGE.descriptionLoc0"] =
-                Localize("이 대장간의 저주 기운 {Pct}% — 희미하게 서리기 시작한다. 계속 재련할 수 있다.",
-                         "本熔炉诅咒之气 {Pct}% — 隐约开始萦绕，仍可继续重铸。",
-                         "This forge's curse-aura: {Pct}% — a faint haze; keep reforging."),
+                Localize("[color=#e0913a]이 화로의 열기 {Pct}% — 이제 막 달아오른다. 계속 재련할 수 있다.[/color]",
+                         "[color=#e0913a]本熔炉炉温 {Pct}% — 刚刚升温，仍可继续重铸。[/color]",
+                         "[color=#e0913a]This forge's heat: {Pct}% — just warming up; keep reforging.[/color]"),
             ["OPTION_REFORGE.descriptionLoc1"] =
-                Localize("이 대장간의 저주 기운 {Pct}% — 짙어지고 있다.",
-                         "本熔炉诅咒之气 {Pct}% — 渐浓。",
-                         "This forge's curse-aura: {Pct}% — thickening."),
+                Localize("[color=#e0913a]이 화로의 열기 {Pct}% — 점점 뜨거워진다.[/color]",
+                         "[color=#e0913a]本熔炉炉温 {Pct}% — 越来越热。[/color]",
+                         "[color=#e0913a]This forge's heat: {Pct}% — getting hotter.[/color]"),
             ["OPTION_REFORGE.descriptionLoc2"] =
-                Localize("이 대장간의 저주 기운 {Pct}% — 자욱하다. 불꽃이 흔들린다.",
-                         "本熔炉诅咒之气 {Pct}% — 弥漫，炉火摇曳。",
-                         "This forge's curse-aura: {Pct}% — heavy; the flames waver."),
+                Localize("[color=#e0913a]이 화로의 열기 {Pct}% — 벌겋게 달아올랐다. 불꽃이 거세다.[/color]",
+                         "[color=#e0913a]本熔炉炉温 {Pct}% — 通红炽热，炉火正旺。[/color]",
+                         "[color=#e0913a]This forge's heat: {Pct}% — glowing hot; the flames roar.[/color]"),
             ["OPTION_REFORGE.descriptionLoc3"] =
-                Localize("이 대장간의 저주 기운 {Pct}% — 불씨가 꺼지기 직전. 곧 재련할 수 없다.",
-                         "本熔炉诅咒之气 {Pct}% — 余烬将熄，即将无法重铸。",
-                         "This forge's curse-aura: {Pct}% — embers nearly out; soon cold."),
+                Localize("[color=#e0913a]이 화로의 열기 {Pct}% — 과열 직전. 곧 식혀야 한다.[/color]",
+                         "[color=#e0913a]本熔炉炉温 {Pct}% — 即将过热，须尽快冷却。[/color]",
+                         "[color=#e0913a]This forge's heat: {Pct}% — nearly overheated; must cool soon.[/color]"),
             ["OPTION_REFORGE.descriptionLoc4"] =
-                Localize("이 대장간의 저주 기운 {Pct}% — 가득 찼다.", "本熔炉诅咒之气 {Pct}% — 已满。", "This forge's curse-aura: {Pct}% — full."),
+                Localize("[color=#e0913a]이 화로의 열기 {Pct}% — 가득 찼다.[/color]", "[color=#e0913a]本熔炉炉温 {Pct}% — 已满。[/color]", "[color=#e0913a]This forge's heat: {Pct}% — maxed.[/color]"),
             ["OPTION_REFORGE.descriptionEnded"] =
-                Localize("저주 기운이 가득 차 이 대장간의 불이 식었습니다. 다른 휴식처에서 다시 재련하세요.",
-                         "诅咒之气缠满，这座熔炉的炉火已冷。请在其他休息处再重铸。",
-                         "The curse-aura fills and this forge goes cold — reforge again at another rest site."),
+                Localize("화로가 과열되어 잠시 식혀야 합니다. 다른 휴식처에서 다시 재련하세요.",
+                         "熔炉过热，需稍作冷却。请在其他休息处再重铸。",
+                         "The forge has overheated and must cool — reforge again at another rest site."),
 
             // CLEANSE rest-site option — ONE free cleanse per visit (see CleanseRestSiteOption). "유물"
             // is explicit in every language so it never reads like the shop's card-removal / card-reforge.

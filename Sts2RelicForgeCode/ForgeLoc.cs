@@ -69,9 +69,9 @@ internal static class ForgeLoc
                                  "저주의 기운이 가득하여 유물이 제대로 동작하지 않는다 (저주만 남음). 정화로 되살릴 수 있다.",
                                  "诅咒之气已满——此遗物已无法正常运作（仅保留诅咒）。净化可使其恢复。"),
         ["UI.SHOP_CLEANSE_TITLE"] = ("Cleanse", "정화", "净化"),
-        ["UI.SHOP_CLEANSE_BODY"] = ("Cleanse a cursed or saturated relic: removes its curse and lowers its curse-aura. Cost rises each time.",
-                                    "저주 걸림·포화 유물을 정화합니다: 저주를 없애고 저주 기운을 낮춥니다. 정화할수록 비용↑.",
-                                    "净化被诅咒或已满的遗物：移除诅咒并降低诅咒之气。费用递增。"),
+        ["UI.SHOP_CLEANSE_BODY"] = ("Cleanse a cursed or saturated relic: removes its curse and lowers its curse-aura. Flat cost — it does not rise per cleanse.",
+                                    "저주 걸림·포화 유물을 정화합니다: 저주를 없애고 저주 기운을 낮춥니다. 비용은 고정 — 정화해도 오르지 않습니다.",
+                                    "净化被诅咒或已满的遗物：移除诅咒并降低诅咒之气。费用固定，不会递增。"),
         ["UI.CLEANSE_NONE"] = ("No cursed or saturated relic to cleanse.", "정화할 (저주 걸림·기운 가득 찬) 유물이 없습니다.", "没有可净化的（被诅咒或诅咒之气已满的）遗物。"),
         ["UI.NOT_ENOUGH_GOLD"] = ("Not enough gold. (need {0})", "골드가 부족합니다. (필요: {0})", "金币不足。(需要：{0})"),
         // Bespoke one-time-reward relic tooltip labels (see BespokeBonus).

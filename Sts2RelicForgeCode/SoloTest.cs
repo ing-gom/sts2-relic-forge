@@ -1,16 +1,25 @@
 // LOCAL TEST ONLY — dormant unless `selftest.sp.flag` is next to the mod DLL. Delete this file (or
 // exclude it) before a workshop release build. See the solo-verify skill.
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Godot;
+using MegaCrit.Sts2.Core.Commands;                        // CardSelectCmd
+using MegaCrit.Sts2.Core.Entities.CardRewardAlternatives; // CardRewardAlternative
+using MegaCrit.Sts2.Core.Entities.Cards;                  // CardCreationResult
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;          // NOverlayStack
+using MegaCrit.Sts2.Core.Random;                          // Rng
 using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.TestSupport;                     // ICardSelector
 
 namespace Sts2RelicForge;
 
@@ -24,11 +33,25 @@ namespace Sts2RelicForge;
 /// </summary>
 internal static class SoloTest
 {
+    /// <summary>Seconds without a Step() call before the watchdog declares the battery wedged. Above the
+    /// slowest single test (T11's rewind waits ~9s) but below the launcher's -TimeoutSec, so the watchdog
+    /// — not the launcher — gets to name the culprit.</summary>
+    private const double StepTimeoutSec = 90;
+
     private static readonly StringBuilder _out = new();
     private static bool _started, _done;
     private static int _pass, _fail;
+    private static string _step = "(not started)";
+    private static DateTime _stepAt = DateTime.UtcNow;
 
     private static string ModDir() => Path.GetDirectoryName(typeof(SoloTest).Assembly.Location) ?? ".";
+
+    /// <summary>Name the phase you're entering. Resets the watchdog and timestamps the log.</summary>
+    private static void Step(string name)
+    {
+        _step = name;
+        _stepAt = DateTime.UtcNow;
+    }
 
     public static void ArmIfRequested()
     {
@@ -50,8 +73,19 @@ internal static class SoloTest
             if (!_started && (run == null || !run.IsInProgress) && NGame.Instance != null)
             {
                 _started = true;
+                Step("starting single-player run");
                 W("starting single-player run…");
                 TaskHelper.RunSafely(RunBattery());
+            }
+
+            // Watchdog: a selection prompt nobody answers parks the battery task forever, and _out only
+            // reaches disk in Flush() — so without this the launcher just times out with zero evidence.
+            // Flushing a partial FAIL here names the test that wedged and dumps the log so far.
+            if (_started && !_done && (DateTime.UtcNow - _stepAt).TotalSeconds > StepTimeoutSec)
+            {
+                W($"WATCHDOG: no progress for {StepTimeoutSec:F0}s at step '{_step}' — flushing partial result.");
+                W($"WATCHDOG: overlay on top = {TopScreenName()} (a selection screen here = an unanswered prompt).");
+                Flush(false);
             }
         }
         catch (Exception e) { W("poll exception: " + e.Message); }
@@ -90,6 +124,10 @@ internal static class SoloTest
                 await Shot("01_run");   // visual evidence: the run actually started (map screen)
             }
             catch (Exception e) { W("run-start skipped (mod env): " + e.Message.Split('\n')[0]); }
+
+            // Answer selection prompts from here on. MUST come after the run start: RunManager.CleanUp
+            // calls CardSelectCmd.Reset(), which drops every pushed selector.
+            StartAutomation();
 
             var run = RunManager.Instance;
             var player = run?.State?.Players?.FirstOrDefault();
@@ -328,6 +366,57 @@ internal static class SoloTest
                 tip.GetType().GetMethod("OnUnfocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
                     ?.Invoke(tip, null);
                 W($"  portrait summary shown ({ForgeSummary.PrefixPanels(player).Count} prefix panel(s), {ForgeSummary.CursePanels(player).Count} curse panel(s))");
+                return null;
+            });
+
+            // T17 — room-gated curse tint (feature F): the red curse-gauge tint AND the numeric "curse risk
+            // N%" hover panel show ONLY at a forge location (rest site / shop) — off it they're noise, since
+            // the gauge only fills on reforge. A SATURATED relic is the deliberate exception: it stays flagged
+            // EVERYWHERE with a "no longer works" note. Assert IsAtForgeLocation() per room + the hover-panel
+            // branch (a mild relic's gauge panel appears only at a forge site; a saturated relic's note is
+            // present off-site too). Pure display logic — no screenshot needed.
+            await TestAsync("T17 room-gated curse tint", async () =>
+            {
+                if (run == null || player == null) return "no run/player";
+
+                // A non-saturated forged relic (T16 force-forged everything at count 1 → low gauge > 0).
+                var mild = player.Relics.FirstOrDefault(r =>
+                    !RelicForgeService.IsCompanion(r) && RelicForgeService.RecordFor(r) != null
+                    && RelicForgeService.CurseGauge(r) > 0 && !RelicForgeService.IsGaugeSaturated(r));
+                if (mild == null) return "no non-saturated forged relic (T16 should have left several)";
+
+                // Drive a SECOND forged relic to saturation. Re-Forge() no-ops on an already-forged relic
+                // (T16 forged them all), so bump its stored reforge count directly — 20 steps × ≥5%/step
+                // ≥ 100%, so CurseGauge clamps to full regardless of the per-step rolls.
+                var sat = player.Relics.FirstOrDefault(r =>
+                    !RelicForgeService.IsCompanion(r) && r != mild && RelicForgeService.RecordFor(r) != null);
+                if (sat == null) return "no second forged relic to saturate";
+                RelicForgeService.RecordFor(sat)!.ReforgeCount = 20;
+                if (!RelicForgeService.IsGaugeSaturated(sat)) return "failed to saturate the test relic";
+
+                static bool HasGaugePanel(RelicModel r) =>
+                    r.HoverTips.OfType<MegaCrit.Sts2.Core.HoverTips.HoverTip>().Any(t => t.Id == "sts2rf_gauge");
+
+                // OFF a forge location (map): gate closed — mild has no gauge panel, saturated keeps its note.
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Map);
+                await Task.Delay(400);
+                if (RelicForgeService.IsAtForgeLocation()) return "IsAtForgeLocation true on the map";
+                if (HasGaugePanel(mild)) return "mild relic showed a gauge panel off a forge location";
+                if (!HasGaugePanel(sat)) return "saturated relic dropped its note off a forge location";
+                W("  map: mild=no panel, saturated=note kept ✓");
+
+                // AT a rest site: gate open — the numeric gauge panel returns for the mild relic.
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.RestSite);
+                await Task.Delay(400);
+                if (!RelicForgeService.IsAtForgeLocation()) return "IsAtForgeLocation false at the rest site";
+                if (!HasGaugePanel(mild)) return "mild relic missing its gauge panel at the rest site";
+                W("  rest site: mild gauge panel shown ✓");
+
+                // Shop is a forge location too.
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Shop);
+                await Task.Delay(400);
+                if (!RelicForgeService.IsAtForgeLocation()) return "IsAtForgeLocation false at the shop";
+                W("  shop: forge location ✓");
                 return null;
             });
 
@@ -660,6 +749,7 @@ internal static class SoloTest
 
     private static void Test(string name, Func<string?> body)
     {
+        Step(name);
         try
         {
             string? err = body();
@@ -673,6 +763,7 @@ internal static class SoloTest
     /// commands, screenshots) rather than pure in-memory assertions.</summary>
     private static async Task TestAsync(string name, Func<Task<string?>> body)
     {
+        Step(name);
         try
         {
             string? err = await body();
@@ -760,18 +851,189 @@ internal static class SoloTest
         return null;
     }
 
-    /// <summary>Play a no-target card from the hand through the game's REAL play pipeline —
-    /// SpendResources + CardCmd.AutoPlay with a BlockingPlayerChoiceContext (the proven Vakuu
-    /// auto-play idiom). Prefers DEFEND (self skill, no target); logs and skips gracefully when
-    /// the hand has nothing safely playable (test flow must not die on hand RNG).</summary>
+    #region selection automation (auto-selector + screen pump)
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+    // WHY THIS EXISTS. Every CardSelectCmd path has the same shape:
+    //
+    //     if (Selector != null) result = await Selector.GetSelectedCards(...);   // auto-pick
+    //     else                  result = await someScreen.CardsSelected();       // waits for a CLICK
+    //
+    // This test never clicks, so the second branch waits forever: the battery task never reaches
+    // Flush(), and the launcher reports "no result file" with nothing to point at. A
+    // BlockingPlayerChoiceContext does NOT rescue you — both of its methods are literally
+    // `return Task.CompletedTask` no-ops, so it answers nothing; it only declines to pause the action
+    // queue. (The Vakuu idiom is Blocking context AND a pushed selector; the context alone is half of it.)
+    //
+    //   selector    — covers everything routed through CardSelectCmd: FromChooseACardScreen /
+    //                 FromSimpleGrid / FromHand / FromDeckForUpgrade|Transformation|Enchantment|Removal.
+    //   screen pump — covers screens with NO selector escape at all: RelicSelectCmd
+    //                 .FromChooseARelicScreen and the card-reward screen ALWAYS show UI and await it,
+    //                 Selector or not. Those block the battery task, so the pump must run concurrently.
+    //                 It reuses the game's own AutoSlay screen handlers via reflection, so a game update
+    //                 that renames a handler degrades to a logged warning instead of a build break.
+    //
+    // The pump waits a grace period before touching a screen, so a test that drives its own UI gets first
+    // shot; the pump is the safety net, not the driver. See the solo-verify skill for the full writeup.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Screens the pump must NOT auto-dismiss. T13 asserts on the game-over screen and invokes
+    /// Rewind's ExecuteGameOverRewind from it — auto-dismissing it would make that test vacuous.</summary>
+    private static readonly HashSet<string> _pumpIgnore = new() { "NGameOverScreen" };
+
+    private const int PumpGraceMs = 4000;
+
+    private static IDisposable? _selectorScope;
+    private static bool _pumpRunning;
+
+    private static void StartAutomation()
+    {
+        EnsureSelector();
+        if (_pumpRunning) return;
+        _pumpRunning = true;
+        // Warm the handler map HERE, not lazily on first use: the pump only calls HandleScreen when
+        // something is already wedged, so a broken discovery would stay invisible until the run it was
+        // needed for. Logging the count every run makes it evidence instead of an assumption.
+        int handlers = ScreenHandlers().Count;
+        TaskHelper.RunSafely(PumpLoop());
+        W($"selection automation on (selector + {handlers} screen handler(s), grace {PumpGraceMs}ms)");
+    }
+
+    /// <summary>Push our auto-selector if the stack is empty. Re-checked by the pump because
+    /// CardSelectCmd.Reset() (RunManager.CleanUp — i.e. any run ending, which T13 causes) clears it.</summary>
+    private static void EnsureSelector()
+    {
+        try
+        {
+            if (CardSelectCmd.Selector != null) return;
+            _selectorScope = CardSelectCmd.PushSelector(new AutoSelector());
+        }
+        catch (Exception e) { W("selector push failed: " + e.Message); }
+    }
+
+    /// <summary>Answers card prompts by taking the first N options. Deterministic on purpose — a random
+    /// pick makes a failing test unreproducible.</summary>
+    private sealed class AutoSelector : ICardSelector
+    {
+        public Task<IEnumerable<CardModel>> GetSelectedCards(IEnumerable<CardModel> options, int minSelect, int maxSelect)
+        {
+            var list = options.ToList();
+            int n = Math.Min(maxSelect, list.Count);
+            if (n < minSelect) n = Math.Min(minSelect, list.Count);
+            // Loud on purpose: this line is the proof a prompt fired at all. Without it you cannot tell
+            // "my card never prompted" from "the prompt was answered", and both look like a pass.
+            W($"  [selector] auto-picked {n}/{list.Count}: [{string.Join(", ", list.Take(n).Select(c => c.Id.Entry))}]");
+            return Task.FromResult<IEnumerable<CardModel>>(list.Take(n).ToList());
+        }
+
+        public CardRewardSelection GetSelectedCardReward(IReadOnlyList<CardCreationResult> options, IReadOnlyList<CardRewardAlternative> alternatives)
+        {
+            var pick = options.FirstOrDefault()?.Card;
+            W($"  [selector] auto-picked card reward: {pick?.Id.Entry ?? "(none)"}");
+            return new CardRewardSelection { card = pick, alternative = null };
+        }
+    }
+
+    private static async Task PumpLoop()
+    {
+        var rng = new Rng(1u);                       // deterministic: handlers pick with this
+        object? seen = null;
+        var seenAt = DateTime.UtcNow;
+        int attempts = 0;
+        while (!_done)
+        {
+            await Task.Delay(500);
+            try
+            {
+                EnsureSelector();
+                object? top = NOverlayStack.Instance?.Peek();
+                if (top == null) { seen = null; attempts = 0; continue; }
+                if (!ReferenceEquals(top, seen)) { seen = top; seenAt = DateTime.UtcNow; attempts = 0; continue; }
+                if ((DateTime.UtcNow - seenAt).TotalMilliseconds < PumpGraceMs) continue;
+
+                string name = top.GetType().Name;
+                if (_pumpIgnore.Contains(name)) continue;
+                if (attempts >= 3)                    // same screen survived 3 handlings — stop thrashing
+                {
+                    if (attempts == 3) { attempts++; W($"  [pump] {name} will not close after 3 attempts — leaving it (watchdog will name the step)"); }
+                    continue;
+                }
+                attempts++;
+                W($"  [pump] auto-handling unattended screen: {name} (attempt {attempts})");
+                await HandleScreen(top, rng);
+                seenAt = DateTime.UtcNow;
+            }
+            catch (Exception e) { W("  [pump] " + e.Message); }
+        }
+    }
+
+    /// <summary>Run the game's own AutoSlay handler for this screen type (reflection: the AutoSlay
+    /// namespace is public but volatile across versions, and a missing handler must not break the build).</summary>
+    private static async Task HandleScreen(object screen, Rng rng)
+    {
+        if (!ScreenHandlers().TryGetValue(screen.GetType(), out var handler))
+        {
+            W($"  [pump] no AutoSlay handler for {screen.GetType().Name} — cannot auto-dismiss; " +
+              "drive it from the test or avoid it in the setup.");
+            return;
+        }
+        var ht = handler.GetType();
+        var timeout = ht.GetProperty("Timeout")?.GetValue(handler) as TimeSpan? ?? TimeSpan.FromSeconds(30);
+        using var cts = new CancellationTokenSource(timeout);
+        var task = ht.GetMethod("HandleAsync")?.Invoke(handler, new object[] { rng, cts.Token }) as Task;
+        if (task == null) { W($"  [pump] {ht.Name}.HandleAsync not invokable"); return; }
+        await task;
+        W($"  [pump] handled {screen.GetType().Name}");
+    }
+
+    private static Dictionary<Type, object>? _screenHandlers;
+
+    /// <summary>ScreenType -> AutoSlay IScreenHandler instance, discovered once from the game assembly.
+    /// Covers NCardRewardSelectionScreen / NChooseARelicSelection / NChooseACardSelectionScreen /
+    /// NSimpleCardSelectScreen / NDeck*SelectScreen / NRewardsScreen / NGameOverScreen / …</summary>
+    private static Dictionary<Type, object> ScreenHandlers()
+    {
+        if (_screenHandlers != null) return _screenHandlers;
+        var map = new Dictionary<Type, object>();
+        try
+        {
+            var asm = typeof(CardSelectCmd).Assembly;
+            var iface = asm.GetType("MegaCrit.Sts2.Core.AutoSlay.Handlers.IScreenHandler");
+            if (iface == null) { W("  [pump] AutoSlay handlers not found in this game build — pump limited to logging"); return _screenHandlers = map; }
+            Type?[] types;
+            try { types = asm.GetTypes(); } catch (ReflectionTypeLoadException e) { types = e.Types; }
+            foreach (var t in types)
+            {
+                if (t == null || t.IsAbstract || t.IsInterface || !iface.IsAssignableFrom(t)) continue;
+                if (t.GetConstructor(Type.EmptyTypes) == null) continue;
+                var h = Activator.CreateInstance(t);
+                if (h != null && t.GetProperty("ScreenType")?.GetValue(h) is Type st) map[st] = h;
+            }
+            W($"  [pump] {map.Count} AutoSlay screen handler(s) available");
+        }
+        catch (Exception e) { W("  [pump] handler discovery failed: " + e.Message); }
+        return _screenHandlers = map;
+    }
+
+    private static string TopScreenName()
+    {
+        try { return NOverlayStack.Instance?.Peek()?.GetType().Name ?? "(none)"; } catch { return "(unavailable)"; }
+    }
+    #endregion
+
+    /// <summary>Play a card from the hand through the game's REAL play pipeline — SpendResources +
+    /// CardCmd.AutoPlay with a BlockingPlayerChoiceContext. Prefers DEFEND, then any playable non-attack
+    /// (attacks need a target; AutoPlay gets null here). Mid-play selection prompts are safe now that
+    /// StartAutomation pushed a selector — before that, a prompting card parked this await forever.
+    /// Logs and skips gracefully when the hand has nothing playable (test flow must not die on hand RNG).</summary>
     private static async Task PlayNoTargetCard(Player p)
     {
         try
         {
             var hand = p.PlayerCombatState?.Hand?.Cards;
             if (hand == null || hand.Count == 0) { W("  (no hand — skip card play)"); return; }
-            var card = hand.FirstOrDefault(c => c.Id.Entry.Contains("DEFEND") && SafeCanPlay(c));
-            if (card == null) { W("  (no playable DEFEND in hand — skip card play)"); return; }
+            var card = hand.FirstOrDefault(c => c.Id.Entry.Contains("DEFEND") && SafeCanPlay(c))
+                    ?? hand.FirstOrDefault(c => c.Type != CardType.Attack && SafeCanPlay(c));
+            if (card == null) { W("  (nothing playable without a target in hand — skip card play)"); return; }
             await card.SpendResources();
             await MegaCrit.Sts2.Core.Commands.CardCmd.AutoPlay(
                 new MegaCrit.Sts2.Core.GameActions.Multiplayer.BlockingPlayerChoiceContext(),
@@ -790,7 +1052,10 @@ internal static class SoloTest
 
     private static void Flush(bool ok)
     {
+        if (_done) return;   // the watchdog may have already written a partial FAIL — don't double-insert
         _done = true;
+        _selectorScope?.Dispose();
+        _selectorScope = null;
         _out.Insert(0, (ok ? "RESULT: OK" : "RESULT: FAIL") + $" ({_pass} pass / {_fail} fail)\n");
         try { File.WriteAllText(Path.Combine(ModDir(), "selftest.sp.txt"), _out.ToString()); } catch { }
     }

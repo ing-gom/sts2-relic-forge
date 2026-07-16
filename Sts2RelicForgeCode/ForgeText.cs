@@ -113,6 +113,14 @@ internal static class ForgeText
     /// <summary>Title of the curse-gauge panel.</summary>
     public static string GaugeTitle() => ForgeLoc.Ui("GAUGE_TITLE");
 
+    /// <summary>Title of the SATURATED panel (a relic whose curse-aura is full = its effect is dead).</summary>
+    public static string SaturatedTitle() => ForgeLoc.Ui("SATURATED_TITLE");
+
+    /// <summary>Body of the SATURATED panel: a plain "the curse-aura is full, so this relic no longer works"
+    /// note. Shown EVERYWHERE (unlike the numeric gauge panel), because a saturated relic keeps its red icon
+    /// off the forge location — this is what explains that red. See RelicExtraPanelsPatch.</summary>
+    public static string SaturatedBody() => "[color=#c0554d]" + ForgeLoc.Ui("SATURATED_BODY") + "[/color]";
+
     /// <summary>Body of the curse-gauge panel: the fill percent + the escalating flavor band, in crimson.
     /// Empty at gauge 0 (never re-forged). See <see cref="RelicForgeService.CurseGauge"/> / GaugeBand.</summary>
     public static string GaugeBody(int gauge)

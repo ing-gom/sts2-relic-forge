@@ -62,6 +62,12 @@ internal static class ForgeLoc
         ["UI.GAUGE_BAND4"] = ("Saturated — this relic's effect is DISABLED (only its curse remains) and it can no longer be reforged. Cleanse to revive it.",
                               "포화 — 이 유물의 효과가 비활성화됨(저주만 남음), 더는 재련 불가. 정화로 되살릴 수 있다.",
                               "已饱和——此遗物效果被禁用（仅保留诅咒），无法再重铸。净化可使其恢复。"),
+        // Saturated panel (RelicExtraPanelsPatch) — shown wherever a burnt-out relic is hovered, so its
+        // persistent red icon (kept off the forge location, unlike the numeric gauge) is explained.
+        ["UI.SATURATED_TITLE"] = ("Cursed Out", "저주 포화", "诅咒饱和"),
+        ["UI.SATURATED_BODY"] = ("The curse-aura is full — this relic no longer works properly (only its curse remains). Cleanse it to revive.",
+                                 "저주의 기운이 가득하여 유물이 제대로 동작하지 않는다 (저주만 남음). 정화로 되살릴 수 있다.",
+                                 "诅咒之气已满——此遗物已无法正常运作（仅保留诅咒）。净化可使其恢复。"),
         ["UI.SHOP_CLEANSE_TITLE"] = ("Cleanse", "정화", "净化"),
         ["UI.SHOP_CLEANSE_BODY"] = ("Cleanse a cursed or saturated relic: removes its curse and lowers its curse-aura. Cost rises each time.",
                                     "저주 걸림·포화 유물을 정화합니다: 저주를 없애고 저주 기운을 낮춥니다. 정화할수록 비용↑.",

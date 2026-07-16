@@ -9,6 +9,7 @@ using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Localization.DynamicVars;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Random;
+using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace Sts2RelicForge;
@@ -484,6 +485,25 @@ internal static class RelicForgeService
 
     /// <summary>True once a relic's curse gauge has saturated (100%) — it can no longer be reforged.</summary>
     public static bool IsGaugeSaturated(RelicModel relic) => CurseGauge(relic) >= GaugeFull;
+
+    /// <summary>
+    /// True when the player is currently in a RestSite or Shop room — the ONLY places a relic can be
+    /// reforged or cleansed, and thus the only places its curse-gauge value is actionable. The gauge only
+    /// ever fills on reforge (never in combat / on the map), so surfacing "curse risk N%" elsewhere is pure
+    /// visual noise. Used to GATE the red curse-gauge tint (GaugeTintPatch) and the numeric gauge hover
+    /// panel (RelicExtraPanelsPatch) to forge locations. A SATURATED relic is the deliberate exception —
+    /// its effect is dead everywhere, so it stays flagged everywhere. Cheap: two property reads off the
+    /// run-state singleton, no allocation. Display-only, so a false/stale read at worst hides a tint.
+    /// </summary>
+    public static bool IsAtForgeLocation()
+    {
+        try
+        {
+            RoomType? type = RunManager.Instance?.State?.CurrentRoom?.RoomType;
+            return type == RoomType.RestSite || type == RoomType.Shop;
+        }
+        catch { return false; }
+    }
 
     // --- Per-LOCATION (campfire / shop visit) reforge aura — a SESSION budget on top of the per-relic gauge ---
     // Each reforge done at a location fills this initiator-local gauge 5–20%; at 100% the forge "goes cold"

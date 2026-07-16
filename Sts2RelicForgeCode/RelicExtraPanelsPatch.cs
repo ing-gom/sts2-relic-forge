@@ -47,9 +47,9 @@ internal static class RelicExtraPanelsPatch
             string effect = ForgeText.PrefixEffectBody(rec);
             string curse = ForgeText.CurseBody(rec);
             // Curse gauge: read off the live hovered instance (0 for offered/preview relics, which carry no
-            // reforge count). A reforged relic always shows it — even at 100% (saturated), where it explains
-            // why the relic no longer appears in the reforge picker.
+            // reforge count).
             int gauge = RelicForgeService.CurseGauge(__instance);
+            bool saturated = RelicForgeService.IsGaugeSaturated(__instance);
             if (effect.Length == 0 && curse.Length == 0 && gauge == 0) return;
 
             // __result is the game's List<IHoverTip> ([main] + extras); copy so we never mutate its backing.
@@ -59,7 +59,14 @@ internal static class RelicExtraPanelsPatch
             if (curse.Length > 0)
                 list.Add(MakePanel(ForgeText.CurseTitle(rec), curse,
                     "sts2rf_curse_" + (rec.SelfCurse.Length > 0 ? rec.SelfCurse : rec.EnemyRiderSuffix), debuff: true));
-            if (gauge > 0)
+            // Curse-gauge panel. A SATURATED relic shows a plain "burnt out — no longer works" note
+            // EVERYWHERE, because its red icon persists off the forge location (see GaugeTintPatch) and that
+            // note is what explains it. A non-saturated gauge is the actionable "curse risk N%" number, only
+            // meaningful where you can reforge/cleanse — gate it to a forge location (rest site / shop), so
+            // in combat / on the map it doesn't clutter the tooltip. Same Id keeps RemoveDupes happy.
+            if (saturated)
+                list.Add(MakePanel(ForgeText.SaturatedTitle(), ForgeText.SaturatedBody(), "sts2rf_gauge", debuff: true));
+            else if (gauge > 0 && RelicForgeService.IsAtForgeLocation())
                 list.Add(MakePanel(ForgeText.GaugeTitle(), ForgeText.GaugeBody(gauge), "sts2rf_gauge", debuff: true));
             __result = list;
         }

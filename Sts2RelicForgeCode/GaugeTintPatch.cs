@@ -17,6 +17,12 @@ namespace Sts2RelicForge;
 /// a saturated (100%) one is fully crimson = "dead" (its upside is disabled — see SaturatedRelicDisablePatch).
 /// gauge 0 restores White so a cleansed relic (gauge reset) drops its tint. Melted relics are left to the
 /// game's own DarkRed. Display-only (SelfModulate is visual), so no co-op / sim impact.
+///
+/// CONTEXT-GATED (see RelicForgeService.IsAtForgeLocation): a merely over-reforged relic (0 &lt; gauge &lt; 100)
+/// only reddens at a FORGE LOCATION (rest site / shop) where its curse-risk is actionable — in combat and on
+/// the map that red is just noise, so it stays White there. A SATURATED relic is the deliberate exception:
+/// its effect is disabled EVERYWHERE, so it stays full-red wherever it shows (with the hover panel explaining
+/// why — see RelicExtraPanelsPatch).
 /// </summary>
 [HarmonyPatch(typeof(RelicModel), nameof(RelicModel.UpdateTexture))]
 internal static class GaugeTintPatch
@@ -36,6 +42,10 @@ internal static class GaugeTintPatch
             // still active) reddens — the deliberate red-vs-gray split between "dangerous" and "safe" dead.
             if (RelicForgeService.IsRelicSpent(__instance)) { texture.SelfModulate = Colors.White; return; }
             int gauge = RelicForgeService.CurseGauge(__instance);   // memoized O(1)
+            // A saturated (100%) relic is burnt out everywhere → keep it flagged everywhere. A merely
+            // over-reforged relic only shows its curse-risk tint at a forge location; elsewhere it's noise.
+            bool saturated = RelicForgeService.IsGaugeSaturated(__instance);
+            if (!saturated && !RelicForgeService.IsAtForgeLocation()) { texture.SelfModulate = Colors.White; return; }
             // Always set (White at 0) so a previous tint clears after a cleanse resets the gauge. Ease the
             // curve (t²) so it stays near-white at low gauge and reddens sharply toward saturation.
             float t = gauge / 100f;

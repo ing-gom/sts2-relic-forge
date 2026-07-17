@@ -56,6 +56,12 @@ internal static class ForgeConfig
     /// </summary>
     public static int ShopCleanseCost = 100;
 
+    /// <summary>Whether rest sites offer the free once-per-visit Cleanse option. OFF = hard mode
+    /// (workshop request): the SHOP is the only cleanser, so every reforge curse costs real gold
+    /// to shed. Host-authoritative in co-op (HostForgeConfig.CampfireCleanse) so every peer builds
+    /// the same rest-site option list.</summary>
+    public static bool CampfireCleanseEnabled = true;
+
     /// <summary>Gold added to the shop cleanse cost per cleanse already done this shop visit. Fixed at 0 —
     /// the shop cleanse cost is a FLAT <see cref="ShopCleanseCost"/> that does not escalate. Kept as a code
     /// constant so <see cref="ShopCleanseCostFor"/> stays a single retune anchor if escalation is ever wanted.</summary>

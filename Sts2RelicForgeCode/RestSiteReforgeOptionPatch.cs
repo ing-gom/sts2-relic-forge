@@ -43,11 +43,19 @@ internal static class RestSiteReforgeOptionPatch
             RestSiteReforgeSupport.ByPlayer[player.NetId] = option; // per-player, for the synced re-add after Heal/Smith
             __result.Add(option);
 
-            // The cleanse sibling — one free cleanse per visit (see CleanseRestSiteOption). Always added
-            // (greys via IsEnabled when there's nothing cursed), so the co-op option lists stay identical.
-            var cleanse = new CleanseRestSiteOption(player);
-            RestSiteReforgeSupport.CleanseByPlayer[player.NetId] = cleanse;
-            __result.Add(cleanse);
+            // The cleanse sibling — one free cleanse per visit (see CleanseRestSiteOption). Added
+            // whenever the (HOST-authoritative) campfire-cleanse toggle is on — never gated on local
+            // config, so the co-op option lists stay identical on every peer; when on, it greys via
+            // IsEnabled when there's nothing cursed. OFF = the hard-economy mode (workshop request):
+            // the shop is the only cleanser.
+            if (HostForgeConfig.CampfireCleanse)
+            {
+                var cleanse = new CleanseRestSiteOption(player);
+                RestSiteReforgeSupport.CleanseByPlayer[player.NetId] = cleanse;
+                __result.Add(cleanse);
+            }
+            else
+                RestSiteReforgeSupport.CleanseByPlayer.Remove(player.NetId);   // no stale re-add after Heal/Smith
         }
         catch (Exception e)
         {

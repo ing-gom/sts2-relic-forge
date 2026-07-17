@@ -46,8 +46,12 @@ public sealed class RelicForgeConfigSyncCmd : AbstractConsoleCmd
 
         bool ancient = args[3] == "1";
         bool enemyForge = args[4] == "1";
+        // Optional 7th arg (v1.0.26+ hosts): campfire cleanse enabled. Absent (older host) = true —
+        // the pre-toggle behavior. Sits AFTER the fingerprint (arg 6) so both optional args stay
+        // positionally stable; older clients ignore both.
+        bool campCleanse = args.Length < 7 || args[6] == "1";
 
-        try { HostForgeConfig.ApplyFromHost(noPrefix, curse, selfShare, ancient, enemyForge); }
+        try { HostForgeConfig.ApplyFromHost(noPrefix, curse, selfShare, ancient, enemyForge, campCleanse); }
         catch (System.Exception e)
         {
             MainFile.Logger.Warn($"[{MainFile.ModId}] rf_config apply failed: {e.Message}");
@@ -99,14 +103,15 @@ internal static class ForgeConfigBroadcaster
         // Arg 6 = the host's prefix/curse pool fingerprint (order-sensitive) so clients can detect a
         // sister-mod registration mismatch — the one API-contract violation that silently desyncs rolls.
         // Old clients simply ignore the extra arg (they parse the first five positionally).
-        string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5} {6}",
+        string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5} {6} {7}",
             Verb(),
             ForgeConfig.NoPrefixChance.ToString("R", inv),
             ForgeConfig.CurseChance.ToString("R", inv),
             ForgeConfig.SelfCurseShare.ToString("R", inv),
             ForgeConfig.ForgeAncientRelics ? "1" : "0",
             ForgeConfig.EnemyForgeEnabled ? "1" : "0",
-            RelicForgeConfigSyncCmd.PoolFingerprint());
+            RelicForgeConfigSyncCmd.PoolFingerprint(),
+            ForgeConfig.CampfireCleanseEnabled ? "1" : "0");   // arg 7 — campfire cleanse (old clients ignore)
 
         // Never in combat (shop / rest / menu only), so inCombat is false — matches the reforge dispatch.
         run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, synced, inCombat: false));

@@ -19,6 +19,7 @@ public class MainFile
     private const string EntryKeyForgeAncient = "forgeAncientRelics";
     private const string EntryKeySelfCurse = "selfCurseChance";
     private const string EntryKeyCleanseCost = "shopCleanseCost";
+    private const string EntryKeyCampCleanse = "campfireCleanseEnabled";
     private const string EntryKeyRoomBroadcast = "roomBroadcastEnabled";
 
     public static readonly MegaCrit.Sts2.Core.Logging.Logger Logger
@@ -63,6 +64,10 @@ public class MainFile
                 onChanged: v => ForgeConfig.ShopCleanseCost = (int)v)
                 .Range(0f, 300f, 10f, format: "F0")
                 .Description("FLAT gold to cleanse at a merchant — removes the curse from a relic (a penalty prefix reverts to no prefix; an enemy-rider / self-curse is stripped, keeping the prefix). The cost does NOT escalate — every cleanse this shop costs the same. A cursed relic can no longer be reforged at all, so cleanse is the only way to shed a curse. A rest site also offers ONE free cleanse per visit. 0 = free.")
+            .Toggle(EntryKeyCampCleanse, "Campfire cleanse",
+                defaultValue: true,
+                onChanged: v => { ForgeConfig.CampfireCleanseEnabled = v; ForgeConfigBroadcaster.BroadcastIfHost(); })
+                .Description("Whether rest sites offer the free once-per-visit Cleanse. Turn OFF for a harder economy: the merchant becomes the ONLY way to shed a curse, so every risky reforge carries a real gold price (see 'Shop cleanse cost'). In co-op the HOST's setting applies to everyone.")
             .Toggle(EntryKeyForgeAncient, "Forge Ancient relics",
                 defaultValue: true,
                 onChanged: v => { ForgeConfig.ForgeAncientRelics = v; ForgeConfigBroadcaster.BroadcastIfHost(); })
@@ -86,6 +91,7 @@ public class MainFile
         ForgeConfig.ForgeAncientRelics = ModConfigBridge.GetValue<bool>(ModId, EntryKeyForgeAncient, true);
         ForgeConfig.SelfCurseShare = ModConfigBridge.GetValue<double>(ModId, EntryKeySelfCurse, 22.0) / 100.0;
         ForgeConfig.RoomBroadcastEnabled = ModConfigBridge.GetValue<bool>(ModId, EntryKeyRoomBroadcast, true);
+        ForgeConfig.CampfireCleanseEnabled = ModConfigBridge.GetValue<bool>(ModId, EntryKeyCampCleanse, true);
 
         Logger.Info($"[{ModId}] shop reforge cost {ForgeConfig.ShopReforgeBaseCost}g +{ForgeConfig.ShopReforgeCostStep}/reforge, no-prefix chance {ForgeConfig.NoPrefixChance:P0}.");
     }

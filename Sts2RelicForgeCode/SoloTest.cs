@@ -1248,6 +1248,17 @@ internal static class SoloTest
                 if (recAfter != null && RelicForgeService.IsCursedRecord(recAfter)) return "curse remained after cleanse";
                 W($"  cleanse ok: enabled-when-cursed={enabledCursed}, curse removed");
                 if (!enabledCursed) return "cleanse option was disabled while a cursed relic was owned";
+
+                // (d) hard-economy toggle (workshop request): the rest-site gate reads
+                // HostForgeConfig.CampfireCleanse — verify the SP fall-through tracks the config flag
+                // both ways (the option-add gate itself is a 3-line read of this exact property; a
+                // room re-entry test is forbidden here — see the (b) comment).
+                bool savedCamp = ForgeConfig.CampfireCleanseEnabled;
+                ForgeConfig.CampfireCleanseEnabled = false;
+                bool offRead = HostForgeConfig.CampfireCleanse;
+                ForgeConfig.CampfireCleanseEnabled = savedCamp;
+                if (offRead) return "CampfireCleanse read TRUE while the config is OFF";
+                W("  campfire-cleanse toggle: OFF propagates through HostForgeConfig ✓");
                 return null;
             });
 

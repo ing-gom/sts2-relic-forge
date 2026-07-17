@@ -21,7 +21,7 @@ internal static class HostForgeConfig
 {
     private static bool _received;
     private static double _noPrefix, _curse, _selfShare;
-    private static bool _ancient, _enemyForge;
+    private static bool _ancient, _enemyForge, _campCleanse;
 
     /// <summary>True only when WE are a real co-op client that has received the host's config: the
     /// accessors then return the host values. Host / single-player fall through to local.</summary>
@@ -40,6 +40,7 @@ internal static class HostForgeConfig
     public static double SelfCurseShare    => UseHost ? _selfShare  : ForgeConfig.SelfCurseShare;
     public static bool   ForgeAncient      => UseHost ? _ancient    : ForgeConfig.ForgeAncientRelics;
     public static bool   EnemyForgeEnabled => UseHost ? _enemyForge : ForgeConfig.EnemyForgeEnabled;
+    public static bool   CampfireCleanse   => UseHost ? _campCleanse : ForgeConfig.CampfireCleanseEnabled;
 
     /// <summary>Enemy-forge strength: a fixed designed constant (the 0–200% slider was removed), so it
     /// is identical on every client and needs no host broadcast — it never diverges. See <see cref="ForgeConfig.BalanceStrength"/>.</summary>
@@ -48,10 +49,10 @@ internal static class HostForgeConfig
     /// <summary>Store the host's broadcast values (called on every client by the rf_config command).
     /// Idempotent — re-delivery just refreshes the cache, so re-broadcasts and late joins are safe.</summary>
     public static void ApplyFromHost(double noPrefix, double curse, double selfShare,
-                                     bool ancient, bool enemyForge)
+                                     bool ancient, bool enemyForge, bool campCleanse = true)
     {
         _noPrefix = noPrefix; _curse = curse; _selfShare = selfShare;
-        _ancient = ancient; _enemyForge = enemyForge;
+        _ancient = ancient; _enemyForge = enemyForge; _campCleanse = campCleanse;
         _received = true;
         MainFile.Logger.Info(
             $"[{MainFile.ModId}] host forge config applied: curse {curse:P0}, selfShare {selfShare:P0}, " +

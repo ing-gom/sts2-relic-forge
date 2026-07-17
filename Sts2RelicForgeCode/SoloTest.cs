@@ -61,6 +61,10 @@ internal static class SoloTest
     {
         try
         {
+            // One-shot dev-evidence mode: screenshot the ModConfig settings rows (no run started).
+            if (File.Exists(Path.Combine(ModDir(), "selftest.cfgshot.flag")))
+            { _cfgShotMode = true; W("cfgshot mode armed"); Poll(); return; }
+
             if (!File.Exists(Path.Combine(ModDir(), "selftest.sp.flag"))) return;
             W("solo selftest armed");
             Poll();
@@ -74,7 +78,17 @@ internal static class SoloTest
         try
         {
             var run = RunManager.Instance;
-            if (!_started && (run == null || !run.IsInProgress) && NGame.Instance != null)
+            if (_cfgShotMode)
+            {
+                // Fire once the MAIN MENU exists (the submenu stack is its child) — no run needed.
+                if (!_started && FindByTypeName(tree.Root, "NMainMenu") != null)
+                {
+                    _started = true;
+                    Step("cfgshot: opening settings");
+                    TaskHelper.RunSafely(CfgShotRoutine());
+                }
+            }
+            else if (!_started && (run == null || !run.IsInProgress) && NGame.Instance != null)
             {
                 _started = true;
                 Step("starting single-player run");
@@ -94,6 +108,131 @@ internal static class SoloTest
         }
         catch (Exception e) { W("poll exception: " + e.Message); }
         if (!_done) tree.CreateTimer(2.0).Timeout += Poll;
+    }
+
+    private static bool _cfgShotMode;
+
+    /// <summary>Dev-evidence one-shot (selftest.cfgshot.flag): open the REAL settings screen from the
+    /// main menu (NSubmenuStack.PushSubmenuType), switch to the ModConfig-injected "Mods" tab, scroll
+    /// to this mod's section and screenshot the rows — visual proof of how the config (incl. the new
+    /// "Prefix pool" dropdown) renders in-game, without hand-driving any UI.</summary>
+    private static async Task CfgShotRoutine()
+    {
+        try
+        {
+            if (Engine.GetMainLoop() is not SceneTree tree) return;
+            var stack = FindByTypeName(tree.Root, "NSubmenuStackMainMenu")
+                        ?? tree.Root.FindChildren("*", "NSubmenuStack", recursive: true, owned: false).FirstOrDefault()
+                        ?? FindBySubclass(tree.Root, "NSubmenuStack");
+            if (stack is not MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NSubmenuStack menuStack)
+            { W("cfgshot: submenu stack not found"); Flush(false); return; }
+
+            Step("cfgshot: push settings submenu");
+            var settings = menuStack.PushSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.Settings.NSettingsScreen>();
+            await Task.Delay(2500);   // screen build + ModConfig's Mods-tab injection
+
+            var tabMgr = FindByTypeName(settings, "NSettingsTabManager");
+            var modsTab = tabMgr?.GetNodeOrNull("Mods");
+            if (tabMgr == null || modsTab == null)
+            { W($"cfgshot: tabMgr={(tabMgr != null)}, modsTab={(modsTab != null)}"); Flush(false); return; }
+
+            Step("cfgshot: switch to Mods tab");
+            tabMgr.GetType().GetMethod("SwitchTabTo", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.Invoke(tabMgr, new object[] { modsTab });
+            await Task.Delay(1000);
+            await Shot("cfg_1_modstab");
+
+            // Scroll the Prefix pool row (bottom of the first viewport) fully into view, then pop its
+            // dropdown open so the option list itself is captured. Fixed-delta scroll — the framework's
+            // row labels aren't Godot Labels, so text-anchored scrolling found nothing.
+            // The settings scroller is the game's NScrollableContainer: _Process tweens the content
+            // toward the private _targetDragPosY, so scrolling programmatically = writing that field.
+            // Anchor on TEXT, not a fixed delta — the section order varies with the installed mod set.
+            var scrollObj = tabMgr.GetType().GetField("_scrollContainer", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.GetValue(tabMgr);
+            var dragField = scrollObj?.GetType().GetField("_targetDragPosY", BindingFlags.NonPublic | BindingFlags.Instance);
+            var content = scrollObj?.GetType().GetField("_content", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.GetValue(scrollObj) as Control;
+
+            // Search the tab CONTENT subtree, not tabMgr — the panel rows live under the scroll
+            // container's _content, which is a sibling subtree (searching tabMgr found nothing).
+            Node searchRoot = (Node?)content ?? settings;
+            Control? PoolRow() => FindByText(searchRoot, "접두사 풀") ?? FindByText(searchRoot, "Prefix pool");
+            var poolRow = PoolRow();
+            if (poolRow == null)
+            {
+                // Section collapsed (ModConfig folds sections; the expanded one varies) — toggle the
+                // "Relic Forge" header open and look again.
+                Step("cfgshot: expand Relic Forge section");
+                if (FindByText(searchRoot, "Relic Forge") is BaseButton hb)
+                { hb.EmitSignal(BaseButton.SignalName.Pressed); await Task.Delay(700); poolRow = PoolRow(); }
+            }
+
+            if (poolRow != null && dragField != null && scrollObj != null && content != null)
+            {
+                Step("cfgshot: scroll to prefix pool row");
+                float target = poolRow.GlobalPosition.Y - content.GlobalPosition.Y - 200f;
+                dragField.SetValue(scrollObj, Math.Max(0f, target));
+                await Task.Delay(900);
+                await Shot("cfg_2_prefixpool");
+            }
+            else W($"cfgshot: poolRow={(poolRow != null)}, drag={(dragField != null)}, content={(content != null)} — skipping scroll shot");
+
+            // The custom-pool editor panel, opened via the same path as its ModConfig button — one
+            // screenshot per tab (enhance / effects / character / curses).
+            Step("cfgshot: open custom pool panel");
+            NCustomPoolPanel.Toggle();
+            await Task.Delay(1200);
+            if (FindByTypeName(tree.Root, "NCustomPoolPanel") is NCustomPoolPanel cpp)
+            {
+                string[] tabNames = { "enhance", "effects", "character", "curses" };
+                for (int ti = 0; ti < tabNames.Length; ti++)
+                {
+                    cpp.SelectTab(ti);
+                    await Task.Delay(400);
+                    await Shot($"cfg_4{(char)('a' + ti)}_{tabNames[ti]}");
+                }
+            }
+            else W("cfgshot: custom pool panel not found after Toggle");
+            NCustomPoolPanel.Toggle();
+            await Task.Delay(300);
+
+            W("cfgshot done");
+            Flush(true);
+        }
+        catch (Exception e) { W("cfgshot exception: " + e); Flush(false); }
+        finally
+        {
+            try { File.Delete(Path.Combine(ModDir(), "selftest.cfgshot.flag")); } catch { /* one-shot */ }
+        }
+    }
+
+    private static Node? FindBySubclass(Node n, string baseTypeName)
+    {
+        for (var t = n.GetType(); t != null; t = t.BaseType)
+            if (t.Name == baseTypeName) return n;
+        foreach (var c in n.GetChildren()) { var r = FindBySubclass(c, baseTypeName); if (r != null) return r; }
+        return null;
+    }
+
+    private static ScrollContainer? FindScroll(Node n)
+    {
+        if (n is ScrollContainer sc) return sc;
+        foreach (var c in n.GetChildren()) { var r = FindScroll(c); if (r != null) return r; }
+        return null;
+    }
+
+    /// <summary>First visible Control whose Text property contains the needle — matches Label,
+    /// Button, and any other text-bearing widget, so it finds ModConfig's rows AND section headers
+    /// (which are not Labels — the original Label-only search came back empty).</summary>
+    private static Control? FindByText(Node n, string needle)
+    {
+        if (n is Control c && c.IsVisibleInTree()
+            && c.GetType().GetProperty("Text")?.GetValue(c) is string s
+            && s.Contains(needle, StringComparison.OrdinalIgnoreCase))
+            return c;
+        foreach (var ch in n.GetChildren()) { var r = FindByText(ch, needle); if (r != null) return r; }
+        return null;
     }
 
     private static bool ContentReady()
@@ -341,51 +480,65 @@ internal static class SoloTest
                 return null;
             });
 
-            // T16 — forge SUMMARY on the portrait hover: after the T10 forge, hovering the character portrait
-            // shows the ascension penalties + a forge summary (prefix effects + curses) in one native panel.
-            // Directly invoke the portrait tooltip's OnFocus (our patch rebuilds + shows the combined tip) and
-            // screenshot it under the portrait.
-            await TestAsync("T16 forge summary on portrait hover", async () =>
+            // T16 — forge SUMMARY panel: after the T10 forge, the top-bar button opens a standalone panel
+            // listing EVERY forged relic with its full effect (numeric deltas INCLUDED — the old portrait
+            // tooltip showed qualitative notes only, which read as "nothing" on a purely numeric forge),
+            // curse, and gauge. Assert the row content in text, then open the panel and screenshot it.
+            await TestAsync("T16 forge summary panel", async () =>
             {
                 if (player == null) return "no player";
-                // grant + force-forge several relics so the summary has MANY entries — the shot then proves
-                // the chunked panels wrap into columns (right) instead of one tall panel overflowing.
-                if (run != null)
+                // FORCE known NUMERIC prefixes onto known-benign hosts BEFORE Obtain (the Grant20 idiom):
+                // a console-granted relic pickup-rolls at Obtain (~85% vanilla) and a later Forge() call
+                // no-ops on the already-rolled record — so this is the only way to guarantee pure-numeric
+                // ROWS, the exact case the workshop reported as invisible.
+                uint seed16 = 0; int floor16 = 0;
+                try { seed16 = player.RunState.Rng.Seed; floor16 = player.RunState.TotalFloor; } catch { }
+                var hosts16 = new List<RelicModel>();
+                async Task Grant16(RelicModel? host, string prefixName)
                 {
-                    // grant several NUMERIC relics that share stats (Block: anchor/orichalcum; MaxHp:
-                    // strawberry/pear/mango) so the grouped summary shows RANGES, plus some others.
-                    foreach (var rid in new[] { "anchor", "orichalcum", "strawberry", "pear", "mango", "toolbox", "whetstone", "lantern", "sozu", "warpaint" })
-                        run.ActionQueueSynchronizer.RequestEnqueue(
-                            new MegaCrit.Sts2.Core.DevConsole.ConsoleCmdGameAction(player, "relic " + rid, inCombat: false));
-                    await Task.Delay(3500);
-                    foreach (var r in player.Relics.ToList())   // force-forge ALL owned relics (guaranteePrefix)
-                    {
-                        if (RelicForgeService.IsCompanion(r)) continue;
-                        try { RelicForgeService.Forge(r, player.RunState.Rng.Seed, r.FloorAddedToDeck, guaranteePrefix: true, reforgeCount: 1); } catch { }
-                    }
+                    var pfx = PrefixTable.ByName(prefixName);
+                    if (pfx == null || host == null) { W($"  {prefixName}: prefix or host missing"); return; }
+                    RelicForgeService.Forge(host, seed16, floor16, forced: pfx);
+                    await RelicCmd.Obtain(host, player);
+                    if (player.Relics.Contains(host)) hosts16.Add(host);
                 }
-                // test-only: inject a self-curse onto a forged relic so the CURSE panel renders beside the
-                // prefix one (the shot then proves the side-by-side multi-panel layout).
+                RelicModel? Fetch16(Func<RelicModel> f) { try { return f().ToMutable(); } catch (Exception e) { W("  fetch failed: " + e.Message.Split('\n')[0]); return null; } }
+                await Grant16(Fetch16(() => ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Anchor>()), "Legendary");
+                await Grant16(Fetch16(() => ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Strawberry>()), "Godly");
+                await Grant16(Fetch16(() => ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Pear>()), "Superior");
+                await Task.Delay(800);
+                // test-only: inject a self-curse onto a forged relic so a CURSE line renders in its row.
                 var forged = player.Relics.FirstOrDefault(r => !RelicForgeService.IsCompanion(r) && RelicForgeService.RecordFor(r) != null);
                 var frec = forged != null ? RelicForgeService.RecordFor(forged) : null;
                 if (frec != null && frec.SelfCurse.Length == 0 && !frec.EnemyRider) { frec.SelfCurse = "Enfeebling"; W("  (injected test self-curse)"); }
-                if (!ForgeSummary.HasAny(player)) return "no forged relic to summarize";
-                // log the GROUPED content so ranges/×counts can be verified from text (screenshots can be
-                // covered by a stray relic hover tooltip).
-                foreach (var p in ForgeSummary.PrefixPanels(player)) W("  PFX> " + p.Replace("\n", " | "));
-                foreach (var p in ForgeSummary.CursePanels(player)) W("  CUR> " + p.Replace("\n", " | "));
-                Godot.Input.WarpMouse(new Godot.Vector2(1400f, 950f));   // off the relic row so its tooltip clears
-                await Task.Delay(250);
-                if (Engine.GetMainLoop() is not SceneTree tree) return "no scene tree";
-                var tip = FindByTypeName(tree.Root, "NTopBarPortraitTip") as Control;
-                if (tip == null) return "portrait tooltip control not found";
-                tip.GetType().GetMethod("OnFocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                    ?.Invoke(tip, null);                       // → our Prefix builds + shows the combined tooltip
+
+                var rows = ForgeSummaryRows.Build(player);
+                if (rows.Count == 0) return "no forged relic to summarize";
+                int numericRows = 0, curseRows = 0;
+                foreach (var row in rows)
+                {
+                    W("  ROW> " + row.Title.Replace("\n", " | ") + " :: " + row.Body.Replace("\n", " | "));
+                    if (row.Body.Contains("+") || row.Body.Contains("-")) numericRows++;
+                    if (row.Body.Contains("☠") || row.Body.Contains("⚔")) curseRows++;
+                }
+                // the numeric relics force-forged above must be VISIBLE as rows (regression guard for the
+                // "numeric prefixes show nothing" workshop report), and the injected curse must render.
+                if (numericRows == 0) return "no row shows a numeric delta (numeric forges invisible again?)";
+                if (curseRows == 0) return "injected self-curse did not render in any row";
+                if (hosts16.Count == 0) return "no forced numeric host stuck in player.Relics";
+                foreach (var h in hosts16)
+                {
+                    var hr = rows.FirstOrDefault(r => r.Relic == h);
+                    if (hr == null) return $"forced numeric host {h.Id.Entry} has no summary row";
+                    if (hr.Body.Length == 0) return $"forced numeric host {h.Id.Entry} row body is EMPTY (numeric deltas missing)";
+                }
+
+                NForgeSummaryPanel.Toggle();                    // open via the same path as the top-bar button
                 await Task.Delay(900);
                 await Shot("09_summary");
-                tip.GetType().GetMethod("OnUnfocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                    ?.Invoke(tip, null);
-                W($"  portrait summary shown ({ForgeSummary.PrefixPanels(player).Count} prefix panel(s), {ForgeSummary.CursePanels(player).Count} curse panel(s))");
+                NForgeSummaryPanel.Toggle();                    // toggle again = close
+                await Task.Delay(300);
+                W($"  summary panel shown ({rows.Count} row(s), {numericRows} numeric, {curseRows} cursed)");
                 return null;
             });
 
@@ -944,6 +1097,88 @@ internal static class SoloTest
                         await Task.Delay(4000);
                     }
                     catch (Exception e) { W("  combat cleanup failed: " + e.Message); }
+                }
+            });
+
+            // T27 — prefix-pool filter (workshop request): 'Enhance only' must roll ONLY pure
+            // var-scaling prefixes, 'Effects only' ONLY companion-family ones. Exercises the real
+            // read path (Roll → InPool → PoolAllows → HostForgeConfig, which falls through to
+            // ForgeConfig in SP). Restores the setting afterwards.
+            await TestAsync("T27 prefix pool filter", async () =>
+            {
+                await Task.Yield();
+                int saved = ForgeConfig.PrefixPool;
+                try
+                {
+                    // Ground-truth asserts, NOT the filter's own predicate: enhance-only rolls must
+                    // actually SCALE something and carry no mechanic note (the first cut asserted
+                    // IsCompanionPrefix — the same flags the filter used — so the note-less keyword
+                    // family (Retaining) leaked through both the filter AND the test; coop caught it).
+                    var rng = new Rng(424242u);
+                    ForgeConfig.PrefixPool = 1;                 // enhance-only (vertical)
+                    for (int i = 0; i < 60; i++)
+                    {
+                        var p = PrefixTable.Roll(rng, "IRONCLAD");
+                        if (p.PowerPct == 0 && !p.Amplify) return $"enhance-only rolled non-scaling prefix '{p.Name}'";
+                        if (p.NoteEn.Length > 0) return $"enhance-only rolled note-bearing prefix '{p.Name}'";
+                    }
+                    ForgeConfig.PrefixPool = 2;                 // effects-only (horizontal)
+                    for (int i = 0; i < 60; i++)
+                    {
+                        var p = PrefixTable.Roll(rng, "IRONCLAD");
+                        if (p.NoteEn.Length == 0 && !p.IsCompanionPrefix) return $"effects-only rolled numeric prefix '{p.Name}'";
+                    }
+                    ForgeConfig.PrefixPool = 0;                 // all — sanity: both kinds appear in 80 rolls
+                    bool sawNumeric = false, sawEffect = false;
+                    for (int i = 0; i < 80; i++)
+                    {
+                        var p = PrefixTable.Roll(rng, "IRONCLAD");
+                        if (p.IsEnhance) sawNumeric = true; else sawEffect = true;
+                    }
+                    if (!sawNumeric || !sawEffect) return $"unfiltered pool one-sided (numeric={sawNumeric}, effect={sawEffect})";
+                    W("  pool filter: 60/60 enhance-only numeric, 60/60 effects-only companion, unfiltered mixed ✓");
+                    return null;
+                }
+                finally { ForgeConfig.PrefixPool = saved; }
+            });
+
+            // T28 — CUSTOM pool (workshop request): with everything but Legendary disabled every roll
+            // is Legendary; with ALL curses disabled PickCombined yields none; and the rf_config arg-9
+            // codec roundtrips the sets exactly (what a co-op client would decode).
+            await TestAsync("T28 custom pool", async () =>
+            {
+                await Task.Yield();
+                int saved = ForgeConfig.PrefixPool;
+                var savedP = CustomPool.DisabledPrefixes.ToList();
+                var savedC = CustomPool.DisabledCurses.ToList();
+                try
+                {
+                    ForgeConfig.PrefixPool = ForgeConfig.PoolCustom;
+                    CustomPool.DisabledPrefixes.Clear();
+                    foreach (var p in PrefixTable.Pool)
+                        if (!p.Penalty && !p.IsFallback && p.Name != "Legendary") CustomPool.DisabledPrefixes.Add(p.Name);
+                    var rng = new Rng(777u);
+                    for (int i = 0; i < 30; i++)
+                    {
+                        var p = PrefixTable.Roll(rng, "IRONCLAD");
+                        if (p.Name != "Legendary") return $"custom pool rolled '{p.Name}' (only Legendary enabled)";
+                    }
+                    CustomPool.DisabledCurses.Clear();
+                    foreach (var k in CustomPool.CurseBasis()) CustomPool.DisabledCurses.Add(k);
+                    for (double r0 = 0.05; r0 < 1.0; r0 += 0.3)
+                        if (SelfCurseTable.PickCombined(r0, "IRONCLAD") != "") return "all-curses-disabled still picked a curse";
+                    string enc = CustomPool.Encode();
+                    var (dp, dc) = CustomPool.Decode(enc);
+                    if (!dp.SetEquals(CustomPool.DisabledPrefixes) || !dc.SetEquals(CustomPool.DisabledCurses))
+                        return "custom pool wire codec roundtrip mismatch";
+                    W($"  custom pool: 30/30 Legendary-only, curses all-off => none, codec roundtrip ok ({enc.Length} wire chars)");
+                    return null;
+                }
+                finally
+                {
+                    ForgeConfig.PrefixPool = saved;
+                    CustomPool.DisabledPrefixes.Clear(); foreach (var n in savedP) CustomPool.DisabledPrefixes.Add(n);
+                    CustomPool.DisabledCurses.Clear(); foreach (var n in savedC) CustomPool.DisabledCurses.Add(n);
                 }
             });
             }   // end InjectionBattery — invoked after T13 below

@@ -120,6 +120,18 @@ internal static class CoopTest
             var me = LocalPlayerOf(run);
             if (me == null) { W("HOST: no local player"); Flush(false); return; }
 
+            // Prefix-pool filter under test (rf_config tail arg 8): ENHANCE-ONLY for this whole script.
+            // Every prefix both peers derive below must classify numeric (fallback substitutions
+            // excepted — they replace a fizzled numeric roll), and the JOIN must cache pool=1.
+            Step("HOST set prefix pool = enhance-only");
+            ForgeConfig.PrefixPool = 1;
+            // Also load two KNOWN custom-pool entries into the broadcast (gameplay-inert while
+            // pool != Custom) so the JOIN can assert the arg-9 index codec end-to-end.
+            CustomPool.DisabledPrefixes.Add("Keen");
+            CustomPool.DisabledCurses.Add("Enfeebling");
+            ForgeConfigBroadcaster.BroadcastIfHost();
+            await Task.Delay(2500);
+
             // Networked grant so BOTH peers get the relic (never RelicCmd.Obtain locally in co-op).
             Step("HOST grant + reforge");
             run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, $"relic {RelicId}", inCombat: false));
@@ -196,6 +208,15 @@ internal static class CoopTest
             else W("HOST: combat did not start (room monster jump failed)");
             W($"HOST: POSTCOMBAT relics = {RelicLine(run)}");
 
+            // Pool-filter assert (host side): every prefix this script rolled must be numeric under
+            // enhance-only — a companion-family name here means the filter gate failed on the host.
+            foreach (var r in new[] { relic, relic2 })
+            {
+                string? bad = PoolViolation(r);
+                if (bad != null) { W($"HOST: POOL VIOLATION — {bad}"); Flush(false); return; }
+            }
+            W("HOST: pool filter (enhance-only) held for all rolled prefixes");
+
             W("=== coop host done ===");
             Flush(true);
         }
@@ -250,11 +271,44 @@ internal static class CoopTest
             // host's own record (the v1.0.10 SyncLocalGoldLost fix under test).
             var relic2 = host.Relics.FirstOrDefault(r => r.Id.Entry.Contains("ORICHALCUM") && !RelicForgeService.IsCompanion(r));
             W($"JOIN: SHOP gold={(int)host.Gold}, desc2='{(relic2 != null ? RelicForgeService.DescriptorOf(relic2) ?? "-" : "MISSING")}' (count {(relic2 != null ? RelicForgeService.ReforgeCountOf(relic2) : -1)})");
+
+            // Pool-filter asserts (client side): ① the host's pool=1 must have arrived via the rf_config
+            // tail arg (a client that missed it would fall back to its own local 0 and roll from the
+            // WRONG pool on the next derivation — the exact desync the host-authority design prevents);
+            // ② the replicated prefixes must classify numeric, same as the host's own check.
+            if (HostForgeConfig.PrefixPool != 1)
+            { W($"JOIN: POOL NOT RECEIVED — HostForgeConfig.PrefixPool={HostForgeConfig.PrefixPool} (expected 1)"); Flush(false); return; }
+            foreach (var r in new[] { relic, relic2 })
+            {
+                string? bad = PoolViolation(r);
+                if (bad != null) { W($"JOIN: POOL VIOLATION — {bad}"); Flush(false); return; }
+            }
+            W("JOIN: pool=1 received via rf_config arg8; enhance-only held on replicated prefixes");
+            // arg-9 codec end-to-end: the host disabled these two by NAME; they crossed as INDICES.
+            if (!HostForgeConfig.IsPrefixDisabled("Keen") || !HostForgeConfig.IsCurseDisabled("Enfeebling"))
+            { W("JOIN: CUSTOM SETS NOT RECEIVED — arg9 codec/transport failed"); Flush(false); return; }
+            W("JOIN: custom sets received via rf_config arg9 (Keen prefix + Enfeebling curse disabled)");
+
             await Shot("02_final");          // ★mandatory: what the client actually SEES after replication
             W("=== coop join done ===");
             Flush(true);
         }
         catch (Exception e) { W("JOIN exception: " + e); Flush(false); }
+    }
+
+    /// <summary>Non-null describes a prefix that violates the ENHANCE-ONLY pool this test runs under:
+    /// the record's rolled prefix classifies companion-family. Fallback substitutions are excepted —
+    /// they REPLACE a fizzled numeric roll after the pool pick, so they are consistent with pool=1.
+    /// Null relic / unforged / prefixless / unknown-name records are fine.</summary>
+    private static string? PoolViolation(RelicModel? r)
+    {
+        var rec = r != null ? RelicForgeService.RecordFor(r) : null;
+        if (rec == null || rec.Prefix.Length == 0) return null;
+        var pfx = PrefixTable.ByName(rec.Prefix);
+        if (pfx == null) return null;                    // external/unknown name — not this test's concern
+        return !pfx.IsEnhance && !pfx.IsFallback
+            ? $"{r!.Id.Entry} rolled '{rec.Prefix}' (effect prefix under enhance-only)"
+            : null;
     }
 
     #region selection automation (auto-selector + screen pump)

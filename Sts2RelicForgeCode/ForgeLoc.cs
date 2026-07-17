@@ -34,11 +34,26 @@ internal static class ForgeLoc
     {
         ["UI.CURSED_MARK"] = ("(Cursed)", "〈저주〉", "〈诅咒〉"),
         ["UI.CURSE_TITLE"] = ("Curse", "저주", "诅咒"),
-        // Top-bar forge-summary tooltip (see ForgeSummary / ForgeSummaryIcon).
+        // Forge-summary panel + its top-bar toggle button (see NForgeSummaryPanel / NForgeSummaryButton).
         ["UI.SUMMARY_TITLE"] = ("Forge Summary", "재련 요약", "重铸总览"),
-        ["UI.SUMMARY_PREFIXES"] = ("Prefix effects", "접두사 효과", "词缀效果"),
-        ["UI.SUMMARY_CURSES"] = ("Curses", "저주", "诅咒"),
+        ["UI.SUMMARY_BUTTON_BODY"] = ("Every forged relic at a glance: its prefix effect, curse, and curse risk. Click to open or close.",
+                                      "재련한 모든 유물을 한눈에: 접두사 효과·저주·저주 위험. 클릭해서 열고 닫습니다.",
+                                      "一览所有重铸遗物：词缀效果、诅咒与诅咒风险。点击开合。"),
         ["UI.SUMMARY_EMPTY"] = ("No forged relics yet.", "아직 재련한 유물이 없습니다.", "还没有重铸的遗物。"),
+        ["UI.CLOSE"] = ("Close", "닫기", "关闭"),
+        // Custom prefix/curse pool panel (see NCustomPoolPanel / CustomPool).
+        ["UI.CUSTOM_TITLE"] = ("Custom Prefix & Curse Pool", "접두사·저주 커스텀", "自定义词缀与诅咒池"),
+        ["UI.CUSTOM_HINT"] = ("Applies while 'Prefix pool' is set to Custom. In co-op the HOST's picks apply to everyone.",
+                              "'접두사 풀'을 Custom으로 설정한 동안 적용됩니다. co-op에서는 호스트의 선택이 모두에게 적용됩니다.",
+                              "当「词缀池」设为 Custom 时生效。联机时以主机的选择为准。"),
+        ["UI.CUSTOM_PREFIXES"] = ("Prefixes", "접두사", "词缀"),
+        ["UI.CUSTOM_CURSES"] = ("Curses", "저주", "诅咒"),
+        ["UI.CUSTOM_TAB_ENHANCE"] = ("Enhance", "수치 강화", "数值强化"),
+        ["UI.CUSTOM_TAB_EFFECTS"] = ("Effects", "효과", "效果"),
+        ["UI.CUSTOM_TAB_CHARACTER"] = ("Character", "캐릭터", "角色"),
+        ["UI.ENABLE_ALL"] = ("Enable all", "모두 켜기", "全部开启"),
+        ["UI.DISABLE_ALL"] = ("Disable all", "모두 끄기", "全部关闭"),
+        ["UI.CUSTOM_LAST_PREFIX"] = ("At least one prefix must stay enabled.", "접두사는 최소 1개는 켜져 있어야 합니다.", "至少需保留1个词缀开启。"),
         ["UI.PICKER_BANNER_REFORGE"] = ("Choose a relic to reforge", "재련할 유물 선택", "选择要重铸的遗物"),
         ["UI.SKIP"] = ("Skip", "건너뛰기", "跳过"),
         ["UI.SHOP_REFORGE_TITLE"] = ("Reforge Relic", "유물 재련", "重铸遗物"),   // "relic" explicit — never collide with card reforge/smith

@@ -16,6 +16,24 @@ internal static class ForgeConfig
     public static double NoPrefixChance = 0.85;
 
     /// <summary>
+    /// Which prefixes may ROLL (pickup and reforge alike) — the workshop-requested play-style filter:
+    /// 0 = All (default), 1 = Enhance only ("vertical": prefixes that only scale the relic's own
+    /// numeric vars — the magnitude tiers incl. negatives and Amplify), 2 = Effects only
+    /// ("horizontal": companion-family prefixes that add mechanics — grafts, combat triggers,
+    /// reactive/run-state/character affixes). Classification is derived per prefix from
+    /// <see cref="Prefix.IsCompanionPrefix"/>, so sister-mod registrations sort themselves. Filters the
+    /// ROLL POOL only: curses, fallback substitution, and already-forged relics are untouched. In co-op
+    /// the HOST's value applies to everyone (rf_config tail arg — see <see cref="HostForgeConfig"/>);
+    /// like 'Forge Ancient', changing it mid-run can alter pickup prefixes re-derived on load.
+    /// </summary>
+    public static int PrefixPool = 0;
+
+    /// <summary>PrefixPool value for the CUSTOM mode: per-entry enable/disable sets (see
+    /// <see cref="CustomPool"/> + <see cref="NCustomPoolPanel"/>). The custom CURSE set applies in
+    /// this mode only, mirroring how the prefix filter modes work.</summary>
+    public const int PoolCustom = 3;
+
+    /// <summary>
     /// Enemy-forge strength multiplier, FIXED at the designed 1.0 (100%). Formerly a 0–200% ModConfig
     /// slider, removed as a redundant fourth difficulty lever: the master <see cref="EnemyForgeEnabled"/>
     /// toggle (on/off), <see cref="CurseChance"/> (how many enemy-rider curses you accumulate), the

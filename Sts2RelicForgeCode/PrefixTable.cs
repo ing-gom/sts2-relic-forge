@@ -102,12 +102,23 @@ internal sealed class Prefix
 
     /// <summary>True for any companion-family prefix (grafts a relic, delays/strips an effect,
     /// applies a symmetric/random effect, is a penalty, is a reactive/character affix, or is a
-    /// fallback buff) — none of these scale the host's vars.</summary>
+    /// fallback buff) — none of these scale the host's vars. NOTE: keyword-family prefixes
+    /// (Retaining …) are dispatched by NAME and set no flag here, so this alone under-counts the
+    /// effect prefixes — pool classification must use <see cref="IsEnhance"/>.</summary>
     public bool IsCompanionPrefix => CompanionRelic != null || DelayTurn > 0 || Penalty
                                      || EnemyStrip || SymPower.Length > 0 || RandomDebuff
                                      || GainAmplify || LossInvert || EnergyDischarge > 0
                                      || CurseDrawStrength || GoldStrengthPer > 0 || CharAffix
                                      || ReplayGrant || IsFallback;
+
+    /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
+    /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
+    /// prefixes carry none), so this also requires an EMPTY effect note — the invariant that holds
+    /// across the whole table and external registrations alike: every mechanic-adding prefix must
+    /// describe itself in NoteXx (or it would be invisible in-game), while pure magnitude tiers
+    /// (incl. negatives and Amplify) render as var deltas and carry no note.</summary>
+    public bool IsEnhance => !IsCompanionPrefix
+                             && NoteEn.Length == 0 && NoteKo.Length == 0 && NoteZh.Length == 0;
 
     /// <summary>Stable loc-key base derived from the English name (see <see cref="ForgeLoc"/>).</summary>
     internal string LocKeyBase => "PREFIX_" + ForgeLoc.KeyOf(Name);
@@ -136,6 +147,18 @@ internal sealed class Prefix
 /// </summary>
 internal static class PrefixTable
 {
+    // ★ ADDING A PREFIX — checklist (the filter/custom UI need NO manual registration, but these
+    //   invariants make the auto-derivation correct):
+    //   1. EFFECT prefixes MUST fill NoteKo/NoteEn/NoteZh. An empty note classifies the prefix as
+    //      'Enhance' (IsEnhance) — it would land in the wrong pool-filter bucket AND the wrong
+    //      custom-panel tab (the keyword family leaked exactly this way; coop-verify caught it).
+    //   2. Name is a STABLE KEY: custom_pool.json persists disabled entries by Name and the rf_config
+    //      arg-9 wire indexes this table's order — renaming resets users' custom picks for that entry
+    //      (and, mid-run in co-op, requires both peers on the same version, as always).
+    //   3. Character-gated affixes set RequiredCharacter/CharAffix — that (not the note) routes them
+    //      to the custom panel's Character tab.
+    //   Everything else (pool filter buckets, custom tabs, per-entry toggles, localization keys) is
+    //   derived from the fields automatically.
     public static readonly Prefix[] All =
     {
         // positive — top is rare, low tiers common. Color grades by power: gold/orange at the
@@ -599,11 +622,18 @@ internal static class PrefixTable
         var pool = _pool;                 // snapshot the field once (registration is init-time; still safe)
         double total = 0;
         foreach (var p in pool) if (InPool(p, character)) total += p.Weight;
+        // A custom set that disabled EVERYTHING would leave an empty pool — fall back to the
+        // UNfiltered pool (deterministic on every peer: the fallback trips from the same synced set)
+        // rather than crash or return an arbitrary entry. The panel blocks this state, so this is a
+        // belt-and-suspenders guard for hand-edited/stale custom_pool.json.
+        bool filtered = total > 0;
+        if (!filtered)
+            foreach (var p in pool) if (BaseInPool(p, character)) total += p.Weight;
         double r = rng.NextFloat() * total;
         Prefix? last = null;
         foreach (var p in pool)
         {
-            if (!InPool(p, character)) continue;
+            if (!(filtered ? InPool(p, character) : BaseInPool(p, character))) continue;
             last = p;
             r -= p.Weight;
             if (r < 0) return p;
@@ -616,9 +646,29 @@ internal static class PrefixTable
     /// prefixes are NEVER rolled either (their downside is re-homed onto the curse side — a penalty
     /// identity is drawn into rec.SelfCurse via <see cref="SelfCurseTable.PickCombined"/>, never into
     /// the beneficial prefix slot); universal (no RequiredCharacter) always, character-gated only when
-    /// the character matches (case-insensitive on CharacterModel Id.Entry, e.g. "SILENT").</summary>
+    /// the character matches (case-insensitive on CharacterModel Id.Entry, e.g. "SILENT"); and the
+    /// prefix-pool filter must allow it (<see cref="PoolAllows"/>).</summary>
     private static bool InPool(Prefix p, string? character)
+        => BaseInPool(p, character) && PoolAllows(p);
+
+    /// <summary>Eligibility WITHOUT the play-style pool filter — the empty-custom-set fallback.</summary>
+    private static bool BaseInPool(Prefix p, string? character)
         => !p.IsFallback && !p.Penalty && CharacterMatches(p, character);
+
+    /// <summary>The play-style prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>, host-authoritative
+    /// in co-op): 1 = enhance-only keeps pure var-scaling prefixes, 2 = effects-only keeps the
+    /// mechanic-adding ones. Classification is <see cref="Prefix.IsEnhance"/> (flags + empty-note
+    /// invariant — coop-verify caught the keyword family leaking through a flags-only check). MUST
+    /// read <see cref="HostForgeConfig"/> — a local read would let two peers roll from different
+    /// pools off the same seed (instant desync).</summary>
+    internal static bool PoolAllows(Prefix p)
+        => HostForgeConfig.PrefixPool switch
+        {
+            1 => p.IsEnhance,
+            2 => !p.IsEnhance,
+            ForgeConfig.PoolCustom => !HostForgeConfig.IsPrefixDisabled(p.Name),
+            _ => true,
+        };
 
     /// <summary>Character-eligibility half of <see cref="InPool"/>, shared with the curse pool: universal
     /// (no RequiredCharacter) always, character-gated only when <paramref name="character"/> matches. The

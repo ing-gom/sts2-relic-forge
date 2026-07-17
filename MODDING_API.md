@@ -119,6 +119,12 @@ Adds a self‑curse that fires on the owner's **unblocked hits**. Set **exactly 
 > Only these effect kinds are currently exposed. Behavioural prefixes (reactive / character‑gated /
 > companion‑graft) are not registerable yet.
 
+> **Pool filter / Custom panel (v1.0.27+):** registered prefixes and self‑curses appear in the
+> in‑game *Prefix pool* filter and the per‑entry **Custom** panel automatically — no extra
+> registration. Two things to know: registered prefixes are numeric‑only today, so they classify as
+> *Enhance* in the filter/tabs; and `Name` is the **persistence key** for a player's Custom picks
+> (`custom_pool.json`) — renaming it resets their toggle for that entry.
+
 ---
 
 ## ★ Co‑op contract (read this)

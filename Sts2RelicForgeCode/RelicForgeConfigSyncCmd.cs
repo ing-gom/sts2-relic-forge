@@ -50,8 +50,19 @@ public sealed class RelicForgeConfigSyncCmd : AbstractConsoleCmd
         // the pre-toggle behavior. Sits AFTER the fingerprint (arg 6) so both optional args stay
         // positionally stable; older clients ignore both.
         bool campCleanse = args.Length < 7 || args[6] == "1";
+        // Optional 8th arg (prefix-pool filter hosts): 0=all / 1=enhance-only / 2=effects-only /
+        // 3=custom. Absent (older host) = 0 — the unfiltered pool. Same tail-compat contract as arg 7.
+        int prefixPool = args.Length >= 8 && int.TryParse(args[7], NumberStyles.Integer, inv, out int pp) ? pp : 0;
+        // Optional 9th arg (custom-pool hosts): disabled prefix/curse INDICES ("p,p;c,c", '-' = none),
+        // decoded against the local (fingerprint-guarded) bases into name sets. Absent = empty sets.
+        var (dp, dc) = args.Length >= 9 ? CustomPool.Decode(args[8])
+                                        : (new System.Collections.Generic.HashSet<string>(), new System.Collections.Generic.HashSet<string>());
 
-        try { HostForgeConfig.ApplyFromHost(noPrefix, curse, selfShare, ancient, enemyForge, campCleanse); }
+        try
+        {
+            HostForgeConfig.ApplyFromHost(noPrefix, curse, selfShare, ancient, enemyForge, campCleanse, prefixPool);
+            HostForgeConfig.ApplyPoolsFromHost(dp, dc);
+        }
         catch (System.Exception e)
         {
             MainFile.Logger.Warn($"[{MainFile.ModId}] rf_config apply failed: {e.Message}");
@@ -103,7 +114,7 @@ internal static class ForgeConfigBroadcaster
         // Arg 6 = the host's prefix/curse pool fingerprint (order-sensitive) so clients can detect a
         // sister-mod registration mismatch — the one API-contract violation that silently desyncs rolls.
         // Old clients simply ignore the extra arg (they parse the first five positionally).
-        string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5} {6} {7}",
+        string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5} {6} {7} {8} {9}",
             Verb(),
             ForgeConfig.NoPrefixChance.ToString("R", inv),
             ForgeConfig.CurseChance.ToString("R", inv),
@@ -111,7 +122,9 @@ internal static class ForgeConfigBroadcaster
             ForgeConfig.ForgeAncientRelics ? "1" : "0",
             ForgeConfig.EnemyForgeEnabled ? "1" : "0",
             RelicForgeConfigSyncCmd.PoolFingerprint(),
-            ForgeConfig.CampfireCleanseEnabled ? "1" : "0");   // arg 7 — campfire cleanse (old clients ignore)
+            ForgeConfig.CampfireCleanseEnabled ? "1" : "0",    // arg 7 — campfire cleanse (old clients ignore)
+            ForgeConfig.PrefixPool.ToString(inv),              // arg 8 — prefix-pool filter (old clients ignore)
+            CustomPool.Encode());                              // arg 9 — custom-pool disabled indices (old clients ignore)
 
         // Never in combat (shop / rest / menu only), so inCombat is false — matches the reforge dispatch.
         run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, synced, inCombat: false));

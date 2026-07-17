@@ -112,11 +112,19 @@ internal static class SelfCurseTable
     /// the pick is uniform, so the choice reproduces across peers/loads for the same (seed, character).</summary>
     public static string PickCombined(double roll, string? character)
     {
+        // Custom pool mode: the per-curse disable set applies (host-authoritative — a local read
+        // would diverge peers). All keys disabled = the run rolls NO self-curses ("" = none, every
+        // consumer already treats an empty SelfCurse as absent) — unlike prefixes there is no
+        // fallback, because "no curses" is a legitimate player choice.
+        bool custom = HostForgeConfig.PrefixPool == ForgeConfig.PoolCustom;
         var pool = new List<string>(_pool.Length + 16);
-        foreach (var c in _pool) pool.Add(c.En);
+        foreach (var c in _pool)
+            if (!custom || !HostForgeConfig.IsCurseDisabled(c.En)) pool.Add(c.En);
         foreach (var p in PrefixTable.All)
-            if (p.Penalty && !p.IsFallback && PrefixTable.CurseInPool(p, character))
+            if (p.Penalty && !p.IsFallback && PrefixTable.CurseInPool(p, character)
+                && (!custom || !HostForgeConfig.IsCurseDisabled(p.Name)))
                 pool.Add(p.Name);
+        if (pool.Count == 0) return "";
         int i = (int)(roll * pool.Count);
         if (i >= pool.Count) i = pool.Count - 1;
         if (i < 0) i = 0;

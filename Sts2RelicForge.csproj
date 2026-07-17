@@ -34,5 +34,8 @@
         <Copy SourceFiles="$(MSBuildProjectDirectory)/cleanse_shop_icon.png"
               DestinationFolder="$(Sts2ModOutputDir)"
               Condition="Exists('$(MSBuildProjectDirectory)/cleanse_shop_icon.png') And !Exists('$(Sts2ModOutputDir)/cleanse_shop_icon.png')" />
+        <Copy SourceFiles="$(MSBuildProjectDirectory)/summary_icon.png"
+              DestinationFolder="$(Sts2ModOutputDir)"
+              Condition="Exists('$(MSBuildProjectDirectory)/summary_icon.png') And !Exists('$(Sts2ModOutputDir)/summary_icon.png')" />
     </Target>
 </Project>

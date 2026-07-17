@@ -55,20 +55,31 @@ internal static class CharAffixPatches
             await original;
             try
             {
-                if (amount <= 0m) return;
                 var owner = power.Owner;
                 if (owner == null) return;
+                if (amount < 0m)
+                {
+                    // Vigor pay-down (VigorPower.AfterAttack) → Tempered's per-point Strength roll.
+                    if (power is VigorPower && owner.Side == CombatSide.Player && owner.Player != null)
+                        await CharAffix.OnVigorConsumed(choiceContext, owner.Player, (int)(-amount));
+                    return;
+                }
+                if (amount == 0m) return;
                 Player? actor = applier?.Player ?? applier?.PetOwner;
 
                 if (power is PoisonPower && applier?.Side == CombatSide.Player && owner.Side == CombatSide.Enemy && actor != null)
                     await CharAffix.OnPoisonApplied(choiceContext, actor, owner);
                 else if (power is DoomPower && applier?.Side == CombatSide.Player && owner.Side == CombatSide.Enemy && actor != null)
                     await CharAffix.OnDoomApplied(choiceContext, actor, owner);
+                else if (power is VulnerablePower && applier?.Side == CombatSide.Player && owner.Side == CombatSide.Enemy && actor != null)
+                    await CharAffix.OnVulnApplied(choiceContext, actor, owner);        // Gouging + Karmic
                 else if (power is FocusPower)
                 {
                     if (owner.Side == CombatSide.Player && applier?.Side == CombatSide.Player && owner.Player != null)
                         await CharAffix.OnFocusGained(choiceContext, owner.Player);
                 }
+                else if (power is StrengthPower && owner.Side == CombatSide.Player && owner.Player != null)
+                    await CharAffix.OnStrengthGained(choiceContext, owner.Player);     // Mirrored (owner-side attribution — relic-granted strength counts too)
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char power hook failed: {e.Message}"); }
         }
@@ -192,9 +203,74 @@ internal static class CharAffixPatches
             await original;
             try
             {
-                if (card?.Owner != null) await CharAffix.OnCardDiscardedAsync(choiceContext, card.Owner);
+                if (card?.Owner != null) await CharAffix.OnCardDiscardedAsync(choiceContext, card.Owner);   // Cycling
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char discard hook failed: {e.Message}"); }
+        }
+    }
+
+    /// <summary>Shiv exhausted → Retrieving's 25% return-to-hand (EXHAUST ONLY — a plain discard
+    /// deliberately does not trigger). CHAINS onto the awaited exhaust hook Task — same in-order
+    /// reasoning as the discard patch.</summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.AfterCardExhausted))]
+    internal static class ExhaustPatch
+    {
+        private static void Postfix(ref Task __result, PlayerChoiceContext choiceContext, CardModel card)
+            => __result = After(__result, choiceContext, card);
+
+        private static async Task After(Task original, PlayerChoiceContext choiceContext, CardModel card)
+        {
+            await original;
+            try
+            {
+                if (card?.Owner == null) return;
+                await CharAffix.OnCardExhausted(choiceContext, card.Owner);   // Cindered
+                if (card is Shiv)
+                    await CharAffix.OnShivExhausted(card.Owner, card);        // Retrieving
+            }
+            catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char exhaust hook failed: {e.Message}"); }
+        }
+    }
+
+    /// <summary>Lingering (curse) — a Harmony PREFIX on CardCmd.Exhaust: 25% chance the exhaust is
+    /// replaced by a plain discard (the card survives in the discard pile — exhaust payoffs fizzle,
+    /// curses/statuses refuse to leave). Skipping the original entirely keeps the swap atomic; the
+    /// Roll is seed-deterministic, so both co-op peers dodge the exact same exhausts, and the
+    /// substituted CardCmd.Discard is the same networked-safe command the game itself uses.</summary>
+    [HarmonyPatch(typeof(CardCmd), nameof(CardCmd.Exhaust))]
+    internal static class ExhaustDodgePatch
+    {
+        private static bool Prefix(ref Task __result, PlayerChoiceContext choiceContext, CardModel card)
+        {
+            try
+            {
+                if (card?.Owner is not Player player) return true;
+                if (!CharAffix.ShouldLingeringDodge(player, card)) return true;
+                __result = CardCmd.Discard(choiceContext, card);
+                return false;   // skip the exhaust — the card was discarded instead
+            }
+            catch (Exception e)
+            {
+                MainFile.Logger.Warn($"[{MainFile.ModId}] exhaust dodge failed (exhaust kept): {e.Message}");
+                return true;
+            }
+        }
+    }
+
+    /// <summary>Stars gained → Bountiful's 33% bonus star + Prodigal's 25% tax. CHAINED (fires mid
+    /// PlayerCmd.GainStars) so the bonus/tax lands in-order on every client; the echo of Bountiful's
+    /// own GainStars is swallowed by the suppressor in CharAffix.OnStarsGained.</summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.AfterStarsGained))]
+    internal static class StarsGainedPatch
+    {
+        private static void Postfix(ref Task __result, int amount, Player gainer)
+            => __result = After(__result, amount, gainer);
+
+        private static async Task After(Task original, int amount, Player gainer)
+        {
+            await original;
+            try { await CharAffix.OnStarsGained(gainer, amount); }
+            catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char stars-gained hook failed: {e.Message}"); }
         }
     }
 
@@ -257,9 +333,17 @@ internal static class CharAffixPatches
             await original;
             try
             {
-                if (result.UnblockedDamage <= 0) return;   // block held -> the summon wasn't hurt
+                if (result.UnblockedDamage <= 0) return;   // block held -> nobody was hurt
                 if (target.IsPet && target.PetOwner is Player owner)
+                {
+                    CharAffix.NotePetDamage(owner, (int)result.UnblockedDamage);   // Empathic meter
                     await CharAffix.OnSummonDamaged(choiceContext, owner);
+                }
+                else if (target.Side == CombatSide.Player && target.Player != null)
+                {
+                    CharAffix.NotePlayerDamage(target.Player, (int)result.UnblockedDamage);   // Vengeful/Retaliating meter
+                    await CharAffix.OnPlayerHpLost(choiceContext, target.Player);              // Bloodforged (first loss per combat)
+                }
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char summon-damage hook failed: {e.Message}"); }
         }
@@ -333,7 +417,10 @@ internal static class CharAffixPatches
                 foreach (var r in results)
                     if (r.UnblockedDamage > 0 && r.WasTargetKilled && r.Receiver != null && r.Receiver.IsDead
                         && pets.TryGetValue(r.Receiver, out var owner))
+                    {
+                        CharAffix.NotePetDamage(owner, (int)r.UnblockedDamage);   // Empathic counts the killing hit too
                         await CharAffix.OnSummonDamaged(ctx, owner, lethal: true);
+                    }
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] lethal summon-damage check failed: {e.Message}"); }
             return results;
@@ -385,7 +472,14 @@ internal static class CharAffixPatches
     {
         private static void Postfix(Player player)
         {
-            try { CharAffix.OnTurnEndOrbCheck(player); CharAffix.OnTurnEndEchoing(player); }
+            try
+            {
+                CharAffix.OnTurnEndOrbCheck(player);       // Polarized arm
+                CharAffix.OnTurnEndEchoing(player);        // Echoing revert
+                CharAffix.OnTurnEndUnstable(player);       // Unstable orb morph
+                CharAffix.OnTurnEndFamishedCheck(player);  // Famished arm
+                CharAffix.OnTurnEndTarnished(player);      // Tarnished star loss
+            }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char flush hook failed: {e.Message}"); }
         }
     }
@@ -423,6 +517,10 @@ internal static class CharAffixPatches
                         case "Bonebound":                    CharAffix.OnTurnBonebound(choiceContext, player, relic); break;
                         case "Starlit":                       CharAffix.OnTurnStarlit(player, relic); break;
                         case "Echoing":                       CharAffix.OnTurnEchoing(player, relic, turn); break;
+                        case "Vengeful":                      CharAffix.OnTurnVengeful(choiceContext, player, relic); break;
+                        case "Empathic":                      CharAffix.OnTurnEmpathic(player, relic); break;
+                        case "Retaliating":                   CharAffix.OnTurnRetaliating(choiceContext, player, relic); break;
+                        case "Preheated" when turn == 1:      CharAffix.OnCombatStartPreheated(choiceContext, player, relic); break;
                     }
                     // Character PENALTY affixes were re-homed onto the curse slot (they now ride a boon
                     // prefix instead of occupying it), so dispatch them off rec.SelfCurse. Same effects,
@@ -433,8 +531,14 @@ internal static class CharAffixPatches
                         case "Polarized":                     CharAffix.OnTurnPolarized(player, relic); break;
                         case "Toxic"   when turn == 1:        CharAffix.OnCombatStartToxic(choiceContext, player, relic); break;
                         case "Shorted" when turn == 1:        CharAffix.OnCombatStartShorted(choiceContext, player, relic); break;
+                        case "Slippery":                      CharAffix.OnTurnSlippery(choiceContext, player, relic, turn); break;
+                        case "Sealed"  when turn == 1:        CharAffix.OnCombatStartSealed(player, relic); break;
+                        case "Famished":                      CharAffix.OnTurnFamished(choiceContext, player, relic); break;
                     }
                 }
+                // Vengeful/Empathic just consumed the damage meters (synchronously, above) — restart
+                // the "since your last turn" window for the coming round.
+                CharAffix.ResetDamageMeter(player);
                 // Turn start is the verified-safe detached-dispatch choke (post-setup, after the draw loop),
                 // so Supercharged's re-eval stays fire-and-forget here — RunSafely consumes+logs the Task,
                 // preserving the pre-async behavior. (The mid-command evoke/channel paths await Reconcile.)

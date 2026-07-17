@@ -129,26 +129,38 @@ Only roll while you PLAY that character, riding the character's signature mechan
 
 | Character | Prefix | Effect | Share |
 |---|---|---|---:|
-| Silent | Envenomed | When you apply Poison to an enemy, 50% chance to apply 1 more | 2.2% |
-| Silent | Flurrying | When you play a Shiv, 25% chance to add a Shiv to your hand | 1.9% |
-| Silent | Cycling | When you discard a card, draw a card | 1.4% |
-| Silent | Toxic *(curse)* | Poison 3 to yourself at combat start | 1.9% |
-| Silent | Dulled *(curse)* | Poison you apply cannot stack an enemy above 6 Poison | 1.9% |
-| Defect | Focused | The first time you gain Focus in combat, gain 1 more Focus | 1.9% |
+| Silent | Envenomed | When you apply Poison to an enemy, 50% chance to apply 1 more | 2.1% |
+| Silent | Flurrying | When you play a Shiv, 25% chance to add a Shiv to your hand | 1.8% |
+| Silent | Cycling | When you discard a card, draw a card | 1.3% |
+| Silent | Retrieving | When a Shiv is exhausted, 25% chance it returns to your hand | 1.6% |
+| Silent | Slippery *(curse)* | At the start of each turn, discard a random card | 1.8% |
+| Silent | Toxic *(curse)* | Poison 3 to yourself at combat start | 1.8% |
+| Silent | Dulled *(curse)* | Poison you apply cannot stack an enemy above 6 Poison | 1.8% |
+| Defect | Focused | The first time you gain Focus in combat, gain 1 more Focus | 1.8% |
 | Defect | Amplified | When you Channel an orb, 25% chance to Channel a random orb | 1.6% |
 | Defect | Supercharged | While your orb slots are full, gain 1 Focus (lost while not full) | 1.6% |
-| Defect | Shorted *(curse)* | Focus -2 at combat start | 1.9% |
-| Defect | Polarized *(curse)* | If you end your turn with your orb slots all empty or all full, lose 1 Energy next turn | 1.9% |
-| Necrobinder | Necromantic | When you Summon, gain 3 Block | 2.2% |
-| Necrobinder | Dooming | When you apply Doom to an enemy, apply 1 more | 1.9% |
-| Necrobinder | Bonebound | Summon 1 each turn (grows your Osty) | 1.6% |
-| Necrobinder | Sacrificial *(curse)* | When your summon takes damage, apply Weak / Frail / Vulnerable 1 to yourself (once per turn); 2 when it dies | 1.9% |
-| Necrobinder | Doombound *(curse)* | Each turn, apply 1 Doom to yourself | 1.9% |
-| Regent | Levied *(curse)* | Cards that cost Stars cost 1 more Star | 1.9% |
-| Regent | Starlit | Gain 1 Star each turn | 1.9% |
-| Regent | Reforging | When you Forge, gain 1 Star | 1.6% |
-| Regent | Regal | When you spend Stars, 50% chance to refund 1 Star | 1.6% |
-| Regent | Bankrupt *(curse)* | Every 4 Stars you spend, a random card in your hand becomes Ethereal | 1.9% |
+| Defect | Shorted *(curse)* | Focus -2 at combat start | 1.8% |
+| Defect | Polarized *(curse)* | If you end your turn with your orb slots all empty or all full, lose 1 Energy next turn | 1.8% |
+| Defect | Preheated | Channel a random orb at combat start | 1.8% |
+| Defect | Sealed *(curse)* | Orb slots -1 at combat start (minimum 1) | 1.8% |
+| Defect | Unstable *(curse)* | At turn end, 25% chance your oldest orb becomes a different random orb | 1.6% |
+| Necrobinder | Necromantic | When you Summon, gain 3 Block | 2.1% |
+| Necrobinder | Dooming | When you apply Doom to an enemy, apply 1 more | 1.8% |
+| Necrobinder | Bonebound | Summon 1 each turn (grows your Osty) | 1.5% |
+| Necrobinder | Sacrificial *(curse)* | When your summon takes damage, apply Weak / Frail / Vulnerable 1 to yourself (once per turn); 2 when it dies | 1.8% |
+| Necrobinder | Doombound *(curse)* | Each turn, apply 1 Doom to yourself | 1.8% |
+| Necrobinder | Vengeful | At turn start, Summon 2× the HP you lost since your last turn | 1.5% |
+| Necrobinder | Empathic | At turn start, gain Block equal to the HP your summon lost since your last turn | 1.5% |
+| Necrobinder | Famished *(curse)* | End your turn without Summoning and your Osty shrinks by 1 next turn | 1.8% |
+| Regent | Levied *(curse)* | Cards that cost Stars cost 1 more Star | 1.8% |
+| Regent | Starlit | Gain 1 Star each turn | 1.8% |
+| Regent | Reforging | When you Forge, gain 1 Star | 1.5% |
+| Regent | Regal | When you spend Stars, 50% chance to refund 1 Star | 1.5% |
+| Regent | Bankrupt *(curse)* | Every 4 Stars you spend, a random card in your hand becomes Ethereal | 1.8% |
+| Regent | Tributary | When you Forge, 50% chance to draw 1 card, 25% chance to draw 2 | 1.5% |
+| Regent | Bountiful | When you gain Stars, 33% chance to gain 1 more | 1.8% |
+| Regent | Prodigal *(curse)* | When you gain Stars, 25% chance to gain 1 less | 1.8% |
+| Regent | Tarnished *(curse)* | Lose 1 Star at the end of each turn | 1.8% |
 
 > Character-prefix Share is computed within that character's pool (universal pool + that character's five).
 

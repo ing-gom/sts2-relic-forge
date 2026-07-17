@@ -15,7 +15,11 @@ using MegaCrit.Sts2.Core.Entities.Cards;                  // CardCreationResult
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Models.Cards;                    // Shiv (T22)
+using MegaCrit.Sts2.Core.Models.Orbs;                     // LightningOrb (T23)
+using MegaCrit.Sts2.Core.Models.Powers;                   // VigorPower/StrengthPower (T21)
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.ValueProps;                      // ValueProp (T25)
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;          // NOverlayStack
 using MegaCrit.Sts2.Core.Random;                          // Rng
 using MegaCrit.Sts2.Core.Runs;
@@ -453,6 +457,497 @@ internal static class SoloTest
                 return null;
             });
 
+            // T19 — character-affix wave 2 (the 13 new prefixes/curses, incl. the FIRST Ironclad
+            // family): every entry exists with the right character gate, slot (boon vs re-homed
+            // penalty), and full ko/en/zh notes; penalties are curse-pool-eligible for their own
+            // character only. Pure table checks — combat behavior is verified in-run via `forgechar`.
+            Test("T19 char-affix wave 2 table", () =>
+            {
+                var expect = new (string name, string chr, bool penalty)[]
+                {
+                    ("Quenched",   "",            false),   // universal — vigor is cross-character
+                    ("Cindered",   "IRONCLAD",    false),
+                    ("Bloodforged","IRONCLAD",    false),
+                    ("Gouging",    "IRONCLAD",    false),
+                    ("Retaliating","IRONCLAD",    false),
+                    ("Mirrored",   "IRONCLAD",    true),
+                    ("Lingering",  "IRONCLAD",    true),
+                    ("Karmic",     "IRONCLAD",    true),
+                    ("Retrieving", "SILENT",      false),
+                    ("Slippery",   "SILENT",      true),
+                    ("Preheated",  "DEFECT",      false),
+                    ("Sealed",     "DEFECT",      true),
+                    ("Unstable",   "DEFECT",      true),
+                    ("Vengeful",   "NECROBINDER", false),
+                    ("Empathic",   "NECROBINDER", false),
+                    ("Famished",   "NECROBINDER", true),
+                    ("Tributary",  "REGENT",      false),
+                    ("Bountiful",  "REGENT",      false),
+                    ("Prodigal",   "REGENT",      true),
+                    ("Tarnished",  "REGENT",      true),
+                };
+                foreach (var (name, chr, penalty) in expect)
+                {
+                    var p = PrefixTable.ByName(name);
+                    if (p == null) return $"{name}: missing from PrefixTable";
+                    if (!p.CharAffix || !string.Equals(p.RequiredCharacter, chr, StringComparison.OrdinalIgnoreCase))
+                        return $"{name}: wrong gate (CharAffix={p.CharAffix}, char='{p.RequiredCharacter}')";
+                    if (p.Penalty != penalty) return $"{name}: Penalty={p.Penalty}, expected {penalty}";
+                    if (p.NoteKo.Length == 0 || p.NoteEn.Length == 0 || p.NoteZh.Length == 0)
+                        return $"{name}: missing note translation";
+                    if (p.Penalty && !PrefixTable.CurseInPool(p, chr))
+                        return $"{name}: penalty not eligible for its own curse pool";
+                    // A char-gated curse must never leak into another character's pool.
+                    string other = string.Equals(chr, "SILENT", StringComparison.OrdinalIgnoreCase) ? "DEFECT" : "SILENT";
+                    if (p.Penalty && PrefixTable.CurseInPool(p, other))
+                        return $"{name}: leaks into {other}'s curse pool";
+                }
+                // Name uniqueness across the WHOLE table — the Name doubles as the dispatch and
+                // descriptor key, so ANY duplicate silently misroutes (the original "Tempered"
+                // collision this test caught: ByName returned the numeric prefix, the char affix
+                // never fired).
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var p in PrefixTable.All)
+                    if (!seen.Add(p.Name)) return $"duplicate prefix name '{p.Name}' in PrefixTable";
+                W("  20 wave-2 char affixes wired (Quenched universal + real Ironclad family), no name collisions ✓");
+                return null;
+            });
+
+            // ==================== T20–T25: forced-INJECTION behavior tests ====================
+            // T19 only proves the TABLE; these prove the EFFECTS: each affix is force-forged onto a
+            // benign host (the forgechar idiom, in-process), its trigger is driven through the REAL
+            // command / hook path wherever possible, and the outcome is asserted. Hosts are removed
+            // after each sub-test so effects never cross-contaminate.
+            // Declared HERE but INVOKED AFTER T13: running these fights before the Rewind tests
+            // starved Rewind of its turn snapshots (CanRewindToTurn=false) — the injection battery
+            // is state-heavy (two fresh fights, a victory, a dozen relic obtains), so it goes last.
+            async Task InjectionBattery()
+            {
+            // T13's game-over rewind REBUILT the run state — the player captured at battery start is
+            // stale (its RunState lookup throws "Sequence contains no matching element", relic list
+            // dead). Re-resolve the LIVE instance; T14/T15 downstream benefit from the same fix.
+            player = RunManager.Instance?.State?.Players?.FirstOrDefault() ?? player;
+            var ctx20 = new MegaCrit.Sts2.Core.GameActions.Multiplayer.BlockingPlayerChoiceContext();
+            uint seed20 = 0; int floor20 = 0;
+            try { if (player != null) { seed20 = player.RunState.Rng.Seed; floor20 = player.RunState.TotalFloor; } }
+            catch (Exception e) { W("T20 setup failed: " + e.Message); }
+
+            // Force-forge prefixName onto a KNOWN-BENIGN host and obtain it. Hosts are fixed
+            // (Strawberry / Pear — pure on-obtain MaxHp, no grants/selects/replacements): an
+            // alphabet-ordered pool draw handed us hosts whose obtain side effects (grant-another-
+            // relic / self-replace) silently dropped them from player.Relics, so every relic-list
+            // lookup (Owned/OwnedByCurse) — and even relic.Flash() — went dead. Membership is now
+            // asserted after Obtain. Scrubs incidental rolls (enemy rider / stray self-curse) so
+            // ONLY the effect under test is live, and asserts the affix landed in the right slot
+            // (boon → rec.Prefix, penalty → re-homed rec.SelfCurse).
+            async Task<RelicModel?> Grant20(string prefixName, bool penalty, bool secondSlot = false)
+            {
+                var pfx = PrefixTable.ByName(prefixName);
+                if (pfx == null || player == null) return null;
+                RelicModel host = secondSlot
+                    ? ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Pear>().ToMutable()
+                    : ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Strawberry>().ToMutable();
+                RelicForgeService.Forge(host, seed20, floor20, forced: pfx);
+                var rec = RelicForgeService.RecordFor(host);
+                if (rec == null) { W($"  {prefixName}: no forge record after forced forge"); return null; }
+                rec.EnemyRider = false; rec.EnemyRiderSuffix = "";
+                if (!penalty && rec.SelfCurse.Length > 0) rec.SelfCurse = "";
+                bool slotOk = penalty ? rec.SelfCurse == prefixName : rec.Prefix == prefixName;
+                if (!slotOk) { W($"  {prefixName}: wrong slot (prefix='{rec.Prefix}', curse='{rec.SelfCurse}')"); return null; }
+                await RelicCmd.Obtain(host, player);
+                if (!player.Relics.Contains(host)) { W($"  {prefixName}: host {host.Id.Entry} did not stick in player.Relics"); return null; }
+                return host;
+            }
+            async Task Drop20(RelicModel? r) { if (r != null) { try { await RelicCmd.Remove(r); } catch { /* cleanup only */ } } }
+
+            // T20 — Preheated + Slippery through the REAL turn-1 dispatch: grant both, enter a fresh
+            // fight, and read what the TurnStartPatch actually did (an orb appeared / a card was
+            // discarded) — no handler is called by hand here.
+            RelicModel? r20a = null, r20b = null;
+            await TestAsync("T20 inject: Preheated+Slippery real turn-1 dispatch", async () =>
+            {
+                if (run == null || player == null) return "no run/player";
+                r20a = await Grant20("Preheated", penalty: false);
+                r20b = await Grant20("Slippery", penalty: true, secondSlot: true);
+                if (r20a == null || r20b == null) return "forced grant failed (see log)";
+
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+
+                int orbs = player.PlayerCombatState?.OrbQueue?.Orbs.Count ?? 0;
+                int discarded = PileType.Discard.GetPile(player).Cards.Count;
+                W($"  turn 1 after dispatch: orbs={orbs} (Preheated), discard pile={discarded} (Slippery)");
+                if (orbs < 1) return "Preheated did not channel an orb at combat start";
+                if (discarded < 1) return "Slippery did not discard a card at turn start";
+                return null;
+            });
+            await Drop20(r20a); await Drop20(r20b);
+
+            // T21 — Quenched (universal, vigor→strength) through the REAL consumption path: apply 200
+            // Vigor, pay it down with the same negative PowerCmd.ModifyAmount VigorPower.AfterAttack
+            // uses → the AfterPowerAmountChanged patch must fire OnVigorConsumed (200 independent
+            // rolls at CharAffix.QuenchedChance — P(zero strength) is negligible at any sane rate).
+            await TestAsync("T21 inject: Quenched vigor→strength", async () =>
+            {
+                if (player?.Creature == null) return "no player creature";
+                var relic = await Grant20("Quenched", penalty: false);
+                if (relic == null) return "forced grant failed";
+                try
+                {
+                    await PowerCmd.Apply<VigorPower>(ctx20, player.Creature, 200m, player.Creature, null);
+                    var vigor = player.Creature.GetPower<VigorPower>();
+                    if (vigor == null) return "vigor power did not apply";
+                    int str0 = (int)(player.Creature.GetPower<StrengthPower>()?.Amount ?? 0);
+                    await PowerCmd.ModifyAmount(ctx20, vigor, -200m, null, null);
+                    await Task.Delay(800);
+                    int str1 = (int)(player.Creature.GetPower<StrengthPower>()?.Amount ?? 0);
+                    W($"  consumed 200 vigor → strength {str0}→{str1} (expected ≈ +{(int)(200 * CharAffix.QuenchedChance)})");
+                    if (str1 <= str0) return "no Strength gained from 200 consumed Vigor";
+                    return null;
+                }
+                finally { await Drop20(relic); }
+            });
+
+            // T22 — Retrieving (Silent) through the REAL exhaust hook: exhaust freshly-created Shivs
+            // until one bounces back to hand (25%/try — P(all 40 fail) ≈ 1e-5).
+            await TestAsync("T22 inject: Retrieving shiv-exhaust return", async () =>
+            {
+                if (player?.Creature?.CombatState == null) return "not in combat";
+                var relic = await Grant20("Retrieving", penalty: false);
+                if (relic == null) return "forced grant failed";
+                try
+                {
+                    var cs = player.Creature.CombatState;
+                    for (int i = 0; i < 40; i++)
+                    {
+                        var shiv = cs.CreateCard<Shiv>(player);
+                        await CardPileCmd.Add(shiv, PileType.Hand);
+                        await CardCmd.Exhaust(ctx20, shiv);
+                        if (PileType.Hand.GetPile(player).Cards.Contains(shiv))
+                        {
+                            W($"  shiv returned to hand on exhaust #{i + 1}");
+                            await CardCmd.Exhaust(ctx20, shiv);   // tidy: don't leave a test shiv in hand
+                            return null;
+                        }
+                    }
+                    return "no shiv returned in 40 exhausts (25% each)";
+                }
+                finally { await Drop20(relic); }
+            });
+
+            // T23 — Sealed + Unstable (Defect orb curses). Sealed drives the same handler the turn-1
+            // dispatch calls (slot -1, floor 1); Unstable morphs the oldest orb through the real
+            // queue surgery (25%/tick — P(all 60 fail) ≈ 3e-8).
+            await TestAsync("T23 inject: Sealed & Unstable orb curses", async () =>
+            {
+                if (player?.PlayerCombatState == null) return "not in combat";
+                var sealed23 = await Grant20("Sealed", penalty: true);
+                var unstable23 = await Grant20("Unstable", penalty: true, secondSlot: true);
+                if (sealed23 == null || unstable23 == null) { await Drop20(sealed23); await Drop20(unstable23); return "forced grant failed"; }
+                try
+                {
+                    await OrbCmd.AddSlots(player, 3);
+                    var q = player.PlayerCombatState.OrbQueue;
+                    int cap0 = q.Capacity;
+                    CharAffix.OnCombatStartSealed(player, sealed23);
+                    W($"  Sealed: capacity {cap0}→{q.Capacity}");
+                    if (q.Capacity != cap0 - 1) return $"Sealed: capacity {q.Capacity}, expected {cap0 - 1}";
+
+                    if (q.Orbs.Count == 0) await OrbCmd.Channel<LightningOrb>(ctx20, player);
+                    if (q.Orbs.Count == 0) return "Unstable: no orb to morph";
+                    // diag: is the granted curse actually discoverable the way the handler looks it up?
+                    var recU = RelicForgeService.RecordFor(unstable23);
+                    int hitsU = CharAffix.OwnedByCurse(player, "Unstable").Count();
+                    W($"  Unstable diag: ownedList={player.Relics.Contains(unstable23)}, rec.SelfCurse='{recU?.SelfCurse}', lookupHits={hitsU}, " +
+                      $"rolls={string.Join(",", Enumerable.Range(0, 4).Select(_ => CharAffix.Roll(player, unstable23, player.PlayerCombatState?.TurnNumber ?? 0).ToString("F2")))}");
+                    var t0 = q.Orbs[0].GetType();
+                    int n0 = q.Orbs.Count;
+                    for (int i = 0; i < 60; i++)
+                    {
+                        CharAffix.OnTurnEndUnstable(player);
+                        if (q.Orbs.Count > 0 && q.Orbs[0].GetType() != t0)
+                        {
+                            W($"  Unstable: {t0.Name} → {q.Orbs[0].GetType().Name} on tick #{i + 1} (count {n0}→{q.Orbs.Count})");
+                            return q.Orbs.Count == n0 ? null : "Unstable: orb count changed on morph";
+                        }
+                    }
+                    return "Unstable: oldest orb never morphed in 60 ticks (25% each)";
+                }
+                finally { await Drop20(sealed23); await Drop20(unstable23); }
+            });
+
+            // T24 — Regent star/forge affixes through the REAL hooks: Bountiful/Prodigal ride
+            // AfterStarsGained (PlayerCmd.GainStars), Tributary rides AfterForge (ForgeCmd.Forge),
+            // Tarnished drives the flush handler. Star math is combat-scoped, so character-agnostic.
+            await TestAsync("T24 inject: Regent star/forge affixes", async () =>
+            {
+                if (player?.PlayerCombatState == null) return "not in combat";
+
+                var bountiful = await Grant20("Bountiful", penalty: false);
+                if (bountiful == null) return "forced grant failed (Bountiful)";
+                // diag: split the HOOK path from the HANDLER path — a direct OnStarsGained call that
+                // doubles proves handler+lookup, isolating any failure to the AfterStarsGained patch.
+                int hitsB = CharAffix.Owned(player, "Bountiful").Count();
+                int directTwos = 0;
+                for (int i = 0; i < 12; i++)
+                {
+                    int s0 = player.PlayerCombatState.Stars;
+                    await CharAffix.OnStarsGained(player, 1);
+                    if (player.PlayerCombatState.Stars - s0 >= 1) directTwos++;
+                }
+                W($"  Bountiful diag: ownedList={player.Relics.Contains(bountiful)}, lookupHits={hitsB}, directBonus={directTwos}/12");
+                int twos = 0;
+                for (int i = 0; i < 24; i++)
+                {
+                    int s0 = player.PlayerCombatState.Stars;
+                    await PlayerCmd.GainStars(1m, player);
+                    int d = player.PlayerCombatState.Stars - s0;
+                    if (d == 2) twos++;
+                    else if (d != 1) { await Drop20(bountiful); return $"Bountiful: gain delta {d} (expected 1 or 2)"; }
+                }
+                await Drop20(bountiful);
+                W($"  Bountiful: {twos}/24 gains doubled (33% expected)");
+                if (twos == 0) return "Bountiful: no bonus star in 24 gains";
+
+                var prodigal = await Grant20("Prodigal", penalty: true);
+                if (prodigal == null) return "forced grant failed (Prodigal)";
+                int zeros = 0;
+                for (int i = 0; i < 40; i++)
+                {
+                    int s0 = player.PlayerCombatState.Stars;
+                    await PlayerCmd.GainStars(1m, player);
+                    int d = player.PlayerCombatState.Stars - s0;
+                    if (d == 0) zeros++;
+                    else if (d != 1) { await Drop20(prodigal); return $"Prodigal: gain delta {d} (expected 0 or 1)"; }
+                }
+                await Drop20(prodigal);
+                W($"  Prodigal: {zeros}/40 gains taxed away (25% expected)");
+                if (zeros == 0) return "Prodigal: no gain taxed in 40 gains";
+
+                var tarnished = await Grant20("Tarnished", penalty: true);
+                if (tarnished == null) return "forced grant failed (Tarnished)";
+                await PlayerCmd.GainStars(2m, player);
+                int st0 = player.PlayerCombatState.Stars;
+                CharAffix.OnTurnEndTarnished(player);
+                await Task.Delay(400);
+                int st1 = player.PlayerCombatState.Stars;
+                await Drop20(tarnished);
+                W($"  Tarnished: stars {st0}→{st1}");
+                if (st1 != st0 - 1) return $"Tarnished: stars {st1}, expected {st0 - 1}";
+
+                var tributary = await Grant20("Tributary", penalty: false);
+                if (tributary == null) return "forced grant failed (Tributary)";
+                try
+                {
+                    // keep the hand small so a granted draw can never clamp on the hand cap
+                    var handPile = PileType.Hand.GetPile(player);
+                    if (handPile.Cards.Count > 5)
+                        await CardCmd.Discard(ctx20, handPile.Cards.Skip(5).ToList());
+                    await ForgeCmd.Forge(1m, player, null);       // first forge may also create the blade
+                    int drew = 0;
+                    for (int i = 0; i < 12 && drew == 0; i++)
+                    {
+                        int h0 = handPile.Cards.Count;
+                        await ForgeCmd.Forge(1m, player, null);
+                        await Task.Delay(150);
+                        int d = handPile.Cards.Count - h0;
+                        if (d > 0) drew = d;
+                    }
+                    W($"  Tributary: drew {drew} card(s) on a forge (75%/forge expected)");
+                    if (drew == 0) return "Tributary: no draw in 12 forges";
+                    if (drew > 2) return $"Tributary: drew {drew} on one forge (max 2)";
+                    return null;
+                }
+                finally { await Drop20(tributary); }
+            });
+
+            // T25 — Necrobinder damage-meter affixes: real unblockable damage feeds the meters via
+            // the AfterDamageReceived patch, the turn-start handlers consume them (Vengeful summons
+            // 2× the player's lost HP; Empathic blocks the summon's lost HP), and Famished's
+            // arm-at-flush/fire-at-turn-start pair shrinks a starved Osty by 1.
+            await TestAsync("T25 inject: Vengeful/Empathic/Famished", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "not in combat";
+
+                var vengeful = await Grant20("Vengeful", penalty: false);
+                if (vengeful == null) return "forced grant failed (Vengeful)";
+                W("  Vengeful: dealing 5 self-damage…");
+                await CreatureCmd.Damage(ctx20, player.Creature, 5m,
+                    ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                W("  Vengeful: firing turn-start handler…");
+                CharAffix.OnTurnVengeful(ctx20, player, vengeful);
+                await Task.Delay(1800);
+                await Drop20(vengeful);
+                bool ostyAlive = false; try { ostyAlive = player.IsOstyAlive; } catch (Exception e) { W("  IsOstyAlive threw: " + e.Message); }
+                if (!ostyAlive) return "Vengeful: no Osty summoned from 5 lost HP";
+                int ostyHp = (int)player.Osty.MaxHp;
+                W($"  Vengeful: lost 5 HP → Osty MaxHp {ostyHp} (expected 10)");
+                if (ostyHp != 10) return $"Vengeful: Osty MaxHp {ostyHp}, expected 10 (=2×5)";
+
+                var empathic = await Grant20("Empathic", penalty: false);
+                if (empathic == null) return "forced grant failed (Empathic)";
+                await CreatureCmd.Damage(ctx20, player.Osty, 4m,
+                    ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                int b0 = (int)player.Creature.Block;
+                CharAffix.OnTurnEmpathic(player, empathic);
+                await Task.Delay(1200);
+                int b1 = (int)player.Creature.Block;
+                await Drop20(empathic);
+                W($"  Empathic: Osty lost 4 HP → player block {b0}→{b1} (expected +4)");
+                if (b1 != b0 + 4) return $"Empathic: block {b1}, expected {b0 + 4}";
+
+                var famished = await Grant20("Famished", penalty: true);
+                if (famished == null) return "forced grant failed (Famished)";
+                try
+                {
+                    // beef the Osty up so the coming enemy turn can't kill it mid-test
+                    await OstyCmd.Summon(ctx20, player, 20m, null);
+                    int m0 = (int)player.Osty.MaxHp;
+                    // advance one turn: the summon above marks THIS turn, so the real flush must NOT
+                    // arm Famished; the fresh turn (no summon yet) is the one we starve.
+                    cm.SetReadyToEndTurn(player, canBackOut: false);
+                    await Task.Delay(8000);
+                    if (!player.IsOstyAlive) { W("  Famished: Osty died to the enemy turn — skipped (env)"); return null; }
+                    int m1 = (int)player.Osty.MaxHp;
+                    CharAffix.OnTurnEndFamishedCheck(player);      // starved turn end → arm
+                    CharAffix.OnTurnFamished(ctx20, player, famished);   // next turn start → shrink
+                    await Task.Delay(1500);
+                    int m2 = (int)player.Osty.MaxHp;
+                    W($"  Famished: Osty MaxHp {m0} → {m1} (enemy turn) → {m2} (starved, expected {m1 - 1})");
+                    if (m2 != m1 - 1) return $"Famished: Osty MaxHp {m2}, expected {m1 - 1}";
+                    return null;
+                }
+                finally { await Drop20(famished); }   // combat stays live — T26 runs in the same fight
+            });
+
+            // T26 — Ironclad family (wave-2b): exhaust/vuln/HP-loss/strength affixes, same
+            // forced-injection method. Runs in the fight T25 left open; ends it when done.
+            await TestAsync("T26 inject: Ironclad family", async () =>
+            {
+                if (player?.Creature?.CombatState == null) return "not in combat";
+                var cs26 = player.Creature.CombatState;
+                var foe = cs26.Enemies.FirstOrDefault(e => e.IsAlive);
+                if (foe == null) return "no living enemy";
+                try
+                {
+                    // Cindered — exhaust a shiv through the real command; block +2 exactly.
+                    var cindered = await Grant20("Cindered", penalty: false);
+                    if (cindered == null) return "forced grant failed (Cindered)";
+                    var shiv = cs26.CreateCard<Shiv>(player);
+                    await CardPileCmd.Add(shiv, PileType.Hand);
+                    int b0 = (int)player.Creature.Block;
+                    await CardCmd.Exhaust(ctx20, shiv);
+                    int b1 = (int)player.Creature.Block;
+                    await Drop20(cindered);
+                    W($"  Cindered: exhaust → block {b0}→{b1} (expected +2)");
+                    if (b1 != b0 + 2) return $"Cindered: block {b1}, expected {b0 + 2}";
+
+                    // Bloodforged — first HP loss grants exactly 2 Strength, second loss grants none.
+                    var blood = await Grant20("Bloodforged", penalty: false);
+                    if (blood == null) return "forced grant failed (Bloodforged)";
+                    int s0 = (int)(player.Creature.GetPower<StrengthPower>()?.Amount ?? 0);
+                    await CreatureCmd.Damage(ctx20, player.Creature, 3m, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                    await CreatureCmd.Damage(ctx20, player.Creature, 3m, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                    int s1 = (int)(player.Creature.GetPower<StrengthPower>()?.Amount ?? 0);
+                    await Drop20(blood);
+                    W($"  Bloodforged: two HP losses → strength {s0}→{s1} (expected +2, once)");
+                    if (s1 != s0 + 2) return $"Bloodforged: strength {s1}, expected {s0 + 2}";
+
+                    // Retaliating — the 6 HP just lost (this window) → vigor max(1, 6/2)=3 at turn start.
+                    var retal = await Grant20("Retaliating", penalty: false);
+                    if (retal == null) return "forced grant failed (Retaliating)";
+                    int v0 = (int)(player.Creature.GetPower<VigorPower>()?.Amount ?? 0);
+                    CharAffix.OnTurnRetaliating(ctx20, player, retal);
+                    await Task.Delay(800);
+                    int v1 = (int)(player.Creature.GetPower<VigorPower>()?.Amount ?? 0);
+                    await Drop20(retal);
+                    W($"  Retaliating: 6 HP lost this window → vigor {v0}→{v1} (expected +3)");
+                    if (v1 != v0 + 3) return $"Retaliating: vigor {v1}, expected {v0 + 3}";
+
+                    // Gouging — vuln applies until a +1 bonus lands (25%/apply).
+                    var gouging = await Grant20("Gouging", penalty: false);
+                    if (gouging == null) return "forced grant failed (Gouging)";
+                    bool bonus = false;
+                    for (int i = 0; i < 32 && !bonus; i++)
+                    {
+                        decimal e0 = foe.GetPower<VulnerablePower>()?.Amount ?? 0;
+                        await PowerCmd.Apply<VulnerablePower>(ctx20, foe, 1m, player.Creature, null);
+                        decimal d = (foe.GetPower<VulnerablePower>()?.Amount ?? 0) - e0;
+                        if (d == 2m) bonus = true;
+                        else if (d != 1m) { await Drop20(gouging); return $"Gouging: vuln delta {d} (expected 1 or 2)"; }
+                    }
+                    await Drop20(gouging);
+                    W($"  Gouging: +1 bonus vuln observed = {bonus} (25%/apply, 32 tries)");
+                    if (!bonus) return "Gouging: no bonus vuln in 32 applies";
+
+                    // Mirrored (curse) — player strength gains leak to a random enemy (25%).
+                    var mirrored = await Grant20("Mirrored", penalty: true);
+                    if (mirrored == null) return "forced grant failed (Mirrored)";
+                    bool leaked = false;
+                    for (int i = 0; i < 32 && !leaked; i++)
+                    {
+                        decimal e0 = foe.GetPower<StrengthPower>()?.Amount ?? 0;
+                        await PowerCmd.Apply<StrengthPower>(ctx20, player.Creature, 1m, player.Creature, null);
+                        if ((foe.GetPower<StrengthPower>()?.Amount ?? 0) > e0) leaked = true;
+                    }
+                    await Drop20(mirrored);
+                    W($"  Mirrored: enemy strength leak observed = {leaked} (25%/gain, 32 tries)");
+                    if (!leaked) return "Mirrored: no enemy strength leak in 32 gains";
+
+                    // Karmic (curse) — applying vuln reflects onto the player (25%).
+                    var karmic = await Grant20("Karmic", penalty: true);
+                    if (karmic == null) return "forced grant failed (Karmic)";
+                    bool reflected = false;
+                    for (int i = 0; i < 32 && !reflected; i++)
+                    {
+                        decimal p0 = player.Creature.GetPower<VulnerablePower>()?.Amount ?? 0;
+                        await PowerCmd.Apply<VulnerablePower>(ctx20, foe, 1m, player.Creature, null);
+                        if ((player.Creature.GetPower<VulnerablePower>()?.Amount ?? 0) > p0) reflected = true;
+                    }
+                    await Drop20(karmic);
+                    W($"  Karmic: self-vuln reflection observed = {reflected} (25%/apply, 32 tries)");
+                    if (!reflected) return "Karmic: no self-vuln in 32 applies";
+
+                    // Lingering (curse) — an exhaust is dodged into a discard (25%).
+                    var lingering = await Grant20("Lingering", penalty: true);
+                    if (lingering == null) return "forced grant failed (Lingering)";
+                    bool dodged = false;
+                    for (int i = 0; i < 32 && !dodged; i++)
+                    {
+                        var s = cs26.CreateCard<Shiv>(player);
+                        await CardPileCmd.Add(s, PileType.Hand);
+                        await CardCmd.Exhaust(ctx20, s);
+                        if (PileType.Discard.GetPile(player).Cards.Contains(s)) dodged = true;
+                    }
+                    await Drop20(lingering);
+                    W($"  Lingering: exhaust dodged to discard = {dodged} (25%/exhaust, 32 tries)");
+                    if (!dodged) return "Lingering: no dodge in 32 exhausts";
+                    return null;
+                }
+                finally
+                {
+                    // leave a clean stage for T14/T15: finish this fight (victory path; the screen
+                    // pump clears the reward UI).
+                    try
+                    {
+                        var foes = player.Creature.CombatState?.Enemies?.Where(e => e.IsAlive).ToList();
+                        if (foes is { Count: > 0 })
+                            await CreatureCmd.Damage(ctx20, foes, 9999m,
+                                ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                        await Task.Delay(4000);
+                    }
+                    catch (Exception e) { W("  combat cleanup failed: " + e.Message); }
+                }
+            });
+            }   // end InjectionBattery — invoked after T13 below
+
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the
             // relic's forge effect". Reproduce the exact scenario against the REAL Rewind mod: enter a
             // monster combat with a forged relic (akabeko from T10), advance two turns, rewind to turn 1
@@ -645,6 +1140,10 @@ internal static class SoloTest
                             return $"effect lost: {c.VarName}={dv.BaseValue}, expected {c.NewValue}";
                 return null;
             });
+
+            // T20–T25 (declared above): the forced-injection behavior battery, run AFTER the Rewind
+            // tests so its fights/victory never starve Rewind's turn snapshots.
+            await InjectionBattery();
 
             // T14 — curse mechanics: (a) CurseChance 0 → never curses / never a dud (re-roll), (b) the
             // FIRST reforge of a relic is the PITY — guaranteed curse-free even at 100% (the "curse aura 0%

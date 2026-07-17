@@ -12,10 +12,11 @@ namespace Sts2RelicForge;
 
 /// <summary>
 /// Dev-console command <c>forgechar [character]</c> — bulk-grants a character's gated prefixes
-/// (3 effects + 1 curse) onto distinct benign hosts so all four can be tested together in one
+/// (effects + curses) onto distinct benign hosts so they can all be tested together in one
 /// combat. No argument uses YOUR current character (the common case: start a run, type
-/// <c>forgechar</c>, get your four test relics); or pass <c>silent | defect | necrobinder | regent</c>
-/// for a specific one, or <c>all</c> for every character-gated prefix (Ironclad has none).
+/// <c>forgechar</c>, get your test relics); or pass
+/// <c>ironclad | silent | defect | necrobinder | regent</c> for a specific one, or <c>all</c>
+/// for every character-gated prefix.
 ///
 /// Forcing bypasses the character roll gate, so you can preview any character's prefixes; note the
 /// EFFECTS only fire on that character's mechanic (e.g. Silent's poison prefix does nothing on a
@@ -28,7 +29,7 @@ public class ForgeCharTestCmd : AbstractConsoleCmd
     public override string CmdName => "forgechar";
     public override string Args => "[character|all]";
     public override string Description =>
-        "Grants one relic per character-gated prefix (3 effects + 2 curses). No arg = your current character; or silent|defect|necrobinder|regent|all.";
+        "Grants one relic per character-gated prefix (effects + curses). No arg = your current character; or ironclad|silent|defect|necrobinder|regent|all.";
     public override bool IsNetworked => false;
     public override bool DebugOnly => false;
 
@@ -39,7 +40,7 @@ public class ForgeCharTestCmd : AbstractConsoleCmd
         "LostCoffer", "NeowsTalisman", "HeftyTablet", "Toolbox"
     };
 
-    private static readonly string[] KnownChars = { "silent", "defect", "necrobinder", "regent", "all" };
+    private static readonly string[] KnownChars = { "ironclad", "silent", "defect", "necrobinder", "regent", "all" };
 
     public override CmdResult Process(Player? issuingPlayer, string[] args)
     {
@@ -55,7 +56,7 @@ public class ForgeCharTestCmd : AbstractConsoleCmd
             charFilter = CharAffix.TitleOf(issuingPlayer);
             if (string.IsNullOrEmpty(charFilter))
                 return new CmdResult(success: false,
-                    "Couldn't detect your character — pass one: silent|defect|necrobinder|regent|all.");
+                    "Couldn't detect your character — pass one: ironclad|silent|defect|necrobinder|regent|all.");
         }
         else if (arg == "ALL") charFilter = null;
         else charFilter = arg;
@@ -66,7 +67,7 @@ public class ForgeCharTestCmd : AbstractConsoleCmd
             .ToList();
         if (prefixes.Count == 0)
             return new CmdResult(success: false,
-                $"No character prefixes for '{(charFilter ?? "all").ToLowerInvariant()}'. Try silent|defect|necrobinder|regent|all (Ironclad has none).");
+                $"No character prefixes for '{(charFilter ?? "all").ToLowerInvariant()}'. Try ironclad|silent|defect|necrobinder|regent|all.");
 
         // Distinct eligible hosts — one per prefix — so the icons are tell-apart and all four
         // effects stack in a single combat. Deterministic order.

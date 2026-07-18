@@ -676,9 +676,30 @@ internal static class PrefixTable
     /// and uses this for the character gate, so a penalty like Toxic only rolls for its own character.</summary>
     public static bool CurseInPool(Prefix p, string? character) => CharacterMatches(p, character);
 
+    /// <summary>The known (vanilla) character roster — every distinct RequiredCharacter the table gates a
+    /// prefix to (IRONCLAD/SILENT/DEFECT/NECROBINDER/REGENT, plus any registered by a sister mod). A
+    /// universal CHAR-reactive prefix (only Quenched) reacts to a vanilla signature mechanic (Vigor), so
+    /// it's confined to this roster: custom/mod characters aren't guaranteed that mechanic, and a user
+    /// reported it leaking onto their mod character. Self-maintaining — a char prefix for a new character
+    /// auto-extends the roster. Ordinary universal prefixes (non-CharAffix) are NOT restricted here; they
+    /// still roll for every character, mod included.</summary>
+    private static readonly HashSet<string> VanillaRoster = BuildVanillaRoster();
+    private static HashSet<string> BuildVanillaRoster()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in All)
+            if (p.RequiredCharacter.Length > 0) set.Add(p.RequiredCharacter);
+        return set;
+    }
+
     private static bool CharacterMatches(Prefix p, string? character)
-        => p.RequiredCharacter.Length == 0
-           || (character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase));
+    {
+        if (p.RequiredCharacter.Length == 0)
+            // A universal char-reactive prefix (Quenched) is restricted to the known vanilla roster —
+            // mod characters can't roll it. Every other universal prefix stays truly universal.
+            return !p.CharAffix || (character != null && VanillaRoster.Contains(character));
+        return character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>The fallback prefixes (out of the normal roll pool), used to REPLACE a magnitude prefix
     /// that scaled nothing on a relic — BUFF fallbacks for a positive prefix, PENALTY fallbacks for a

@@ -1385,7 +1385,9 @@ internal static class RelicForgeService
                 // The self-side downside manifests as EITHER an on-hit self-curse (the primary flavor) OR —
                 // the penalty-fallback family — a combat-start chance-gated self-debuff (FallbackBuffPatch).
                 // A stream-safe SplitMix bit (no rng draw) picks ~1/3 penalty fallback, ~2/3 on-hit curse.
-                if (SplitMix32(seed ^ 0x7A3B1D2Fu) % 3u == 0u)
+                // Enhance-only forbids the penalty fallback too (it's an effect-style graft): the downside
+                // then always takes the on-hit self-curse form (a curse card, not a relic effect note).
+                if (PrefixTable.PoolAllowsAnyEffect() && SplitMix32(seed ^ 0x7A3B1D2Fu) % 3u == 0u)
                 {
                     Prefix pf = PrefixTable.PickFallbackPenalty(SplitMix32(seed ^ 0x2C9E7F15u));
                     record.Prefix = pf.Name;                 // named so the tooltip shows the penalty note + odds
@@ -1488,8 +1490,10 @@ internal static class RelicForgeService
 
         // Tier tie-break: a positive prefix that rounded to the same var delta as the tier below it gains
         // a small combat-start chance-of-more so it stays strictly better (see ApplyTierTiebreak). Applies
-        // whenever it actually scaled a grantable stat — pickup, reforge, and load alike.
-        if (pct > 0 && !prefix.Amplify && record.HasChanges)
+        // whenever it actually scaled a grantable stat — pickup, reforge, and load alike. Skipped when the
+        // pool is enhancement-only: the rider is an effect-style "chance to gain N" graft the player opted
+        // out of (a same-delta tier there simply reads as the honest — if flat — numeric result).
+        if (pct > 0 && !prefix.Amplify && record.HasChanges && PrefixTable.PoolAllowsAnyEffect())
             ApplyTierTiebreak(policyKey, prefix, record);
 
         // B2 floor: a GUARANTEED reforge that produced no numeric change (a low-tier prefix rounding
@@ -1531,7 +1535,8 @@ internal static class RelicForgeService
         // Deterministic: the pick uses a derived seed (SplitMix, no main-rng draw), so relics that DID
         // change stay byte-identical and co-op/load reproduce the same substitution.
         if (!record.HasChanges && !prefix.IsCompanionPrefix && !prefix.Amplify && pct > 0
-            && (guaranteePrefix || record.EnemyRider || record.SelfCurse.Length > 0))
+            && (guaranteePrefix || record.EnemyRider || record.SelfCurse.Length > 0)
+            && PrefixTable.PoolAllowsAnyEffect())   // 'Enhance only' forbids grafting an effect buff — a fizzle stays an honest no-op
         {
             Prefix fb = PrefixTable.PickFallback(SplitMix32(seed ^ 0x5F356495u));
             int chance = FallbackChanceFor(pct);

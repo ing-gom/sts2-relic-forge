@@ -1158,6 +1158,63 @@ internal static class SoloTest
                 finally { ForgeConfig.PrefixPool = saved; }
             });
 
+            // T27b — 'Enhance only' must NOT leak effect-style grafts (workshop bug report: a filter set to
+            // "enhance the relic's own base effect" still showed "at combat start, X% chance to gain N block").
+            // Those come from the post-roll SUBSTITUTIONS in RelicForgeService — a fizzled magnitude prefix
+            // rescued into a fallback buff, a tier-tie "chance of more" rider, a re-homed negative into a
+            // penalty fallback — each an EFFECT prefix that ignored the pool filter. After the fix all three
+            // honor PoolAllowsAnyEffect(), so under enhance-only NO record may carry a FallbackStat. A live
+            // positive control under 'All' proves the path is reachable (else the enhance-only zero is vacuous).
+            await TestAsync("T27b enhance-only suppresses effect fallbacks", async () =>
+            {
+                await Task.Yield();
+                int saved = ForgeConfig.PrefixPool;
+                try
+                {
+                    // (1) the gate predicate itself, across the three preset modes.
+                    ForgeConfig.PrefixPool = 1; if (PrefixTable.PoolAllowsAnyEffect()) return "enhance-only: PoolAllowsAnyEffect() should be false";
+                    ForgeConfig.PrefixPool = 0; if (!PrefixTable.PoolAllowsAnyEffect()) return "all: PoolAllowsAnyEffect() should be true";
+                    ForgeConfig.PrefixPool = 2; if (!PrefixTable.PoolAllowsAnyEffect()) return "effects-only: PoolAllowsAnyEffect() should be true";
+
+                    // (2) behavioral: forge many relics under enhance-only with a guaranteed prefix — none may
+                    //     gain a fallback graft, and every landed prefix must be a pure enhancement.
+                    ForgeConfig.PrefixPool = 1;
+                    int forged = 0;
+                    for (uint s = 500; s < 640; s++)
+                    {
+                        var clone = FirstNumericRelic();
+                        if (clone == null) return "no relic available";
+                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true, reforgeCount: 3);
+                        var rec = RelicForgeService.RecordFor(clone);
+                        if (rec == null) continue;
+                        forged++;
+                        if (rec.FallbackStat.Length > 0)
+                            return $"enhance-only leaked an effect fallback: {rec.Prefix} +{rec.FallbackAmount} {rec.FallbackStat} @{rec.FallbackPercent}% (seed {s})";
+                        var pfx2 = PrefixTable.ByName(rec.Prefix);
+                        if (pfx2 != null && !pfx2.IsEnhance && !pfx2.Penalty)
+                            return $"enhance-only landed a non-enhance prefix '{rec.Prefix}' (seed {s})";
+                    }
+                    if (forged == 0) return "enhance-only forged nothing — test setup broken";
+
+                    // (3) positive control: the SAME relic under 'All' DOES still get fallback grafts, so the
+                    //     zero above is real suppression, not an unreachable code path.
+                    ForgeConfig.PrefixPool = 0;
+                    bool sawFallbackUnderAll = false;
+                    for (uint s = 500; s < 640 && !sawFallbackUnderAll; s++)
+                    {
+                        var clone = FirstNumericRelic();
+                        if (clone == null) return "no relic available";
+                        RelicForgeService.Forge(clone, s, 1, guaranteePrefix: true, reforgeCount: 3);
+                        var rec = RelicForgeService.RecordFor(clone);
+                        if (rec != null && rec.FallbackStat.Length > 0) sawFallbackUnderAll = true;
+                    }
+                    if (!sawFallbackUnderAll) return "'All' produced no fallback graft over 140 seeds — test is vacuous (relic never fizzles/ties)";
+                    W($"  enhance-only: {forged} forges, 0 effect fallbacks; predicate off; 'All' control grafts ✓");
+                    return null;
+                }
+                finally { ForgeConfig.PrefixPool = saved; }
+            });
+
             // T28 — CUSTOM pool (workshop request): with everything but Legendary disabled every roll
             // is Legendary; with ALL curses disabled PickCombined yields none; and the rf_config arg-9
             // codec roundtrips the sets exactly (what a co-op client would decode).

@@ -938,6 +938,31 @@ internal static class PrefixTable
             _ => true,
         };
 
+    /// <summary>Does the active play-style pool admit ANY effect (mechanic-adding) prefix? The
+    /// combat-start fallback/tie-break GRAFTS (RelicForgeService: a fizzled magnitude prefix rescued
+    /// into a "chance to gain N block" buff, a tier tie rider, a re-homed negative into a penalty
+    /// fallback) are themselves EFFECT prefixes — they must not leak into a pool the player restricted
+    /// to pure enhancements. False for 'Enhance only' (mode 1), and for a Custom pool where every
+    /// rollable effect prefix is disabled (same intent, expressed per-entry); true for All / Effects.
+    /// Host-authoritative (reads <see cref="HostForgeConfig"/>) so co-op peers agree — same discipline
+    /// as <see cref="PoolAllows"/>.</summary>
+    internal static bool PoolAllowsAnyEffect()
+        => HostForgeConfig.PrefixPool switch
+        {
+            1 => false,
+            2 => true,
+            ForgeConfig.PoolCustom => AnyEffectPrefixEnabled(),
+            _ => true,
+        };
+
+    private static bool AnyEffectPrefixEnabled()
+    {
+        foreach (var p in _pool)
+            if (!p.IsEnhance && !p.IsFallback && !p.Penalty && !HostForgeConfig.IsPrefixDisabled(p.Name))
+                return true;
+        return false;
+    }
+
     /// <summary>Character-eligibility half of <see cref="InPool"/>, shared with the curse pool: universal
     /// (no RequiredCharacter) always, character-gated only when <paramref name="character"/> matches. The
     /// curse-pool builder (<see cref="SelfCurseTable.PickCombined"/>) pre-filters on <c>Penalty &amp;&amp; !IsFallback</c>

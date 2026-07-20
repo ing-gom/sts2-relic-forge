@@ -141,6 +141,7 @@ internal sealed class Prefix
     public int PotionBoost;      // 정련의: AURA — each of your potion-use AMOUNT effects (block/str/dex/vuln/weak) gains +this
     public int AttunedBlockPer;  // 조화의: at combat start, gain this much Block per OTHER forged relic carried (capped at ×4, see ForgeCombatAffixPatch)
     public int SecondWindBlock;  // 재기의: the FIRST time your HP drops to 50% or below in a combat, gain this much Block (once/combat, see SecondWindPatch)
+    public bool PickupReforge;   // 단조의: AURA — obtaining ANY relic auto-reforges one OTHER eligible relic (campfire path, builds its curse charge, see PickupReforgePatch)
 
     // Force the enemy-rider curse on unconditionally (bypasses EnemyRiderChance). Used by 공명의 so
     // its strength always comes bundled with a curse — the mod's own cost, in place of a per-trigger
@@ -185,7 +186,7 @@ internal sealed class Prefix
                                      || PotionVuln > 0 || PotionWeak > 0 || PotionBufferPct > 0
                                      || PotionDoubler || LowHpDraw || GoldArmorCost > 0
                                      || StartPowerBoost > 0 || PotionBoost > 0
-                                     || AttunedBlockPer > 0 || SecondWindBlock > 0;
+                                     || AttunedBlockPer > 0 || SecondWindBlock > 0 || PickupReforge;
 
     /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
     /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
@@ -558,6 +559,12 @@ internal static class PrefixTable
             NoteKo = "전투 중 체력이 처음으로 50% 이하가 될 때 방어도 8을 얻는다 (전투당 1회)",
             NoteEn = "The first time your HP drops to 50% or below in a combat, gain 8 Block (once per combat)",
             NoteZh = "战斗中生命值首次降至50%或以下时，获得8点格挡（每场战斗一次）" },
+
+        // --- Pickup auto-reforge aura: every relic you find reworks another (curse charge builds = self-limit) ---
+        new Prefix { Name = "Forging", Ko = "단조의", Zh = "锻造的", Weight = 3, Mixed = true, PickupReforge = true, Color = "#e0913a",
+            NoteKo = "유물을 획득할 때마다, 보유한 다른 유물 하나를 재련한다 (그 유물의 저주 기운이 쌓인다)",
+            NoteEn = "Each time you obtain a relic, reforge one other relic you carry (its curse charge builds)",
+            NoteZh = "每次获得遗物时，重铸你持有的另一个遗物（其诅咒能量累积）" },
 
         // --- Run-state affixes: react to GOLD / DECK / CURSE state rather than combat power events.
         //     Cursefed/Gilded are boons (green note); Taxing is a curse (red note). All three scale no

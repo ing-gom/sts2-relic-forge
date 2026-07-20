@@ -1722,6 +1722,33 @@ internal static class SoloTest
                 W("  Refined (정련의) recognized: +1 to each potion-use amount effect");
                 return null;
             });
+
+            // T40 — Forging (단조의): obtaining a relic auto-reforges one OTHER owned relic (campfire path). Verify
+            // the TOTAL reforge count across the inventory rises by exactly 1 on a fresh obtain (robust to which
+            // relic the deterministic pick lands on; the freshly-obtained relic is forged at count 0, so the +1 is
+            // purely the auto-reforge). Aura is off unless a live Forging relic is held.
+            RelicModel? r40a = null, r40b = null, r40c = null;
+            await TestAsync("T40 inject: Forging (pickup auto-reforge)", async () =>
+            {
+                if (run == null || player == null) return "no run/player";
+                r40a = await Grant20("Forging", penalty: false);                     // the aura
+                r40b = await Grant20("Warding", penalty: false, secondSlot: true);    // reforgeable target 1 (non-cursed)
+                r40c = await Grant20("Bolstering", penalty: false, thirdSlot: true);  // reforgeable target 2
+                if (r40a == null || r40b == null || r40c == null) return "forced grant failed (see log)";
+
+                int SumCounts() => player.Relics.Sum(r => RelicForgeService.ReforgeCountOf(r));
+                int total0 = SumCounts();
+                var fresh = ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.OrnamentalFan>().ToMutable();
+                await RelicCmd.Obtain(fresh, player);
+                await Task.Delay(700);
+                int total1 = SumCounts();
+                W($"  Forging: obtain {fresh.Id.Entry} → total reforge count {total0}→{total1} (expected +1)");
+                if (!player.Relics.Contains(fresh)) return "fresh relic did not stick (dup?) — pick another type";
+                if (total1 != total0 + 1) return $"Forging: total reforge count {total1}, expected {total0 + 1}";
+                W("  Forging: pickup auto-reforged one other relic ✓");
+                return null;
+            });
+            await Drop20(r40a); await Drop20(r40b); await Drop20(r40c);
             }   // end InjectionBattery — invoked after T13 below
 
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the

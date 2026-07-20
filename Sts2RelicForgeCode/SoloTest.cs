@@ -1017,11 +1017,17 @@ internal static class SoloTest
                     if (blood == null) return "forced grant failed (Bloodforged)";
                     int s0 = (int)(player.Creature.GetPower<StrengthPower>()?.Amount ?? 0);
                     await CreatureCmd.Damage(ctx20, player.Creature, 3m, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                    int sMid = (int)(player.Creature.GetPower<StrengthPower>()?.Amount ?? 0);
                     await CreatureCmd.Damage(ctx20, player.Creature, 3m, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
                     int s1 = (int)(player.Creature.GetPower<StrengthPower>()?.Amount ?? 0);
                     await Drop20(blood);
-                    W($"  Bloodforged: two HP losses → strength {s0}→{s1} (expected +2, once)");
-                    if (s1 != s0 + 2) return $"Bloodforged: strength {s1}, expected {s0 + 2}";
+                    // Bloodforged grants Strength on the FIRST HP loss and NONE on the second (the once-per-combat
+                    // guard is the real invariant). The AMOUNT can be amplified by a co-owned GainAmplify relic —
+                    // akabeko in this shared combat can roll Resonant (공명의) — so assert "first loss >= 2, second
+                    // loss == 0" rather than an exact total that a pool-roll shift would break.
+                    W($"  Bloodforged: first loss → +{sMid - s0}, second → +{s1 - sMid} (expected >=2 then 0)");
+                    if (sMid - s0 < 2) return $"Bloodforged: first loss +{sMid - s0}, expected >= 2";
+                    if (s1 != sMid) return $"Bloodforged: second loss added {s1 - sMid}, expected 0 (once per combat)";
 
                     // Retaliating — the 6 HP just lost (this window) → vigor max(1, 6/2)=3 at turn start.
                     var retal = await Grant20("Retaliating", penalty: false);
@@ -1749,6 +1755,100 @@ internal static class SoloTest
                 return null;
             });
             await Drop20(r40a); await Drop20(r40b); await Drop20(r40c);
+
+            // T41 — mild combat boons: Regenerating (combat-start Regen), Preemptive (turn-1 +1 draw), and
+            // Finishing (Block on kill), all in one combat.
+            RelicModel? r41a = null, r41b = null, r41c = null;
+            await TestAsync("T41 inject: Regenerating + Preemptive + Finishing", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r41a = await Grant20("Regenerating", penalty: false);
+                r41b = await Grant20("Finishing", penalty: false, secondSlot: true);
+                r41c = await Grant20("Preemptive", penalty: false, thirdSlot: true);
+                if (r41a == null || r41b == null || r41c == null) return "forced grant failed (see log)";
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+                var self = player.Creature;
+                var cs = self.CombatState;
+                if (cs == null) return "no combat state";
+
+                int regen = (int)(self.GetPower<MegaCrit.Sts2.Core.Models.Powers.RegenPower>()?.Amount ?? 0);
+                W($"  Regenerating: combat-start Regen = {regen} (expected >= 2)");
+                if (regen < 2) return $"Regenerating: Regen {regen}, expected >= 2";
+
+                int turn = player.PlayerCombatState?.TurnNumber ?? -1;
+                decimal draw = MegaCrit.Sts2.Core.Hooks.Hook.ModifyHandDraw(cs, player, 5m, out _);
+                W($"  Preemptive: turn {turn} hand draw = {(int)draw} (expected 6 on turn 1)");
+                if ((int)draw != 6) return $"Preemptive: draw {draw} (turn {turn}), expected 6";
+
+                var enemy = cs.HittableEnemies?.FirstOrDefault();
+                if (enemy == null) return "no enemy to kill for Finishing";
+                int b0 = self.Block;
+                await CreatureCmd.Damage(ctx20, enemy, enemy.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, self, null);
+                await Task.Delay(600);
+                int b1 = self.Block;
+                W($"  Finishing: killed enemy → Block {b0}->{b1} (expected +3)");
+                if (b1 != b0 + 3) return $"Finishing: Block {b1}, expected {b0 + 3}";
+                return null;
+            });
+            await Drop20(r41a); await Drop20(r41b); await Drop20(r41c);
+
+            // T41b — Executing (처단의): +25% damage to an enemy at/below 20% max HP (via Hook.ModifyDamage).
+            RelicModel? r41d = null;
+            await TestAsync("T41b inject: Executing (low-HP damage bonus)", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r41d = await Grant20("Executing", penalty: false);
+                if (r41d == null) return "forced grant failed (see log)";
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+                var self = player.Creature;
+                var cs = self.CombatState;
+                var enemy = cs?.HittableEnemies?.FirstOrDefault();
+                if (enemy == null) return "no enemy for Executing";
+
+                decimal Md(MegaCrit.Sts2.Core.Entities.Creatures.Creature e) => MegaCrit.Sts2.Core.Hooks.Hook.ModifyDamage(
+                    run.State, cs, e, self, 100m, ValueProp.Unblockable | ValueProp.Unpowered, null,
+                    MegaCrit.Sts2.Core.Hooks.ModifyDamageHookType.All,
+                    MegaCrit.Sts2.Core.Entities.Cards.CardPreviewMode.None, out _);
+
+                decimal full = Md(enemy);
+                W($"  Executing: full-HP enemy ({enemy.CurrentHp}/{enemy.MaxHp}) ModifyDamage 100→{(int)full} (expected 100)");
+                if ((int)full != 100) return $"Executing: full-HP damage {full}, expected 100 (no bonus above 20%)";
+
+                int leave = System.Math.Max(1, enemy.MaxHp / 5 - 1);       // just below 20% max HP
+                int dmg = enemy.CurrentHp - leave;
+                if (dmg > 0) await CreatureCmd.Damage(ctx20, enemy, dmg, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                await Task.Delay(400);
+                if (!enemy.IsAlive) return "enemy died during setup (pick a tankier encounter)";
+                if (enemy.CurrentHp * 5 > enemy.MaxHp) return $"setup: enemy HP {enemy.CurrentHp}/{enemy.MaxHp} not <=20%";
+                decimal low = Md(enemy);
+                W($"  Executing: <=20% enemy ({enemy.CurrentHp}/{enemy.MaxHp}) ModifyDamage 100→{(int)low} (expected 125)");
+                if ((int)low != 125) return $"Executing: low-HP damage {low}, expected 125 (+25%)";
+                return null;
+            });
+            await Drop20(r41d);
+
+            // T41c — Enduring (지구전의): recognized effect prefix carrying the late-fight Strength ramp. The turn>=5
+            // gate is trivial (ForgeCombatAffixPatch dispatch), and reaching turn 5 headless is slow/flaky.
+            Test("T41c: Enduring late-fight ramp", () =>
+            {
+                var p = PrefixTable.ByName("Enduring");
+                if (p == null || p.IsEnhance) return "Enduring: not a recognized effect prefix";
+                if (p.EnduringStr != 1) return $"Enduring: EnduringStr {p.EnduringStr}, expected 1";
+                W("  Enduring (지구전의) recognized: +1 Strength/turn from turn 5");
+                return null;
+            });
             }   // end InjectionBattery — invoked after T13 below
 
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the

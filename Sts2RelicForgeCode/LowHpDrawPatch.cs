@@ -27,17 +27,22 @@ internal static class LowHpDrawPatch
             if (player == null) return;
             var self = player.Creature;
             if (self == null) return;
-            if (self.CurrentHp * 2 > self.MaxHp) return;   // strictly above 50% max HP → no bonus
+            bool lowHp = self.CurrentHp * 2 <= self.MaxHp;                 // at/below 50% max HP → Cornered fires
+            int turn = player.PlayerCombatState?.TurnNumber ?? 0;
 
+            int bonus = 0;
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
                 if (RelicForgeService.IsForgeEffectSuppressed(relic)) continue;
                 var rec = RelicForgeService.RecordFor(relic);
                 if (rec == null || rec.Prefix.Length == 0) continue;
                 var pfx = PrefixTable.ByName(rec.Prefix);
-                if (pfx != null && pfx.LowHpDraw) { __result += 1m; return; }   // one extra card, once
+                if (pfx == null) continue;
+                if (pfx.LowHpDraw && lowHp) bonus += 1;          // Cornered (궁지의) — while low HP
+                if (pfx.FirstTurnDraw && turn == 1) bonus += 1;  // Preemptive (선제의) — opening turn only
             }
+            if (bonus > 0) __result += bonus;
         }
-        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] low-hp draw hook failed: {e.Message}"); }
+        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] hand-draw bonus hook failed: {e.Message}"); }
     }
 }

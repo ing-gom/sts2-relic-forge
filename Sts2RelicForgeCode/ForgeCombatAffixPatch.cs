@@ -74,6 +74,8 @@ internal static class ForgeCombatAffixPatch
                     ApplyStartPower(choiceContext, player, relic, pfx);
                 else if (pfx.AttunedBlockPer > 0 && turn == 1)
                     ApplyAttunedBlock(choiceContext, player, relic, pfx);
+                else if (pfx.EnduringStr > 0 && turn >= 5)
+                    ApplyEnduring(choiceContext, player, relic, pfx, turn);
             }
         }
         catch (Exception e)
@@ -230,6 +232,17 @@ internal static class ForgeCombatAffixPatch
         relic.Flash();
         TaskHelper.RunSafely(t);
         MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: {pfx.StartPower} {amt} on turn 1 ({relic.Id.Entry}).");
+    }
+
+    /// <summary>Enduring (지구전의): from combat turn 5 onward, gain Strength each turn — a long-fight closer.
+    /// Strength is combat state, applied deterministically on both peers (co-op-safe like the energy prefixes).</summary>
+    private static void ApplyEnduring(PlayerChoiceContext ctx, Player player, RelicModel relic, Prefix pfx, int turn)
+    {
+        var creature = player.Creature;
+        if (creature == null) return;
+        relic.Flash();
+        TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(ctx, creature, pfx.EnduringStr, creature, null));
+        MainFile.Logger.Info($"[{MainFile.ModId}] Enduring: +{pfx.EnduringStr} Strength on turn {turn} ({relic.Id.Entry}).");
     }
 
     /// <summary>Bolstering (북돋움의) AURA: total +bonus to combat-start defensive power amounts from every

@@ -143,6 +143,12 @@ internal sealed class Prefix
     public int SecondWindBlock;  // 재기의: the FIRST time your HP drops to 50% or below in a combat, gain this much Block (once/combat, see SecondWindPatch)
     public bool PickupReforge;   // 단조의: AURA — obtaining ANY relic auto-reforges one OTHER eligible relic (campfire path, builds its curse charge, see PickupReforgePatch)
 
+    // --- Mild combat boons (batch: healing / kill-fuel / late-fight / opener / execute) ---
+    public int  KillBlock;       // 처치의: Block gained each time an enemy is killed (combat state → both peers, see KillGoldPatch)
+    public int  EnduringStr;     // 지구전의: from combat turn 5 onward, gain this much Strength each turn (see ForgeCombatAffixPatch)
+    public bool FirstTurnDraw;   // 선제의: draw 1 extra card on turn 1 only (rides ModifyHandDraw, see LowHpDrawPatch)
+    public int  ExecutePct;      // 처단의: % MORE damage dealt to enemies at/below 20% max HP (see ExecutePatch)
+
     // Force the enemy-rider curse on unconditionally (bypasses EnemyRiderChance). Used by 공명의 so
     // its strength always comes bundled with a curse — the mod's own cost, in place of a per-trigger
     // penalty. Ignored on penalty prefixes (which never carry a rider).
@@ -186,7 +192,8 @@ internal sealed class Prefix
                                      || PotionVuln > 0 || PotionWeak > 0 || PotionBufferPct > 0
                                      || PotionDoubler || LowHpDraw || GoldArmorCost > 0
                                      || StartPowerBoost > 0 || PotionBoost > 0
-                                     || AttunedBlockPer > 0 || SecondWindBlock > 0 || PickupReforge;
+                                     || AttunedBlockPer > 0 || SecondWindBlock > 0 || PickupReforge
+                                     || KillBlock > 0 || EnduringStr > 0 || FirstTurnDraw || ExecutePct > 0;
 
     /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
     /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
@@ -559,6 +566,28 @@ internal static class PrefixTable
             NoteKo = "전투 중 체력이 처음으로 50% 이하가 될 때 방어도 8을 얻는다 (전투당 1회)",
             NoteEn = "The first time your HP drops to 50% or below in a combat, gain 8 Block (once per combat)",
             NoteZh = "战斗中生命值首次降至50%或以下时，获得8点格挡（每场战斗一次）" },
+
+        // --- Mild combat boons: healing / kill-fuel / late-fight closer / opener / execute ---
+        new Prefix { Name = "Regenerating", Ko = "재생의", Zh = "再生的", Weight = 4, StartPower = "Regen", StartPowerAmount = 2, Color = "#7ee0a0",
+            NoteKo = "전투 시작 시 재생 2를 얻는다 (매 턴 HP를 회복한다)",
+            NoteEn = "Gain 2 Regen at combat start (heal some HP each turn)",
+            NoteZh = "战斗开始时获得2层再生（每回合恢复一些生命）" },
+        new Prefix { Name = "Finishing", Ko = "처치의", Zh = "终结的", Weight = 5, KillBlock = 3, Color = "#7ed0ff",
+            NoteKo = "적을 처치할 때마다 방어도 3을 얻는다",
+            NoteEn = "Gain 3 Block each time you kill an enemy",
+            NoteZh = "每击杀一个敌人获得3点格挡" },
+        new Prefix { Name = "Enduring", Ko = "지구전의", Zh = "持久的", Weight = 5, EnduringStr = 1, Color = "#ff6b4d",
+            NoteKo = "전투 5번째 턴부터 매 턴 힘 1을 얻는다",
+            NoteEn = "From the 5th turn of combat onward, gain 1 Strength each turn",
+            NoteZh = "从战斗第5回合起，每回合获得1点力量" },
+        new Prefix { Name = "Preemptive", Ko = "선제의", Zh = "先制的", Weight = 5, FirstTurnDraw = true, Color = "#9fd8ff",
+            NoteKo = "전투 첫 턴에 카드를 1장 더 뽑는다",
+            NoteEn = "Draw 1 extra card on the first turn of combat",
+            NoteZh = "战斗第1回合多抽1张牌" },
+        new Prefix { Name = "Executing", Ko = "처단의", Zh = "处决的", Weight = 4, ExecutePct = 25, Color = "#b0554d",
+            NoteKo = "체력이 20% 이하인 적에게 주는 피해가 25% 증가한다",
+            NoteEn = "Deal 25% more damage to enemies at 20% HP or below",
+            NoteZh = "对生命值20%或以下的敌人造成的伤害提高25%" },
 
         // --- Pickup auto-reforge aura: every relic you find reworks another (curse charge builds = self-limit) ---
         new Prefix { Name = "Forging", Ko = "단조의", Zh = "锻造的", Weight = 3, Mixed = true, PickupReforge = true, Color = "#e0913a",

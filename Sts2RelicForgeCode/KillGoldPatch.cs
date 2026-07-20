@@ -9,6 +9,7 @@ using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.ValueProps;
 
 namespace Sts2RelicForge;
 
@@ -53,6 +54,26 @@ internal static class KillGoldPatch
                 await PlayerCmd.GainGold(gold, player, false);
                 run.RewardSynchronizer?.SyncLocalObtainedGold(gold);   // networked-safe, same as the game's own gold gain
                 MainFile.Logger.Info($"[{MainFile.ModId}] Plundering: +{gold} gold on kill ({creature.Name}).");
+            }
+
+            // Finishing (처치의): Block on kill. Block is COMBAT STATE (current-HP class), not host-authoritative
+            // gold — apply on BOTH peers (they converge), so NO IsMe gate here (unlike the gold above).
+            foreach (var player in players)
+            {
+                var self = player.Creature;
+                if (self == null) continue;
+                int block = 0;
+                foreach (var relic in new List<RelicModel>(player.Relics))
+                {
+                    if (RelicForgeService.IsForgeEffectSuppressed(relic)) continue;
+                    var rec = RelicForgeService.RecordFor(relic);
+                    if (rec == null || rec.Prefix.Length == 0) continue;
+                    var pfx = PrefixTable.ByName(rec.Prefix);
+                    if (pfx != null && pfx.KillBlock > 0) block += pfx.KillBlock;
+                }
+                if (block <= 0) continue;
+                await CreatureCmd.GainBlock(self, block, ValueProp.Unpowered, null);
+                MainFile.Logger.Info($"[{MainFile.ModId}] Finishing: +{block} Block on kill ({creature.Name}).");
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] kill-gold hook failed: {e.Message}"); }

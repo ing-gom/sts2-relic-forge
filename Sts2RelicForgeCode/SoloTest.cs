@@ -1570,6 +1570,68 @@ internal static class SoloTest
                 return null;
             });
             await Drop20(r37a); await Drop20(r37b);
+
+            // T38 — Cornered (궁지의: low-HP → +1 hand draw via Hook.ModifyHandDraw) + Bribing (매수의: enemy
+            // hit −1 via Hook.ModifyDamage, spending 5 gold via Hook.AfterDamageReceived) through the real hooks.
+            RelicModel? r38a = null, r38b = null;
+            await TestAsync("T38 inject: Cornered draw + Bribing gold-armor", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r38a = await Grant20("Cornered", penalty: false);
+                r38b = await Grant20("Bribing", penalty: false, secondSlot: true);
+                if (r38a == null || r38b == null) return "forced grant failed (see log)";
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+                var self = player.Creature;
+                var cs = self.CombatState;
+                if (cs == null) return "no combat state";
+
+                // --- Cornered: the turn-start hand-draw count gains +1 ONLY at/below 50% max HP ---
+                decimal drawFull = MegaCrit.Sts2.Core.Hooks.Hook.ModifyHandDraw(cs, player, 5m, out _);
+                if ((int)drawFull != 5) return $"Cornered: full-HP draw {drawFull}, expected 5 (no bonus above 50%)";
+                int dmg = self.CurrentHp - (self.MaxHp / 2 - 1);        // leave ~(half−1) HP = just below 50%
+                if (dmg > 0) await CreatureCmd.Damage(ctx20, self, dmg, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                await Task.Delay(300);
+                if (self.CurrentHp * 2 > self.MaxHp) return $"Cornered setup: HP {self.CurrentHp}/{self.MaxHp} still above 50%";
+                decimal drawLow = MegaCrit.Sts2.Core.Hooks.Hook.ModifyHandDraw(cs, player, 5m, out _);
+                W($"  Cornered: HP {self.CurrentHp}/{self.MaxHp} → hand draw {(int)drawFull}→{(int)drawLow} (expected +1)");
+                if ((int)drawLow != 6) return $"Cornered: low-HP draw {drawLow}, expected 6";
+
+                // --- Bribing: reduction (ModifyDamage) + gold spend (AfterDamageReceived) ---
+                var enemy = cs.HittableEnemies?.FirstOrDefault();
+                if (enemy == null) return "no enemy for Bribing";
+                await MegaCrit.Sts2.Core.Commands.PlayerCmd.GainGold(100, player, false);
+                await Task.Delay(200);
+                decimal red = MegaCrit.Sts2.Core.Hooks.Hook.ModifyDamage(
+                    run.State, cs, self, enemy, 10m, ValueProp.Unblockable | ValueProp.Unpowered, null,
+                    MegaCrit.Sts2.Core.Hooks.ModifyDamageHookType.All,
+                    MegaCrit.Sts2.Core.Entities.Cards.CardPreviewMode.None, out _);
+                W($"  Bribing: ModifyDamage 10→{(int)red} (expected 9, gold {(int)player.Gold})");
+                if ((int)red != 9) return $"Bribing: reduced damage {red}, expected 9";
+
+                int g0 = (int)player.Gold;
+                await CreatureCmd.Damage(ctx20, self, 6m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                await Task.Delay(400);
+                int g1 = (int)player.Gold;
+                W($"  Bribing: enemy hit → gold {g0}→{g1} (expected −5)");
+                if (g1 != g0 - 5) return $"Bribing: gold {g1}, expected {g0 - 5}";
+
+                await MegaCrit.Sts2.Core.Commands.PlayerCmd.LoseGold(g1, player, MegaCrit.Sts2.Core.Entities.Gold.GoldLossType.Spent);
+                await Task.Delay(200);
+                decimal red2 = MegaCrit.Sts2.Core.Hooks.Hook.ModifyDamage(
+                    run.State, cs, self, enemy, 10m, ValueProp.Unblockable | ValueProp.Unpowered, null,
+                    MegaCrit.Sts2.Core.Hooks.ModifyDamageHookType.All,
+                    MegaCrit.Sts2.Core.Entities.Cards.CardPreviewMode.None, out _);
+                if ((int)red2 != 10) return $"Bribing: broke reduction {red2}, expected 10 (no reduction while broke)";
+                W("  Bribing: broke → no reduction ✓");
+                return null;
+            });
+            await Drop20(r38a); await Drop20(r38b);
             }   // end InjectionBattery — invoked after T13 below
 
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the

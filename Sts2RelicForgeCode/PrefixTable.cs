@@ -131,6 +131,11 @@ internal sealed class Prefix
     public int  PotionBufferPct;  // 발포의: % chance to gain Buffer 1 on potion use
     public bool PotionDoubler;    // 농축의: AURA — while owned, all of your potion-use effects are DOUBLED (rare)
 
+    // --- Low-HP comeback boon (see LowHpDrawPatch on Hook.ModifyHandDraw) ---
+    public bool LowHpDraw;      // 궁지의: while at/below 50% max HP, draw 1 EXTRA card each turn (rides the game's own hand-draw count)
+    // --- Gold-for-armor (see GoldArmorPatch): pay gold to shave incoming enemy hits ---
+    public int  GoldArmorCost;  // 매수의: each enemy hit deals 1 LESS, spending this much gold per hit (0 = off; no gold → no reduction)
+
     // Force the enemy-rider curse on unconditionally (bypasses EnemyRiderChance). Used by 공명의 so
     // its strength always comes bundled with a curse — the mod's own cost, in place of a per-trigger
     // penalty. Ignored on penalty prefixes (which never carry a rider).
@@ -172,7 +177,7 @@ internal sealed class Prefix
                                      || StartPower.Length > 0 || KillGold > 0 || ShopTaxPct > 0
                                      || PotionBlock > 0 || PotionStr > 0 || PotionDex > 0
                                      || PotionVuln > 0 || PotionWeak > 0 || PotionBufferPct > 0
-                                     || PotionDoubler;
+                                     || PotionDoubler || LowHpDraw || GoldArmorCost > 0;
 
     /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
     /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
@@ -516,6 +521,17 @@ internal static class PrefixTable
             NoteKo = "포션 사용으로 얻는 접두사 효과가 2배가 된다",
             NoteEn = "Your potion-use prefix effects are doubled",
             NoteZh = "你的药水使用词缀效果翻倍" },
+
+        // --- Low-HP comeback boon: cards flow when you're cornered (rides the turn-start hand-draw count) ---
+        new Prefix { Name = "Cornered", Ko = "궁지의", Zh = "绝境的", Weight = 5, LowHpDraw = true, Color = "#ff9f6b",
+            NoteKo = "체력이 최대치의 50% 이하일 때 매 턴 카드를 1장 더 뽑는다",
+            NoteEn = "While at 50% max HP or below, draw 1 extra card each turn",
+            NoteZh = "生命值等于或低于最大值50%时，每回合多抽1张牌" },
+        // --- Gold-for-armor: bribe the pain away — a real gold drain, so an amber (Mixed) note ---
+        new Prefix { Name = "Bribing", Ko = "매수의", Zh = "收买的", Weight = 4, Mixed = true, GoldArmorCost = 5, Color = "#ffd97a",
+            NoteKo = "받는 적 피해가 1 감소하고, 그때마다 골드 5를 소모한다 (골드가 없으면 감소하지 않는다)",
+            NoteEn = "Enemy damage you take is reduced by 1, spending 5 gold each time (no reduction while broke)",
+            NoteZh = "受到的敌人伤害减少1，每次消耗5金币（没钱时不减免）" },
 
         // --- Run-state affixes: react to GOLD / DECK / CURSE state rather than combat power events.
         //     Cursefed/Gilded are boons (green note); Taxing is a curse (red note). All three scale no

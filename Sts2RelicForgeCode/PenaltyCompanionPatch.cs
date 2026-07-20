@@ -87,7 +87,7 @@ internal static class PenaltyTurnPatch
                     }
                     case "Fickle":
                         var rng = new Rng((uint)((int)seed + turn * 48611 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
-                        if (rng.NextFloat() < 0.25)
+                        if (rng.NextFloat() < MetaAffix.Chance(0.25f, player))   // Catalytic aura doubles curse procs too
                         {
                             int idx = (int)(rng.NextFloat() * FickleDebuffs.Length);
                             if (idx >= FickleDebuffs.Length) idx = FickleDebuffs.Length - 1;

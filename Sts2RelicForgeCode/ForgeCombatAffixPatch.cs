@@ -12,6 +12,7 @@ using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.Random;
+using MegaCrit.Sts2.Core.ValueProps;
 
 namespace Sts2RelicForge;
 
@@ -57,7 +58,9 @@ internal static class ForgeCombatAffixPatch
                 var pfx = PrefixTable.ByName(rec.Prefix);
                 if (pfx == null) continue;
 
-                if (pfx.EnemyStrip)
+                if (pfx.TurnEnergy > 0 || pfx.StartDamage > 0)
+                    ApplyEnergyGamble(choiceContext, player, relic, pfx, turn);
+                else if (pfx.EnemyStrip)
                     StripOne(combatState, choiceContext, relic, seed, turn);
                 else if (pfx.SymPower.Length > 0 && turn == 1)
                     ApplySymmetric(combatState, choiceContext, player, relic, pfx, seed, turn);
@@ -65,6 +68,8 @@ internal static class ForgeCombatAffixPatch
                     ApplyRandomDebuff(combatState, choiceContext, player, relic, seed, turn);
                 else if (pfx.GoldStrengthPer > 0 && turn == 1)
                     ApplyGoldStrength(choiceContext, player, relic, pfx);
+                else if (pfx.CurseScaling && turn == 1)
+                    ApplyCurseScaling(choiceContext, player, relic);
             }
         }
         catch (Exception e)
@@ -107,7 +112,7 @@ internal static class ForgeCombatAffixPatch
     private static void ApplyRandomDebuff(ICombatState cs, PlayerChoiceContext ctx, Player player, RelicModel relic, uint seed, int turn)
     {
         var rng = new Rng((uint)((int)seed + turn * 39119 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
-        if (rng.NextFloat() >= 0.5f) return;   // 50% chance to fire this turn
+        if (rng.NextFloat() >= MetaAffix.Chance(0.5f, player)) return;   // 50% base; Catalytic aura doubles it (→100%)
         bool self = rng.NextFloat() < 0.5f;    // a player vs an enemy
         Creature source = player.Creature;
 
@@ -168,6 +173,95 @@ internal static class ForgeCombatAffixPatch
         relic.Flash();
         TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(ctx, player.Creature, str, player.Creature, null));
         MainFile.Logger.Info($"[{MainFile.ModId}] Gilded: +{str} Strength from {player.Gold} gold on turn 1 ({relic.Id.Entry}).");
+    }
+
+    // Cursebound ramp: total Str / Dex gained at combat start by the number of curses carried (index by count,
+    // clamped to 5). At 5+ curses an extra Intangible 1 is granted. Monotonic — more curses ≥ fewer.
+    private static readonly int[] CurseStr = { 0, 1, 1, 2, 3, 3 };
+    private static readonly int[] CurseDex = { 0, 0, 1, 2, 2, 3 };
+
+    /// <summary>The Cursebound combat-start package for <paramref name="curses"/> carried curses (clamped to 5):
+    /// Str / Dex from the ramp table, plus Intangible 1 at 5+. Pure lookup — directly unit-testable (see SoloTest).</summary>
+    internal static (int str, int dex, bool intangible) CurseRampFor(int curses)
+    {
+        if (curses <= 0) return (0, 0, false);
+        int i = curses > 5 ? 5 : curses;
+        return (CurseStr[i], CurseDex[i], i >= 5);
+    }
+
+    /// <summary>Cursebound (저주결속의) — turn 1: gain a Str/Dex/Intangible package scaled by the number of curses
+    /// (self-curses + enemy-riders) the player carries. Self-sourced powers, applied from the co-op-verified
+    /// turn-start choke point (deterministic count from the synced relic list) — co-op-safe.</summary>
+    private static void ApplyCurseScaling(PlayerChoiceContext ctx, Player player, RelicModel relic)
+    {
+        var creature = player.Creature;
+        if (creature == null) return;
+        int curses = CountCurses(player);
+        var (str, dex, intangible) = CurseRampFor(curses);
+        if (str == 0 && dex == 0 && !intangible) return;
+        relic.Flash();
+        if (str > 0)     TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(ctx, creature, str, creature, null));
+        if (dex > 0)     TaskHelper.RunSafely(PowerCmd.Apply<DexterityPower>(ctx, creature, dex, creature, null));
+        if (intangible)  TaskHelper.RunSafely(PowerCmd.Apply<IntangiblePower>(ctx, creature, 1, creature, null));
+        MainFile.Logger.Info($"[{MainFile.ModId}] Cursebound: {curses} curses → Str+{str} Dex+{dex}{(intangible ? " Intangible+1" : "")} ({relic.Id.Entry}).");
+    }
+
+    /// <summary>The number of curses on the player's live relics: each self-curse and each enemy-rider counts 1.</summary>
+    internal static int CountCurses(Player player)
+    {
+        int n = 0;
+        foreach (var r in new List<RelicModel>(player.Relics))
+        {
+            if (RelicForgeService.IsForgeEffectSuppressed(r)) continue;
+            var rec = RelicForgeService.RecordFor(r);
+            if (rec == null) continue;
+            if (rec.SelfCurse.Length > 0) n++;
+            if (rec.EnemyRider) n++;
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// Energy-gamble affixes (Immolating / Overclocked): grant <see cref="Prefix.TurnEnergy"/> bonus Energy
+    /// at the start of EVERY turn (net gain — the turn refill uses SetEnergy, so GainEnergy stacks on top,
+    /// same as the bonus-energy relics; this also feeds a Discharging relic), and pay a fixed one-time cost
+    /// at combat start (turn 1): <see cref="Prefix.StartDamage"/> self-damage (unblockable at turn 1 — no
+    /// block yet) and/or <see cref="Prefix.StartMaxHpLoss"/> PERMANENT Max HP loss (ramps across the run).
+    /// All amounts are fixed (no RNG) and applied via commands from the co-op-verified turn-start choke
+    /// point, so every peer reproduces them in lockstep. Self-sourced so the damage never reads as an enemy hit.
+    /// </summary>
+    private static void ApplyEnergyGamble(PlayerChoiceContext ctx, Player player, RelicModel relic, Prefix pfx, int turn)
+    {
+        var creature = player.Creature;
+        if (creature == null) return;
+        bool flashed = false;
+
+        // Combat-start cost. Current-HP damage and Energy are LOCALLY simulated (not replicated), so they
+        // must be applied on BOTH peers — each simulates the change and they converge (coop-verify confirmed
+        // energy converges this way; gating current-HP to one peer instead DESYNCS, because the other peer
+        // never receives the reduction). Max-HP, by contrast, is host-authoritative and REPLICATED, so a
+        // both-peers apply double-counts it; StartMaxHpLoss (Overclocked) can't satisfy both rules at once —
+        // LoseMaxHp mutates run-state Max-HP AND clamps current HP — so it is NOT co-op-safe via this hook
+        // and is left OUT of the co-op path (see RelicForgeApi note). StartDamage stays ungated.
+        // StartDamage (Immolating) is a flat combat-start CURRENT-HP hit — locally simulated, so a detached
+        // both-peers apply converges (coop-verify GREEN). The permanent Max-HP cost (Overclocked) is NOT
+        // here: Max-HP is host-authoritative/replicated and must be applied awaited-in-order — see
+        // OverclockedMaxHpPatch.
+        if (turn == 1 && pfx.StartDamage > 0)
+        {
+            relic.Flash(); flashed = true;
+            TaskHelper.RunSafely(CreatureCmd.Damage(ctx, creature, pfx.StartDamage, ValueProp.Unpowered, creature, null));
+        }
+
+        if (pfx.TurnEnergy > 0)   // every turn
+        {
+            if (!flashed) relic.Flash();
+            TaskHelper.RunSafely(PlayerCmd.GainEnergy(pfx.TurnEnergy, player));
+        }
+
+        MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: +{pfx.TurnEnergy} energy"
+            + (turn == 1 && pfx.StartDamage > 0 ? $" (start cost: {pfx.StartDamage} dmg)" : "")
+            + $" on turn {turn} ({relic.Id.Entry}).");
     }
 
 }

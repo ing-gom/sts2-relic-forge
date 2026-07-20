@@ -245,7 +245,8 @@ internal static class CharAffixPatches
             try
             {
                 if (card?.Owner is not Player player) return true;
-                if (!CharAffix.ShouldLingeringDodge(player, card)) return true;
+                // Lingering (IC curse), or the universal Tenacious (% dodge) / Persistent (save Ethereals) prefixes.
+                if (!CharAffix.ShouldLingeringDodge(player, card) && !ShouldPrefixDodge(player, card)) return true;
                 __result = CardCmd.Discard(choiceContext, card);
                 return false;   // skip the exhaust — the card was discarded instead
             }
@@ -254,6 +255,26 @@ internal static class CharAffixPatches
                 MainFile.Logger.Warn($"[{MainFile.ModId}] exhaust dodge failed (exhaust kept): {e.Message}");
                 return true;
             }
+        }
+
+        /// <summary>The universal exhaust-savers (siblings of the IC-only Lingering): Persistent always dodges an
+        /// ETHEREAL card's exhaust; Tenacious dodges any exhaust at its % (seed-deterministic Roll, co-op-safe).</summary>
+        private static bool ShouldPrefixDodge(Player player, CardModel card)
+        {
+            int turn = player.PlayerCombatState?.TurnNumber ?? 0;
+            bool ethereal = card.Keywords != null && card.Keywords.Contains(CardKeyword.Ethereal);
+            foreach (var relic in new List<RelicModel>(player.Relics))
+            {
+                if (RelicForgeService.IsForgeEffectSuppressed(relic)) continue;
+                var rec = RelicForgeService.RecordFor(relic);
+                if (rec == null || rec.Prefix.Length == 0) continue;
+                var pfx = PrefixTable.ByName(rec.Prefix);
+                if (pfx == null) continue;
+                if (pfx.EtherealSave && ethereal) { relic.Flash(); return true; }
+                if (pfx.ExhaustDodgePct > 0 && CharAffix.Roll(player, relic, turn) * 100f < pfx.ExhaustDodgePct)
+                { relic.Flash(); return true; }
+            }
+            return false;
         }
     }
 

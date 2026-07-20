@@ -46,6 +46,20 @@ internal static class RiderSuffix
         new RiderSuffixDef { En = "Frenzy",     Ko = "광란", Zh = "狂乱", Color = "#ff6b4d", PrefixName = "Frenzied",
             EffKo = "적이 3번째 턴마다 힘을 얻습니다", EffEn = "Enemies gain Strength every 3rd turn", EffZh = "敌人每第3回合获得力量" },
 
+        // --- Reactive riders (driven by damage events, see EnemyReactiveCursePatch) ---
+        new RiderSuffixDef { En = "Fury",       Ko = "격노", Zh = "暴怒", Color = "#ff5533", PrefixName = "Enraging", Weight = 4,
+            EffKo = "적이 피격될 때마다 힘 1을 얻습니다 (공격할수록 강해짐)", EffEn = "Enemies gain 1 Strength each time they are hit", EffZh = "敌人每次受击获得1点力量" },
+        new RiderSuffixDef { En = "Cruelty",    Ko = "가학", Zh = "施虐", Color = "#c04d6a", PrefixName = "Sadistic", Weight = 6,
+            EffKo = "적이 당신에게 피해를 줄 때마다 힘 1을 얻습니다", EffEn = "Enemies gain 1 Strength each time they damage you", EffZh = "敌人每次对你造成伤害获得1点力量" },
+        new RiderSuffixDef { En = "the Hex",    Ko = "주술", Zh = "咒缚", Color = "#9b6bff", PrefixName = "Hexing", Weight = 6,
+            EffKo = "적이 당신을 때릴 때 50% 확률로 약화·손상·취약 중 하나를 겁니다", EffEn = "When enemies damage you, 50% chance to apply Weak / Frail / Vulnerable", EffZh = "敌人对你造成伤害时，50%概率施加虚弱/脆弱/易伤" },
+        new RiderSuffixDef { En = "Leech",      Ko = "흡혈", Zh = "吸血", Color = "#c0335a", PrefixName = "Vampiric", Weight = 4,
+            EffKo = "적이 당신에게 준 피해만큼 회복합니다", EffEn = "Enemies heal for the damage they deal you", EffZh = "敌人回复对你造成的伤害等量的生命" },
+        new RiderSuffixDef { En = "Filth",      Ko = "오염", Zh = "污染", Color = "#8a6a4a", PrefixName = "Fouling", Weight = 6,
+            EffKo = "적이 당신을 때릴 때 버린 더미에 상처 1장을 넣습니다", EffEn = "When enemies damage you, add a Wound to your discard", EffZh = "敌人对你造成伤害时，将1张伤口加入你的弃牌堆" },
+        new RiderSuffixDef { En = "Callus",     Ko = "굳은살", Zh = "老茧", Color = "#9a8a6a", PrefixName = "Calloused", Weight = 5,
+            EffKo = "적이 받는 피해가 1 감소합니다 (멀티히트에 치명적)", EffEn = "Enemies take 1 less damage from each hit", EffZh = "敌人受到的每次伤害减少1点" },
+
         // --- Max-HP curses: strengthen enemies by raising their Max HP (and healing to it), scoped by
         //     room type. Applied to ALL enemies in a matching fight (see EnemyForge.ApplyHpCurses),
         //     not just the one decorated elite/boss — so "normal-mob HP up" reaches every enemy. ---

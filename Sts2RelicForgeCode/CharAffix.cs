@@ -165,7 +165,13 @@ internal static class CharAffix
         int occ = box[1]++;
         uint seed = player.RunState.Rng.Seed;
         var rng = new Rng((uint)((int)seed + turn * 24107 + StringHelper.GetDeterministicHashCode(relic.Id.Entry) + occ * 6151));
-        return rng.NextFloat();
+        float raw = rng.NextFloat();
+        float raw2 = rng.NextFloat();   // a second independent roll — used only by Empowering (advantage)
+        // Meta auras ([[MetaAffix]]): AdjustRoll transforms the roll so every `Roll() < chance` site fires at the
+        // adjusted rate — Catalytic halves it (→ double), Empowering takes min(raw,raw2) (→ a genuine second
+        // attempt), else Priming subtracts its flat bonus (→ +b). One place covers all char-affix procs (and
+        // Searing). Deterministic (raw2 is a fixed draw from the same local rng) → co-op-safe.
+        return MetaAffix.AdjustRoll(raw, raw2, player);
     }
 
     /// <summary>Owned, forged relics of <paramref name="player"/> whose rolled prefix name matches.</summary>

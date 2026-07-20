@@ -23,6 +23,10 @@ internal enum HpScope { EliteBoss, Normal, Elite, Boss, Any }
 /// <summary>Applies one native power (or block) to an enemy with a computed amount.</summary>
 internal delegate Task PowerApply(PlayerChoiceContext ctx, Creature enemy, int amount);
 
+/// <summary>How a REACTIVE enemy curse fires (see <see cref="EnemyReactiveCursePatch"/>) — driven by damage
+/// events rather than combat-start / per-turn. None = not reactive (a normal <see cref="EnemyEffect"/>).</summary>
+internal enum ReactiveKind { None, OnHitStr, OnDealStr, OnDealDebuff, OnDealHeal, OnDealCard }
+
 /// <summary>
 /// One effect an enemy prefix grants: a FIXED amount of a native power (Base = the exact amount) or
 /// bonus HP (IsHp, Base = fraction of the enemy's spawn MaxHp). Power amounts are fixed — NO random
@@ -37,6 +41,8 @@ internal sealed class EnemyEffect
     public int Period;          // 0 = applied once at combat start; >0 = re-applied every N turns
     public double Chance;       // 0 = always; else the per-turn probability a periodic effect fires
     public PowerApply? Apply;
+    public ReactiveKind Reactive; // != None: a reactive curse; recorded on the tag, driven by a damage hook
+    public int Reduction;         // > 0: PASSIVE — the enemy takes this much less damage per hit (Calloused)
 }
 
 /// <summary>A resolved recurring buff kept on a forged enemy — re-applied every <see cref="Period"/> turns.</summary>
@@ -68,6 +74,14 @@ internal sealed class EnemyForgeTag
     public string Prefix = "";
     public string Color = "#e0554d";
     public readonly List<Periodic> Periodics = new();   // recurring buffs, driven each turn
+    // Reactive curses (see EnemyReactiveCursePatch): driven by damage hooks, not per-turn. Stacked per curse.
+    public int OnHitStr;       // Enraging: Strength the enemy gains each time IT is hit
+    public int OnDealStr;      // Sadistic: Strength the enemy gains each time it damages the player
+    public bool OnDealDebuff;  // Hexing: 50% to debuff the player when it damages them
+    public int OnDealHealPct;  // Vampiric: % of the damage it deals the player that the enemy heals
+    public bool OnDealCard;    // Fouling: add a Wound to the player's discard when it damages them
+    // Passive (see EnemyDamageReductionPatch): the enemy takes this much less damage from each hit (Calloused).
+    public int DamageReduction;
 }
 
 /// <summary>The enemy prefix pool (native buffs only) — each effect is a fixed amount.</summary>
@@ -113,6 +127,20 @@ internal static class EnemyPrefixTable
             Effects = new[] { Pow(Buffer, 1) } },                                 // Buffer 1: negate next hit
         new EnemyPrefix { Name = "Frenzied", Ko = "광란의", Zh = "狂乱的", Color = "#ff6b4d",
             Effects = new[] { Pow(Str, 2, period: 3) } },                         // Strength 2 every 3rd turn
+
+        // Reactive curses (driven by EnemyReactiveCursePatch off damage events, not per-turn).
+        new EnemyPrefix { Name = "Enraging", Ko = "격노한", Zh = "暴怒的", Color = "#ff5533",
+            Effects = new[] { new EnemyEffect { Reactive = ReactiveKind.OnHitStr, Base = 1 } } },     // +1 Str each time hit
+        new EnemyPrefix { Name = "Sadistic", Ko = "가학적인", Zh = "施虐的", Color = "#c04d6a",
+            Effects = new[] { new EnemyEffect { Reactive = ReactiveKind.OnDealStr, Base = 1 } } },    // +1 Str each time it hits you
+        new EnemyPrefix { Name = "Hexing", Ko = "저주하는", Zh = "咒缚的", Color = "#9b6bff",
+            Effects = new[] { new EnemyEffect { Reactive = ReactiveKind.OnDealDebuff } } },           // 50%: debuff you when it hits you
+        new EnemyPrefix { Name = "Vampiric", Ko = "흡혈하는", Zh = "吸血的", Color = "#c0335a",
+            Effects = new[] { new EnemyEffect { Reactive = ReactiveKind.OnDealHeal, Base = 100 } } }, // heals 100% of damage it deals you
+        new EnemyPrefix { Name = "Fouling", Ko = "오염시키는", Zh = "污染的", Color = "#8a6a4a",
+            Effects = new[] { new EnemyEffect { Reactive = ReactiveKind.OnDealCard } } },             // adds a Wound to your discard when it hits you
+        new EnemyPrefix { Name = "Calloused", Ko = "굳은살의", Zh = "老茧的", Color = "#9a8a6a",
+            Effects = new[] { new EnemyEffect { Reduction = 1 } } },                                  // takes 1 less damage per hit
 
         // Max-HP curses — broadcast to ALL enemies in a scope-matching fight by EnemyForge.ApplyHpCurses
         // (NOT the per-enemy decoration path). GainMaxHp also heals, so they're tankier from turn 1. All four
@@ -297,6 +325,26 @@ internal static class EnemyForge
             try
             {
                 if (eff.IsHp) continue;          // HP curses are applied by ApplyHpCurses, never here
+                if (eff.Reduction > 0)           // PASSIVE damage reduction — recorded on the tag (Calloused)
+                {
+                    tag.DamageReduction += eff.Reduction;
+                    MainFile.Logger.Info($"[{MainFile.ModId}]   damage reduction {eff.Reduction} → {enemy.Name}");
+                    continue;
+                }
+                if (eff.Reactive != ReactiveKind.None)   // reactive curses are recorded on the tag, fired by a damage hook
+                {
+                    int r = AtLeastOne(eff.Base);
+                    switch (eff.Reactive)
+                    {
+                        case ReactiveKind.OnHitStr:     tag.OnHitStr += r; break;
+                        case ReactiveKind.OnDealStr:    tag.OnDealStr += r; break;
+                        case ReactiveKind.OnDealDebuff: tag.OnDealDebuff = true; break;
+                        case ReactiveKind.OnDealHeal:   tag.OnDealHealPct += r; break;
+                        case ReactiveKind.OnDealCard:   tag.OnDealCard = true; break;
+                    }
+                    MainFile.Logger.Info($"[{MainFile.ModId}]   reactive {eff.Reactive} ({r}) → {enemy.Name}");
+                    continue;
+                }
                 int amt = AtLeastOne(eff.Base);  // fixed amount
                 if (eff.Apply == null) continue;
 

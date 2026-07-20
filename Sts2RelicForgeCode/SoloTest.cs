@@ -1181,6 +1181,345 @@ internal static class SoloTest
                     CustomPool.DisabledCurses.Clear(); foreach (var n in savedC) CustomPool.DisabledCurses.Add(n);
                 }
             });
+            // T29 — Energy-gamble affixes (Immolating / Overclocked) through the REAL turn-1 dispatch
+            // (ForgeCombatAffixPatch.ApplyEnergyGamble). Each in its OWN fresh fight so the combat-start
+            // (turn == 1) cost branch fires. Energy is asserted BASELINE-FREE: the turn refills to
+            // MaxEnergy via SetEnergy, then GainEnergy stacks the bonus on top → Energy == MaxEnergy + 1.
+            RelicModel? r29 = null;
+            await TestAsync("T29 inject: Overclocked energy + permanent MaxHp cost", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r29 = await Grant20("Overclocked", penalty: false);
+                if (r29 == null) return "forced grant failed (see log)";
+                int preMax = player.Creature.MaxHp;
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+                int postMax = player.Creature.MaxHp;
+                int energy = player.PlayerCombatState?.Energy ?? -1;
+                int maxEnergy = player.PlayerCombatState?.MaxEnergy ?? -1;
+                W($"  Overclocked: MaxHp {preMax}→{postMax} (expected {preMax - 1}), energy {energy} (expected {maxEnergy + 1})");
+                if (postMax != preMax - 1) return $"MaxHp {postMax}, expected {preMax - 1} (permanent combat-start -1, awaited)";
+                if (energy != maxEnergy + 1) return $"energy {energy}, expected {maxEnergy + 1} (per-turn +1 bonus)";
+                return null;
+            });
+            await Drop20(r29);
+
+            RelicModel? r29b = null;
+            await TestAsync("T29b inject: Immolating energy + combat-start HP cost", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r29b = await Grant20("Immolating", penalty: false);
+                if (r29b == null) return "forced grant failed (see log)";
+                int preHp = player.Creature.CurrentHp;
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+                int postHp = player.Creature.CurrentHp;
+                int energy = player.PlayerCombatState?.Energy ?? -1;
+                int maxEnergy = player.PlayerCombatState?.MaxEnergy ?? -1;
+                W($"  Immolating: HP {preHp}→{postHp} (expected {preHp - 5}), energy {energy} (expected {maxEnergy + 1})");
+                if (postHp != preHp - 5) return $"HP {postHp}, expected {preHp - 5} (combat-start 5 self-damage)";
+                if (energy != maxEnergy + 1) return $"energy {energy}, expected {maxEnergy + 1} (per-turn +1 bonus)";
+                return null;
+            });
+            await Drop20(r29b);
+
+            // T30 — Adrenal (투지의): unblocked ENEMY damage has a 25% chance to grant 1 bonus Energy, via
+            // the AfterDamageReceived hook (HitEnergyAffixPatch). Deal 1-damage unblockable hits (null dealer
+            // = enemy-sourced; each lowers HP so the per-hit seed is distinct → independent rolls) until
+            // energy ticks up (P(all 40 fail) ≈ 1e-5). Runs in whatever fight T29b left live.
+            await TestAsync("T30 inject: Adrenal energy-on-hit", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "not in combat";
+                var relic = await Grant20("Adrenal", penalty: false);
+                if (relic == null) return "forced grant failed (see log)";
+                try
+                {
+                    int e0 = player.PlayerCombatState?.Energy ?? -1;
+                    for (int i = 0; i < 40; i++)
+                    {
+                        await CreatureCmd.Damage(ctx20, player.Creature, 1m,
+                            ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                        await Task.Delay(60);
+                        int e = player.PlayerCombatState?.Energy ?? -1;
+                        if (e > e0)
+                        {
+                            W($"  Adrenal: gained energy on unblocked hit #{i + 1} ({e0}→{e})");
+                            return null;
+                        }
+                    }
+                    return "no energy gained in 40 unblocked enemy hits (25% each)";
+                }
+                finally { await Drop20(relic); }
+            });
+
+            // T31 — Catalytic (촉매의) aura: while owned, every probabilistic COMBAT proc doubles (boons AND
+            // curses), forge-time curse chance untouched. Deterministic + exact: assert the aura toggles the
+            // MetaAffix chance transforms (0.25→0.5, 0.6→1.0 clamp, pct 25→50, 60→100) with the relic owned,
+            // and reverts when dropped. Threshold-only math = the same value the combat roll sites compare to.
+            await TestAsync("T31 inject: Catalytic proc-doubler aura", async () =>
+            {
+                if (player == null) return "no player";
+                var relic = await Grant20("Catalytic", penalty: false);
+                if (relic == null) return "forced grant failed (see log)";
+                try
+                {
+                    bool on = MetaAffix.Doubled(player);
+                    float c25 = MetaAffix.Chance(0.25f, player);
+                    float c60 = MetaAffix.Chance(0.60f, player);
+                    int p25 = MetaAffix.ChancePct(25, player);
+                    int p60 = MetaAffix.ChancePct(60, player);
+                    W($"  Catalytic ON: doubled={on}, 0.25→{c25}, 0.60→{c60} (clamp 1.0), pct 25→{p25}, 60→{p60} (clamp 100)");
+                    if (!on) return "aura not detected while owned";
+                    if (System.Math.Abs(c25 - 0.5f) > 1e-4f) return $"Chance(0.25)={c25}, expected 0.5";
+                    if (System.Math.Abs(c60 - 1.0f) > 1e-4f) return $"Chance(0.60)={c60}, expected 1.0 (clamp)";
+                    if (p25 != 50) return $"ChancePct(25)={p25}, expected 50";
+                    if (p60 != 100) return $"ChancePct(60)={p60}, expected 100 (clamp)";
+                }
+                finally { await Drop20(relic); }
+                // reverts after drop — no aura, base chances restored
+                bool off = MetaAffix.Doubled(player);
+                float back = MetaAffix.Chance(0.25f, player);
+                W($"  Catalytic OFF (dropped): doubled={off}, 0.25→{back}");
+                if (off) return "aura still detected after drop";
+                if (System.Math.Abs(back - 0.25f) > 1e-4f) return $"Chance(0.25)={back} after drop, expected 0.25";
+                return null;
+            });
+
+            // T32 — Priming (촉진의) aura: the LIGHT Catalytic — a FLAT +10%p to combat procs (not a double),
+            // and Catalytic takes PRECEDENCE when both are owned (never composes). Deterministic + exact.
+            await TestAsync("T32 inject: Priming flat-boost aura + precedence", async () =>
+            {
+                if (player == null) return "no player";
+                var prime = await Grant20("Priming", penalty: false);
+                if (prime == null) return "forced grant failed (Priming)";
+                RelicModel? cat = null;
+                try
+                {
+                    // Priming alone: +10pp flat, no doubling.
+                    int b = MetaAffix.BoostPct(player);
+                    bool dbl = MetaAffix.Doubled(player);
+                    float c25 = MetaAffix.Chance(0.25f, player);
+                    int p25 = MetaAffix.ChancePct(25, player);
+                    float c95 = MetaAffix.Chance(0.95f, player);
+                    W($"  Priming ON: boost={b}, doubled={dbl}, 0.25→{c25}, pct 25→{p25}, 0.95→{c95} (clamp 1.0)");
+                    if (b != 10) return $"BoostPct={b}, expected 10";
+                    if (dbl) return "Priming should not set Doubled";
+                    if (System.Math.Abs(c25 - 0.35f) > 1e-4f) return $"Chance(0.25)={c25}, expected 0.35 (+0.10)";
+                    if (p25 != 35) return $"ChancePct(25)={p25}, expected 35";
+                    if (System.Math.Abs(c95 - 1.0f) > 1e-4f) return $"Chance(0.95)={c95}, expected 1.0 (clamp)";
+
+                    // Precedence: add Catalytic on a second relic — doubling WINS, does NOT stack with +10.
+                    cat = await Grant20("Catalytic", penalty: false, secondSlot: true);
+                    if (cat == null) return "forced grant failed (Catalytic 2nd)";
+                    bool dbl2 = MetaAffix.Doubled(player);
+                    float c25both = MetaAffix.Chance(0.25f, player);
+                    W($"  Priming+Catalytic: doubled={dbl2}, 0.25→{c25both} (expect 0.5, Catalytic wins — NOT 0.6)");
+                    if (!dbl2) return "Doubled not detected with Catalytic owned";
+                    if (System.Math.Abs(c25both - 0.5f) > 1e-4f) return $"Chance(0.25)={c25both} with both, expected 0.5 (precedence)";
+                }
+                finally { await Drop20(cat); await Drop20(prime); }
+                float back = MetaAffix.Chance(0.25f, player);
+                if (System.Math.Abs(back - 0.25f) > 1e-4f) return $"Chance(0.25)={back} after drop, expected 0.25";
+                return null;
+            });
+
+            // T33 — Reactive enemy-rider curses (Enraging / Sadistic / Hexing) through the REAL damage hook
+            // (EnemyReactiveCursePatch). Force the enemy forge to plant 'Fury' on the next fight's enemies,
+            // then drive each trigger with real CreatureCmd.Damage (correct target/dealer): hitting the enemy
+            // ramps its Strength (Enraging); the enemy hitting the player ramps its Strength (Sadistic) and
+            // 50%-debuffs the player (Hexing). Sadistic/Hexing are armed on the same enemy's tag for a 1-fight check.
+            await TestAsync("T33 inject: reactive enemy curses (Enraging/Sadistic/Hexing)", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                bool savedForce = EnemyForge.TestForce; string? savedPfx = EnemyForge.TestForcePrefix;
+                EnemyForge.TestForce = true; EnemyForge.TestForcePrefix = "Fury";
+                try
+                {
+                    var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                        ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                    if (enc == null) return "BowlbugsWeak encounter not registered";
+                    await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                    await Task.Delay(6000);
+                    var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                    if (cm == null || !cm.IsInProgress) return "combat did not start";
+                    var cs = player.Creature.CombatState;
+                    var enemy = cs?.HittableEnemies?.FirstOrDefault(e => EnemyForge.TagOf(e) != null);
+                    if (enemy == null) return "no forged enemy (Fury not applied)";
+                    var tag = EnemyForge.TagOf(enemy);
+                    if (tag == null || tag.OnHitStr <= 0) return $"enemy tag missing OnHitStr (tag='{tag?.Prefix ?? "null"}')";
+                    tag.OnDealStr = 1; tag.OnDealDebuff = true;   // arm Sadistic + Hexing on the same enemy
+
+                    // Enraging: the player hits the enemy → enemy Strength +1.
+                    int s0 = (int)(enemy.GetPower<StrengthPower>()?.Amount ?? 0);
+                    await CreatureCmd.Damage(ctx20, enemy, 1m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature, null);
+                    await Task.Delay(400);
+                    if (!enemy.IsAlive) return "enemy died before assert (pick a tankier encounter)";
+                    int s1 = (int)(enemy.GetPower<StrengthPower>()?.Amount ?? 0);
+                    W($"  Enraging: player hit enemy → Str {s0}→{s1} (expected +1)");
+                    if (s1 != s0 + 1) return $"Enraging: enemy Str {s1}, expected {s0 + 1}";
+
+                    // Sadistic: the enemy damages the player → enemy Strength +1.
+                    await CreatureCmd.Damage(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                    await Task.Delay(400);
+                    int s2 = (int)(enemy.GetPower<StrengthPower>()?.Amount ?? 0);
+                    W($"  Sadistic: enemy hit player → enemy Str {s1}→{s2} (expected +1)");
+                    if (s2 != s1 + 1) return $"Sadistic: enemy Str {s2}, expected {s1 + 1}";
+
+                    // Hexing: repeated enemy hits → a debuff lands (50% each; P(all 20 miss) ≈ 1e-6).
+                    bool hexed = false;
+                    for (int i = 0; i < 20 && !hexed; i++)
+                    {
+                        int w0 = (int)(player.Creature.GetPower<WeakPower>()?.Amount ?? 0);
+                        int f0 = (int)(player.Creature.GetPower<FrailPower>()?.Amount ?? 0);
+                        int v0 = (int)(player.Creature.GetPower<VulnerablePower>()?.Amount ?? 0);
+                        await CreatureCmd.Damage(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                        await Task.Delay(120);
+                        int w1 = (int)(player.Creature.GetPower<WeakPower>()?.Amount ?? 0);
+                        int f1 = (int)(player.Creature.GetPower<FrailPower>()?.Amount ?? 0);
+                        int v1 = (int)(player.Creature.GetPower<VulnerablePower>()?.Amount ?? 0);
+                        if (w1 > w0 || f1 > f0 || v1 > v0) { hexed = true; W($"  Hexing: player debuffed on enemy hit #{i + 1}"); }
+                    }
+                    if (!hexed) return "Hexing: no debuff in 20 enemy hits (50% each)";
+
+                    // Vampiric: arm 100% lifesteal; wound the enemy, then it hits the player → it heals.
+                    tag.OnDealHealPct = 100;
+                    await CreatureCmd.Damage(ctx20, enemy, 4m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature, null);
+                    await Task.Delay(300);
+                    if (enemy.IsAlive)
+                    {
+                        int eh0 = enemy.CurrentHp;
+                        await CreatureCmd.Damage(ctx20, player.Creature, 3m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                        await Task.Delay(300);
+                        int eh1 = enemy.CurrentHp;
+                        W($"  Vampiric: enemy hit player → enemy HP {eh0}→{eh1} (lifesteal, expected higher)");
+                        if (eh1 <= eh0) return $"Vampiric: enemy HP {eh1}, expected > {eh0}";
+                    }
+                    else W("  Vampiric: enemy died before the lifesteal check (env) — skipped");
+
+                    // Fouling: enemy hits the player → a Wound clogs the discard pile.
+                    tag.OnDealCard = true;
+                    int wound0 = PileType.Discard.GetPile(player).Cards.Count(c => c.Id.Entry.ToUpperInvariant().Contains("WOUND"));
+                    await CreatureCmd.Damage(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                    await Task.Delay(300);
+                    int wound1 = PileType.Discard.GetPile(player).Cards.Count(c => c.Id.Entry.ToUpperInvariant().Contains("WOUND"));
+                    W($"  Fouling: enemy hit player → discard Wounds {wound0}→{wound1} (expected +1)");
+                    if (wound1 <= wound0) return $"Fouling: discard Wounds {wound1}, expected > {wound0}";
+
+                    // Calloused: the enemy's damage-reduction is recorded on the tag (the Hook.ModifyDamage
+                    // postfix subtracts it from each hit's final amount — a pure calc, exercised by real attacks).
+                    tag.DamageReduction = 1;
+                    if ((EnemyForge.TagOf(enemy)?.DamageReduction ?? 0) != 1) return "Calloused: tag DamageReduction not armed";
+                    W("  Calloused: enemy DamageReduction=1 armed (ModifyDamage postfix subtracts it)");
+                    return null;
+                }
+                finally { EnemyForge.TestForce = savedForce; EnemyForge.TestForcePrefix = savedPfx; }
+            });
+            // T34 — Cursebound (저주결속의) ramp table: the exact Str/Dex/Intangible package per curse count the
+            // user specified. Pure lookup (like the HP-ramp T18) — deterministic, no combat needed.
+            await TestAsync("T34 inject: Cursebound curse-ramp table", async () =>
+            {
+                await Task.Yield();
+                var expect = new (int c, int s, int d, bool it)[]
+                { (0,0,0,false), (1,1,0,false), (2,1,1,false), (3,2,2,false), (4,3,2,false), (5,3,3,true), (6,3,3,true), (9,3,3,true) };
+                foreach (var (c, s, d, it) in expect)
+                {
+                    var (gs, gd, git) = ForgeCombatAffixPatch.CurseRampFor(c);
+                    if (gs != s || gd != d || git != it) return $"CurseRampFor({c})=({gs},{gd},{git}), expected ({s},{d},{it})";
+                }
+                W("  Cursebound ramp: 1→S1 · 2→S1D1 · 3→S2D2 · 4→S3D2 · 5+→S3D3+Intangible (cap holds)");
+                return null;
+            });
+
+            // T35 — Empowering (증강의) re-roll aura: NOT a flat chance bump — a SECOND roll (advantage). Assert the
+            // MetaAffix transforms (0.25→0.4375, pct 25→44, AdjustRoll = min of two rolls) and that Catalytic wins.
+            await TestAsync("T35 inject: Empowering re-roll (advantage) aura + precedence", async () =>
+            {
+                if (player == null) return "no player";
+                var emp = await Grant20("Empowering", penalty: false);
+                if (emp == null) return "forced grant failed (Empowering)";
+                RelicModel? cat = null;
+                try
+                {
+                    bool rr = MetaAffix.Rerolled(player), dbl = MetaAffix.Doubled(player);
+                    float c25 = MetaAffix.Chance(0.25f, player);
+                    int p25 = MetaAffix.ChancePct(25, player);
+                    float lo = MetaAffix.AdjustRoll(0.4f, 0.9f, player), hi = MetaAffix.AdjustRoll(0.9f, 0.3f, player);
+                    W($"  Empowering ON: reroll={rr}, doubled={dbl}, 0.25→{c25} (~0.4375), pct 25→{p25} (44), min(.4,.9)={lo}, min(.9,.3)={hi}");
+                    if (!rr) return "reroll aura not detected";
+                    if (dbl) return "Empowering must not set Doubled";
+                    if (System.Math.Abs(c25 - 0.4375f) > 1e-4f) return $"Chance(0.25)={c25}, expected 0.4375";
+                    if (p25 != 44) return $"ChancePct(25)={p25}, expected 44";
+                    if (System.Math.Abs(lo - 0.4f) > 1e-4f || System.Math.Abs(hi - 0.3f) > 1e-4f) return $"AdjustRoll min wrong ({lo},{hi})";
+                    cat = await Grant20("Catalytic", penalty: false, secondSlot: true);
+                    if (cat == null) return "forced grant failed (Catalytic 2nd)";
+                    float both = MetaAffix.Chance(0.25f, player);
+                    W($"  Empowering+Catalytic: 0.25→{both} (expect 0.5 — Catalytic precedence)");
+                    if (System.Math.Abs(both - 0.5f) > 1e-4f) return $"Chance(0.25)={both} with both, expected 0.5";
+                }
+                finally { await Drop20(cat); await Drop20(emp); }
+                return null;
+            });
+            // T36 — exhaust/ethereal savers (Tenacious/Persistent) through the REAL exhaust hook (ExhaustDodgePatch),
+            // plus a wiring check that the card-play boons are recognized effect prefixes.
+            await TestAsync("T36 inject: exhaust savers + card-play wiring", async () =>
+            {
+                if (player?.Creature?.CombatState == null) return "not in combat";
+                var cs = player.Creature.CombatState;
+
+                // Tenacious: any exhaust has a 25% chance to be discarded instead (P(all 40 fail) ≈ 1e-5).
+                var ten = await Grant20("Tenacious", penalty: false);
+                if (ten == null) return "forced grant failed (Tenacious)";
+                try
+                {
+                    bool dodged = false;
+                    for (int i = 0; i < 40 && !dodged; i++)
+                    {
+                        var c = cs.CreateCard<MegaCrit.Sts2.Core.Models.Cards.Wound>(player);
+                        await CardPileCmd.Add(c, PileType.Hand);
+                        await CardCmd.Exhaust(ctx20, c);
+                        await Task.Delay(60);
+                        if (PileType.Discard.GetPile(player).Cards.Contains(c)) { dodged = true; W($"  Tenacious: exhaust dodged to discard on #{i + 1}"); }
+                    }
+                    if (!dodged) return "Tenacious: no dodge in 40 exhausts (25% each)";
+                }
+                finally { await Drop20(ten); }
+
+                // Persistent: an ETHEREAL card that exhausts is discarded instead (always).
+                var per = await Grant20("Persistent", penalty: false);
+                if (per == null) return "forced grant failed (Persistent)";
+                try
+                {
+                    var card = cs.CreateCard<MegaCrit.Sts2.Core.Models.Cards.Wound>(player);
+                    CardCmd.ApplyKeyword(card, MegaCrit.Sts2.Core.Entities.Cards.CardKeyword.Ethereal);
+                    await CardPileCmd.Add(card, PileType.Hand);
+                    await CardCmd.Exhaust(ctx20, card);
+                    await Task.Delay(200);
+                    bool inDiscard = PileType.Discard.GetPile(player).Cards.Contains(card);
+                    W($"  Persistent: ethereal exhaust → inDiscard={inDiscard} (expected True)");
+                    if (!inDiscard) return "Persistent: ethereal card was not saved to discard";
+                }
+                finally { await Drop20(per); }
+
+                foreach (var n in new[] { "Studious", "Overflowing", "Cunning" })
+                {
+                    var p = PrefixTable.ByName(n);
+                    if (p == null || p.IsEnhance) return $"{n}: not a recognized effect prefix";
+                }
+                W("  Studious/Overflowing/Cunning: recognized effect prefixes (card-play via AfterCardPlayed)");
+                return null;
+            });
             }   // end InjectionBattery — invoked after T13 below
 
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the

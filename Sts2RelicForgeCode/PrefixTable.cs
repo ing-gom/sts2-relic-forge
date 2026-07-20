@@ -77,6 +77,45 @@ internal sealed class Prefix
     //     player Vulnerable 1 + Frail 1. Mixed (amber note): a strong boon with a built-in cost. ---
     public bool ReplayGrant;
 
+    // --- Energy-gamble affixes (see ForgeCombatAffixPatch.ApplyEnergyGamble + OverclockedMaxHpPatch).
+    //     Graft nothing and scale no host var: a strong per-turn boon (bonus Energy) bundled with a
+    //     self-inflicted COST, so the note renders amber (Mixed). TurnEnergy fires every turn (net +N over
+    //     the SetEnergy refill, like the bonus-energy relics — so it also feeds a Discharging relic).
+    //     StartDamage is a flat combat-start CURRENT-HP hit (locally simulated → co-op-safe on both peers).
+    //     StartMaxHpLoss is a PERMANENT Max-HP loss — Max-HP is host-authoritative/REPLICATED, so it must
+    //     be applied AWAITED IN-ORDER inside the synchronized turn-start action (OverclockedMaxHpPatch chains
+    //     onto the hook's Task, exactly like the game's own PaperCutsPower awaits LoseMaxHp); a detached
+    //     RunSafely from this hook double-applied on the client and desynced (coop-verify caught it). ---
+    public int TurnEnergy;      // 과열의/작열의: bonus Energy granted at the start of EVERY turn (0 = off)
+    public int StartDamage;     // 작열의: flat self-damage taken once at combat start (0 = off)
+    public int StartMaxHpLoss;  // 과열의: permanent Max HP lost once at combat start (0 = off; via OverclockedMaxHpPatch)
+
+    // --- Hit-reactive energy affix (see HitEnergyAffixPatch). Grafts nothing and scales no host var:
+    //     each time the OWNER takes UNBLOCKED damage FROM AN ENEMY (block failed → real HP lost), a
+    //     per-hit roll may grant 1 bonus Energy. A pure boon (green note) with a built-in tension —
+    //     the payoff only comes when you're actually being hit. Deterministic per hit (seeded from the
+    //     post-hit HP, which strictly decreases → independent rolls that reload/co-op reproduce). ---
+    public int HitEnergyPercent; // 투지의: % chance per unblocked ENEMY hit to gain 1 bonus Energy (0 = off)
+
+    // --- Meta / aura affix (see MetaAffix). Grafts nothing and scales no host var: while the player owns a
+    //     relic with this prefix, EVERY probabilistic COMBAT proc of the player's OTHER forged prefixes rolls
+    //     at DOUBLE chance — boons AND curses (does NOT touch the forge-time curse chance). The first
+    //     cross-relic prefix (all others affect only their own host). ---
+    public bool ProcDoubler;    // 촉매의: aura — doubles other prefixes' in-combat proc chances (boon + curse)
+    public int  ProcBoostPct;   // 촉진의: aura — the "light Catalytic": ADDS this many percentage points to other
+                                //   prefixes' in-combat proc chances (a flat boost, not a double). Catalytic wins if both.
+    public bool ProcReroll;     // 증강의: aura — other prefixes' proc gets a SECOND roll (fires if either succeeds =
+                                //   advantage, 1-(1-p)^2). NOT a flat chance bump — a genuine re-attempt. Precedence: 촉매 > 증강 > 촉진.
+    public bool CurseScaling;   // 저주결속의: at combat start, gain Str/Dex/Intangible by the number of CURSES you carry (ramp table)
+
+    // --- Card-play affixes (see PrefixCardPlayPatch, on Hook.AfterCardPlayed) ---
+    public bool PowerDrawFirst; // 학구의: the FIRST Power card you play each combat → draw 2
+    public bool PowerEnergy;    // 충만의: playing a Power card → +1 Energy (once per turn)
+    public bool SkillDraw;      // 교활의: playing a Skill card → 25% chance to draw 1
+    // --- Exhaust/Ethereal savers (see ExhaustDodgePatch — the universal siblings of the IC-only Lingering) ---
+    public int  ExhaustDodgePct;// 끈질긴: a card that would EXHAUST is discarded instead, this % of the time (any character)
+    public bool EtherealSave;   // 잔존의: an ETHEREAL card that would exhaust is discarded instead (it survives)
+
     // Force the enemy-rider curse on unconditionally (bypasses EnemyRiderChance). Used by 공명의 so
     // its strength always comes bundled with a curse — the mod's own cost, in place of a per-trigger
     // penalty. Ignored on penalty prefixes (which never carry a rider).
@@ -109,7 +148,12 @@ internal sealed class Prefix
                                      || EnemyStrip || SymPower.Length > 0 || RandomDebuff
                                      || GainAmplify || LossInvert || EnergyDischarge > 0
                                      || CurseDrawStrength || GoldStrengthPer > 0 || CharAffix
-                                     || ReplayGrant || IsFallback;
+                                     || ReplayGrant || IsFallback
+                                     || TurnEnergy > 0 || StartDamage > 0 || StartMaxHpLoss > 0
+                                     || HitEnergyPercent > 0 || ProcDoubler || ProcBoostPct > 0
+                                     || ProcReroll || CurseScaling
+                                     || PowerDrawFirst || PowerEnergy || SkillDraw
+                                     || ExhaustDodgePct > 0 || EtherealSave;
 
     /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
     /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
@@ -326,6 +370,79 @@ internal static class PrefixTable
             NoteKo = "추가 에너지를 얻을 때마다 모든 적에게 4 피해",
             NoteEn = "Whenever you gain bonus Energy, deal 4 damage to all enemies",
             NoteZh = "每当你获得额外能量时，对所有敌人造成4点伤害" },
+
+        // --- Energy-gamble affixes (see ForgeCombatAffixPatch.ApplyEnergyGamble): a strong per-turn boon
+        //     — +1 bonus Energy EVERY turn — paid for with a fixed combat-start cost. Mixed (amber): a real
+        //     gamble, not a pure boon. Immolating's cost is HP each combat (chip that adds up over a run);
+        //     Overclocked's is a PERMANENT Max HP bite that ramps across the run. Both scale no host var, so
+        //     any relic can roll them. Fixed amounts → no RNG → deterministic → co-op safe (same class as the
+        //     other AfterPlayerTurnStart combat affixes). ---
+        new Prefix { Name = "Immolating", Ko = "작열의", Zh = "灼身的", Weight = 4, Mixed = true, TurnEnergy = 1, StartDamage = 5, Color = "#ff6a3d",
+            NoteKo = "전투 시작 시 HP 5를 잃지만, 매 턴 에너지 1을 추가로 얻는다",
+            NoteEn = "Lose 5 HP at combat start, but gain 1 bonus Energy each turn",
+            NoteZh = "战斗开始时失去5点生命，但每回合额外获得1点能量" },
+        new Prefix { Name = "Overclocked", Ko = "과열의", Zh = "过热的", Weight = 4, Mixed = true, TurnEnergy = 1, StartMaxHpLoss = 1, Color = "#ff8c42",
+            NoteKo = "전투 시작 시 최대 HP 1을 영구히 잃지만, 매 턴 에너지 1을 추가로 얻는다",
+            NoteEn = "Permanently lose 1 Max HP at combat start, but gain 1 bonus Energy each turn",
+            NoteZh = "战斗开始时永久失去1点最大生命，但每回合额外获得1点能量" },
+        // Hit-reactive energy (see HitEnergyAffixPatch): a pure boon — pain fuels you. Each unblocked
+        // ENEMY hit has a chance to grant 1 bonus Energy. Green note (no downside), but it only pays out
+        // when you're taking real damage, so it rewards an aggressive / low-block style. Scales no host var.
+        new Prefix { Name = "Adrenal", Ko = "투지의", Zh = "斗志的", Weight = 5, HitEnergyPercent = 25, Color = "#ffb84d",
+            NoteKo = "적에게 막지 못한 피해를 입을 때마다 25% 확률로 에너지 1을 얻는다",
+            NoteEn = "Whenever you take unblocked damage from an enemy, 25% chance to gain 1 bonus Energy",
+            NoteZh = "每当你受到敌人的未格挡伤害时，25%概率获得1点能量" },
+        // Meta aura (see MetaAffix): doubles the IN-COMBAT proc chance of ALL your OTHER forged prefixes —
+        // the boons AND the curses (the forge-time curse chance is untouched). Mixed (amber): a build-around
+        // gamble — twice the payoff, twice the backfire. The first cross-relic prefix.
+        new Prefix { Name = "Catalytic", Ko = "촉매의", Zh = "催化的", Weight = 3, Mixed = true, ProcDoubler = true, Color = "#c04dff",
+            NoteKo = "다른 유물 접두사의 전투 중 발동 확률이 2배가 된다 (저주의 발동 확률도 2배)",
+            NoteEn = "Your other relics' prefixes proc twice as often in combat — curses included",
+            NoteZh = "你其他遗物词缀的战斗触发几率翻倍（诅咒的触发几率也翻倍）" },
+        // The "light Catalytic": a FLAT +10% to other prefixes' in-combat proc chances (a fixed bump, not a
+        // double), curses included but gentler. Mixed (amber), commoner than Catalytic. Catalytic wins if both.
+        new Prefix { Name = "Priming", Ko = "촉진의", Zh = "促进的", Weight = 6, Mixed = true, ProcBoostPct = 10, Color = "#b06fd0",
+            NoteKo = "다른 유물 접두사의 전투 중 발동 확률이 10%p 증가한다 (저주 포함)",
+            NoteEn = "Your other relics' prefixes proc 10% more often in combat (curses included)",
+            NoteZh = "你其他遗物词缀的战斗触发几率提高10%（含诅咒）" },
+        // Empowering (증강의): NOT a flat chance bump — your other prefixes' probabilistic combat effects get a
+        // SECOND roll and fire if EITHER succeeds (advantage; e.g. 25% → ~44%). A genuine re-attempt. Mixed —
+        // it re-rolls curse procs too. Catalytic (×2) takes precedence over it, which takes precedence over Priming.
+        new Prefix { Name = "Empowering", Ko = "증강의", Zh = "增幅的", Weight = 3, Mixed = true, ProcReroll = true, Color = "#c04dff",
+            NoteKo = "다른 유물 접두사의 전투 중 확률 효과를 한 번 더 굴린다 — 둘 중 하나만 성공해도 발동 (저주 포함)",
+            NoteEn = "Your other relics' probabilistic combat effects get a second roll — they fire if either succeeds (curses included)",
+            NoteZh = "你其他遗物词缀的战斗几率效果获得第二次骰值——任一成功即触发（含诅咒）" },
+        // Cursebound (저주결속의): make your curses an asset. At combat start, gain a Str/Dex/Intangible package
+        // scaled by how many CURSES you carry (self-curses + enemy-riders), via a fixed ramp table (see
+        // ForgeCombatAffixPatch.ApplyCurseScaling). A boon that rewards a heavily-cursed build.
+        new Prefix { Name = "Cursebound", Ko = "저주결속의", Zh = "缚咒的", Weight = 5, CurseScaling = true, Color = "#a86fd0",
+            NoteKo = "전투 시작 시 지닌 저주 수에 따라 힘·민첩·불가침을 얻는다 (저주가 많을수록 강해짐)",
+            NoteEn = "At combat start, gain Strength / Dexterity / Intangible scaled by how many curses you carry",
+            NoteZh = "战斗开始时，根据你携带的诅咒数量获得力量/敏捷/无懈可击（诅咒越多越强）" },
+
+        // --- Card-play boons (see PrefixCardPlayPatch) ---
+        new Prefix { Name = "Studious", Ko = "학구의", Zh = "博学的", Weight = 6, PowerDrawFirst = true, Color = "#4dd24d",
+            NoteKo = "전투 중 처음으로 파워 카드를 낼 때 카드 2장을 뽑는다",
+            NoteEn = "The first time you play a Power card each combat, draw 2 cards",
+            NoteZh = "每场战斗首次打出能力牌时，抓2张牌" },
+        new Prefix { Name = "Overflowing", Ko = "충만의", Zh = "充盈的", Weight = 5, PowerEnergy = true, Color = "#ffd23f",
+            NoteKo = "파워 카드를 낼 때 에너지 1을 얻는다 (턴당 1회)",
+            NoteEn = "When you play a Power card, gain 1 Energy (once per turn)",
+            NoteZh = "打出能力牌时，获得1点能量（每回合1次）" },
+        new Prefix { Name = "Cunning", Ko = "교활의", Zh = "狡黠的", Weight = 6, SkillDraw = true, Color = "#6ec0d9",
+            NoteKo = "스킬 카드를 낼 때 25% 확률로 카드 1장을 뽑는다",
+            NoteEn = "When you play a Skill card, 25% chance to draw a card",
+            NoteZh = "打出技能牌时，25%概率抓1张牌" },
+
+        // --- Exhaust / Ethereal savers (universal siblings of the IC-only Lingering) ---
+        new Prefix { Name = "Tenacious", Ko = "끈질긴", Zh = "顽韧的", Weight = 6, ExhaustDodgePct = 25, Color = "#c0a86f",
+            NoteKo = "카드가 소멸될 때 25% 확률로 소멸되지 않고 버려진다",
+            NoteEn = "When a card would be exhausted, 25% chance it is discarded instead",
+            NoteZh = "卡牌将被消耗时，25%概率改为弃置" },
+        new Prefix { Name = "Persistent", Ko = "잔존의", Zh = "残留的", Weight = 6, EtherealSave = true, Color = "#8fd0c8",
+            NoteKo = "휘발성 카드가 사라질 때 소멸되지 않고 버려진다",
+            NoteEn = "An Ethereal card that would exhaust is discarded instead — it survives",
+            NoteZh = "虚无牌将消失时，改为弃置而非消耗" },
 
         // --- Run-state affixes: react to GOLD / DECK / CURSE state rather than combat power events.
         //     Cursefed/Gilded are boons (green note); Taxing is a curse (red note). All three scale no

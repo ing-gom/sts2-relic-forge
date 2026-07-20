@@ -120,6 +120,15 @@ internal static class CoopTest
             var me = LocalPlayerOf(run);
             if (me == null) { W("HOST: no local player"); Flush(false); return; }
 
+            // ── FORGING-ONLY MODE (sentinel selftest.coop.forging): run ONLY the pickup-reforge single-fire
+            // probe and skip the rest — the aura is persistent, so mixing it into the shared akabeko/orichalcum
+            // flow would perturb those convergence records. Isolated = no interference. ──
+            if (File.Exists(Path.Combine(ModDir(), "selftest.coop.forging")))
+            {
+                await ForgingHostProbe(run, me);
+                return;
+            }
+
             // ── REACTIVE ENEMY-CURSE PROBE: force EVERY fight's enemies to be 'Sadistic' (Cruelty rider =
             // gain Strength each time they hit you) on BOTH peers. This is a LOCAL static set identically by
             // this same test code on host AND join, so both forge the same enemies (same encounter + round-
@@ -308,6 +317,15 @@ internal static class CoopTest
         {
             await Task.Delay(2000);
             await Shot("01_run");            // ★mandatory: the JOIN side also entered the run
+
+            // FORGING-ONLY MODE mirror (see HostPhase): just record the host player's total reforge count so
+            // the launcher can assert it matches the host's own (convergence) with no session drop.
+            if (File.Exists(Path.Combine(ModDir(), "selftest.coop.forging")))
+            {
+                await ForgingJoinProbe(run);
+                return;
+            }
+
             // Arm the SAME reactive enemy-curse probe the host does — both peers must forge enemies identically
             // (Sadistic) so the on-hit Strength converges as the host drives the combat phases.
             EnemyForge.TestForce = true; EnemyForge.TestForcePrefix = "Cruelty";
@@ -387,6 +405,82 @@ internal static class CoopTest
             Flush(true);
         }
         catch (Exception e) { W("JOIN exception: " + e); Flush(false); }
+    }
+
+    /// <summary>Forging (단조의) pickup auto-reforge — the co-op single-fire check. The trigger (obtaining a relic)
+    /// is IsMe-gated so it must fire ONCE from the host and BROADCAST: the host's TOTAL reforge count rises by
+    /// EXACTLY 1. A broken gate (both peers fire) doubles it to +2. Everything here is networked (relic grants +
+    /// ReforgeNet.Reforge + config broadcasts), so the JOIN replica re-derives the identical state.</summary>
+    private static async Task ForgingHostProbe(RunManager run, Player me)
+    {
+        try
+        {
+            Step("HOST Forging: grant target");
+            int pool0 = ForgeConfig.PrefixPool;
+            var dis0 = CustomPool.DisabledPrefixes.ToList();
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, "relic nunchaku", inCombat: false));   // a guaranteed eligible target
+            await Task.Delay(3000);
+
+            // Plant Forging on whetstone via a custom-pool-of-one + networked reforge (both peers derive it).
+            Step("HOST Forging: plant aura");
+            ForgeConfig.PrefixPool = ForgeConfig.PoolCustom;
+            CustomPool.DisabledPrefixes.Clear();
+            foreach (var p in PrefixTable.Pool)
+                if (!p.Penalty && !p.IsFallback && p.Name != "Forging") CustomPool.DisabledPrefixes.Add(p.Name);
+            ForgeConfigBroadcaster.BroadcastIfHost();
+            await Task.Delay(2500);
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, "relic whetstone", inCombat: false));
+            await Task.Delay(3000);
+            var aura = me.Relics.FirstOrDefault(x => x.Id.Entry.ToUpperInvariant().Contains("WHETSTONE") && !RelicForgeService.IsCompanion(x));
+            if (aura != null && RestSiteReforgeSupport.Reforgeable(me).Any(x => ReferenceEquals(x, aura)))
+            { ReforgeNet.Reforge(aura, me); await Task.Delay(3000); }
+            W($"HOST: FORGING aura = '{(aura != null ? RelicForgeService.DescriptorOf(aura) ?? "-" : "MISSING")}'");
+
+            // Restore the pool BEFORE the trigger so the auto-reforge re-rolls from the real pool.
+            ForgeConfig.PrefixPool = pool0;
+            CustomPool.DisabledPrefixes.Clear();
+            foreach (var n in dis0) CustomPool.DisabledPrefixes.Add(n);
+            ForgeConfigBroadcaster.BroadcastIfHost();
+            await Task.Delay(2500);
+
+            // TRIGGER: obtain a fresh relic (networked → runs on both peers). The aura fires ONCE from the host.
+            Step("HOST Forging: trigger obtain");
+            int before = me.Relics.Sum(r => RelicForgeService.ReforgeCountOf(r));
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, "relic lantern", inCombat: false));
+            await Task.Delay(5000);
+            int after = me.Relics.Sum(r => RelicForgeService.ReforgeCountOf(r));
+            W($"HOST: FORGING total reforge {before}->{after} (delta {after - before}; +1=single-fire, +2=double-fire BUG)");
+            W($"HOST: FORGING host-total = {after}");
+            await Shot("02_final");
+            W("=== coop host done ===");
+            Flush(after - before == 1);
+        }
+        catch (Exception e) { W("HOST: FORGING exception: " + e); Flush(false); }
+    }
+
+    /// <summary>JOIN side of the Forging probe: wait for the host to finish, then record the host player's total
+    /// reforge count as THIS peer sees it. Convergence = it matches the host's own figure with no session drop.</summary>
+    private static async Task ForgingJoinProbe(RunManager run)
+    {
+        try
+        {
+            string hostTxt = Path.Combine(ModDir(), "selftest.coop.host.txt");
+            for (int i = 0; i < 90 && !File.Exists(hostTxt); i++)
+            {
+                Step($"JOIN(forging) waiting for host (t+{i * 2}s)");
+                await Task.Delay(2000);
+            }
+            await Task.Delay(2500);
+            if (run.State == null || run.State.Players.Count == 0)
+            { W("JOIN: SESSION DROPPED (run state gone — host disconnected us = state divergence)"); Flush(false); return; }
+            var host = run.State.Players.OrderBy(p => p.NetId).First();
+            int total = host.Relics.Sum(r => RelicForgeService.ReforgeCountOf(r));
+            W($"JOIN: FORGING host-total = {total}");
+            await Shot("02_final");
+            W("=== coop join done ===");
+            Flush(true);
+        }
+        catch (Exception e) { W("JOIN: FORGING exception: " + e); Flush(false); }
     }
 
     /// <summary>Non-null describes a prefix that violates the ENHANCE-ONLY pool this test runs under:

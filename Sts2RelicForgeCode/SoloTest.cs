@@ -701,13 +701,15 @@ internal static class SoloTest
             // asserted after Obtain. Scrubs incidental rolls (enemy rider / stray self-curse) so
             // ONLY the effect under test is live, and asserts the affix landed in the right slot
             // (boon → rec.Prefix, penalty → re-homed rec.SelfCurse).
-            async Task<RelicModel?> Grant20(string prefixName, bool penalty, bool secondSlot = false)
+            async Task<RelicModel?> Grant20(string prefixName, bool penalty, bool secondSlot = false, bool thirdSlot = false)
             {
                 var pfx = PrefixTable.ByName(prefixName);
                 if (pfx == null || player == null) return null;
-                RelicModel host = secondSlot
-                    ? ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Pear>().ToMutable()
-                    : ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Strawberry>().ToMutable();
+                RelicModel host = thirdSlot
+                    ? ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Anchor>().ToMutable()
+                    : secondSlot
+                        ? ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Pear>().ToMutable()
+                        : ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.Strawberry>().ToMutable();
                 RelicForgeService.Forge(host, seed20, floor20, forced: pfx);
                 var rec = RelicForgeService.RecordFor(host);
                 if (rec == null) { W($"  {prefixName}: no forge record after forced forge"); return null; }
@@ -1632,6 +1634,94 @@ internal static class SoloTest
                 return null;
             });
             await Drop20(r38a); await Drop20(r38b);
+
+            // T39 — mild amplifier / synergy auras: Bolstering (StartPower +1) verified via Warding's Artifact
+            // reading 2, and Attuned (Block per OTHER forged relic) via the turn-1 Block, in one combat.
+            RelicModel? r39a = null, r39b = null, r39c = null;
+            await TestAsync("T39 inject: Bolstering aura + Attuned synergy", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r39a = await Grant20("Warding", penalty: false);                    // Strawberry — the StartPower host
+                r39b = await Grant20("Bolstering", penalty: false, secondSlot: true); // Pear — the +1 aura
+                r39c = await Grant20("Attuned", penalty: false, thirdSlot: true);     // Anchor — the per-relic Block
+                if (r39a == null || r39b == null || r39c == null) return "forced grant failed (see log)";
+
+                // Attuned expectation, computed from the LIVE relic list (prior tests may leave stray forged relics).
+                int others = 0;
+                foreach (var r in new List<RelicModel>(player.Relics))
+                {
+                    if (ReferenceEquals(r, r39c)) continue;
+                    if (RelicForgeService.IsForgeEffectSuppressed(r)) continue;
+                    if (RelicForgeService.IsCompanion(r)) continue;
+                    var rc = RelicForgeService.RecordFor(r);
+                    if (rc != null && rc.Prefix.Length > 0) others++;
+                }
+                int expectBlock = Math.Min(others * 2, 8);
+
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+
+                int art = (int)(player.Creature.GetPower<MegaCrit.Sts2.Core.Models.Powers.ArtifactPower>()?.Amount ?? 0);
+                W($"  Bolstering: Warding Artifact = {art} (expected 2 = 1 base + 1 aura)");
+                if (art != 2) return $"Bolstering: Artifact {art}, expected 2 (aura not applied)";
+
+                int block = player.Creature.Block;
+                W($"  Attuned: turn-1 Block = {block} (expected {expectBlock} from {others} other forged relic(s))");
+                if (block < expectBlock) return $"Attuned: Block {block}, expected >= {expectBlock}";
+                return null;
+            });
+            await Drop20(r39a); await Drop20(r39b); await Drop20(r39c);
+
+            // T39b — Renewing (재기의): first drop to <=50% HP grants Block, ONCE per combat.
+            RelicModel? r39d = null;
+            await TestAsync("T39b inject: Renewing (first <=50% -> block, once)", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r39d = await Grant20("Renewing", penalty: false);
+                if (r39d == null) return "forced grant failed (see log)";
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+                var self = player.Creature;
+
+                int dmg = self.CurrentHp - (self.MaxHp / 2 - 1);          // cross to just below 50%
+                if (dmg > 0) await CreatureCmd.Damage(ctx20, self, dmg, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                await Task.Delay(400);
+                if (self.CurrentHp * 2 > self.MaxHp) return $"setup: HP {self.CurrentHp}/{self.MaxHp} not below 50%";
+                int b1 = self.Block;
+                W($"  Renewing: first <=50% drop -> Block {b1} (expected >= 8)");
+                if (b1 < 8) return $"Renewing: Block {b1}, expected >= 8";
+
+                int before = self.Block;                                   // second sub-50% hit must NOT re-grant 8
+                await CreatureCmd.Damage(ctx20, self, 3m, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                await Task.Delay(300);
+                int after = self.Block;
+                W($"  Renewing: second drop -> Block {before}->{after} (must NOT re-grant 8)");
+                if (after >= before + 8) return $"Renewing fired twice (Block {before}->{after})";
+                W("  Renewing: once-per-combat ✓");
+                return null;
+            });
+            await Drop20(r39d);
+
+            // T39c — Refined (정련의): recognized as an effect prefix + carries the +1 potion boost. The additive
+            // is a trivial mirror of the proven Concentrated doubler on the same PotionBlockPatch path.
+            Test("T39c: Refined potion-boost aura", () =>
+            {
+                var p = PrefixTable.ByName("Refined");
+                if (p == null || p.IsEnhance) return "Refined: not a recognized effect prefix";
+                if (p.PotionBoost != 1) return $"Refined: PotionBoost {p.PotionBoost}, expected 1";
+                W("  Refined (정련의) recognized: +1 to each potion-use amount effect");
+                return null;
+            });
             }   // end InjectionBattery — invoked after T13 below
 
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the

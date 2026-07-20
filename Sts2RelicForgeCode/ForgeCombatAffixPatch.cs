@@ -72,6 +72,8 @@ internal static class ForgeCombatAffixPatch
                     ApplyCurseScaling(choiceContext, player, relic);
                 else if (pfx.StartPower.Length > 0 && turn == 1)
                     ApplyStartPower(choiceContext, player, relic, pfx);
+                else if (pfx.AttunedBlockPer > 0 && turn == 1)
+                    ApplyAttunedBlock(choiceContext, player, relic, pfx);
             }
         }
         catch (Exception e)
@@ -214,7 +216,7 @@ internal static class ForgeCombatAffixPatch
     {
         var creature = player.Creature;
         if (creature == null || pfx.StartPowerAmount <= 0) return;
-        int amt = pfx.StartPowerAmount;
+        int amt = pfx.StartPowerAmount + BolsterBoostFor(player);   // 북돋움의 aura: +1 per Bolstering relic carried
         Task? t = pfx.StartPower switch
         {
             "Artifact" => PowerCmd.Apply<ArtifactPower>(ctx, creature, amt, creature, null),
@@ -228,6 +230,45 @@ internal static class ForgeCombatAffixPatch
         relic.Flash();
         TaskHelper.RunSafely(t);
         MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: {pfx.StartPower} {amt} on turn 1 ({relic.Id.Entry}).");
+    }
+
+    /// <summary>Bolstering (북돋움의) AURA: total +bonus to combat-start defensive power amounts from every
+    /// live relic carrying it. Read from the (synced) relic list so both peers compute the same amount.</summary>
+    private static int BolsterBoostFor(Player player)
+    {
+        int b = 0;
+        foreach (var relic in new List<RelicModel>(player.Relics))
+        {
+            if (RelicForgeService.IsForgeEffectSuppressed(relic)) continue;
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec == null || rec.Prefix.Length == 0) continue;
+            var pfx = PrefixTable.ByName(rec.Prefix);
+            if (pfx != null) b += pfx.StartPowerBoost;
+        }
+        return b;
+    }
+
+    /// <summary>Attuned (조화의): at combat start, gain Block per OTHER live forged relic carried (companions and
+    /// the Attuned relic itself excluded), capped at ×4. Block is deterministic combat state; the count comes from
+    /// the synced relic list → both peers gain the same Block (co-op-safe, same class as ApplyStartPower).</summary>
+    private static void ApplyAttunedBlock(PlayerChoiceContext ctx, Player player, RelicModel relic, Prefix pfx)
+    {
+        var creature = player.Creature;
+        if (creature == null || pfx.AttunedBlockPer <= 0) return;
+        int others = 0;
+        foreach (var r in new List<RelicModel>(player.Relics))
+        {
+            if (ReferenceEquals(r, relic)) continue;                       // "OTHER" relics only
+            if (RelicForgeService.IsForgeEffectSuppressed(r)) continue;
+            if (RelicForgeService.IsCompanion(r)) continue;                // count genuine forged relics, not companions
+            var rec = RelicForgeService.RecordFor(r);
+            if (rec != null && rec.Prefix.Length > 0) others++;
+        }
+        if (others <= 0) return;
+        int block = System.Math.Min(others * pfx.AttunedBlockPer, pfx.AttunedBlockPer * 4);   // cap at ×4 (= 8 at per 2)
+        relic.Flash();
+        TaskHelper.RunSafely(CreatureCmd.GainBlock(creature, block, ValueProp.Unpowered, null));
+        MainFile.Logger.Info($"[{MainFile.ModId}] Attuned: +{block} Block from {others} other forged relic(s) on turn 1 ({relic.Id.Entry}).");
     }
 
     /// <summary>The number of curses on the player's live relics: each self-curse and each enemy-rider counts 1.</summary>

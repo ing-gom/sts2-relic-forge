@@ -136,6 +136,12 @@ internal sealed class Prefix
     // --- Gold-for-armor (see GoldArmorPatch): pay gold to shave incoming enemy hits ---
     public int  GoldArmorCost;  // 매수의: each enemy hit deals 1 LESS, spending this much gold per hit (0 = off; no gold → no reduction)
 
+    // --- Mild amplifier / synergy auras (ownership read from the synced relic list → co-op-safe) ---
+    public int StartPowerBoost;  // 북돋움의: AURA — your combat-start defensive power prefixes (수호/방벽/잔상) grant +this
+    public int PotionBoost;      // 정련의: AURA — each of your potion-use AMOUNT effects (block/str/dex/vuln/weak) gains +this
+    public int AttunedBlockPer;  // 조화의: at combat start, gain this much Block per OTHER forged relic carried (capped at ×4, see ForgeCombatAffixPatch)
+    public int SecondWindBlock;  // 재기의: the FIRST time your HP drops to 50% or below in a combat, gain this much Block (once/combat, see SecondWindPatch)
+
     // Force the enemy-rider curse on unconditionally (bypasses EnemyRiderChance). Used by 공명의 so
     // its strength always comes bundled with a curse — the mod's own cost, in place of a per-trigger
     // penalty. Ignored on penalty prefixes (which never carry a rider).
@@ -177,7 +183,9 @@ internal sealed class Prefix
                                      || StartPower.Length > 0 || KillGold > 0 || ShopTaxPct > 0
                                      || PotionBlock > 0 || PotionStr > 0 || PotionDex > 0
                                      || PotionVuln > 0 || PotionWeak > 0 || PotionBufferPct > 0
-                                     || PotionDoubler || LowHpDraw || GoldArmorCost > 0;
+                                     || PotionDoubler || LowHpDraw || GoldArmorCost > 0
+                                     || StartPowerBoost > 0 || PotionBoost > 0
+                                     || AttunedBlockPer > 0 || SecondWindBlock > 0;
 
     /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
     /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
@@ -532,6 +540,24 @@ internal static class PrefixTable
             NoteKo = "받는 적 피해가 1 감소하고, 그때마다 골드 5를 소모한다 (골드가 없으면 감소하지 않는다)",
             NoteEn = "Enemy damage you take is reduced by 1, spending 5 gold each time (no reduction while broke)",
             NoteZh = "受到的敌人伤害减少1，每次消耗5金币（没钱时不减免）" },
+
+        // --- Mild amplifier / synergy boons: gently boost OTHER prefixes or reward a forge-heavy build ---
+        new Prefix { Name = "Bolstering", Ko = "북돋움의", Zh = "鼓舞的", Weight = 4, StartPowerBoost = 1, Color = "#ffd23f",
+            NoteKo = "전투 시작 방어 접두사(수호/방벽/잔상)가 부여하는 수치가 1 증가한다",
+            NoteEn = "Your combat-start defensive prefixes (Warding/Warded/Afterimage) grant +1",
+            NoteZh = "你的战斗开始防御词缀（守护/壁垒/残影）授予的数值+1" },
+        new Prefix { Name = "Refined", Ko = "정련의", Zh = "精炼的", Weight = 4, PotionBoost = 1, Color = "#6ed9c0",
+            NoteKo = "포션 사용으로 얻는 접두사 효과의 수치가 각각 1 증가한다",
+            NoteEn = "Each of your potion-use prefix effects is increased by 1",
+            NoteZh = "你的每个药水使用词缀效果+1" },
+        new Prefix { Name = "Attuned", Ko = "조화의", Zh = "调和的", Weight = 5, AttunedBlockPer = 2, Color = "#7ed0ff",
+            NoteKo = "전투 시작 시 강화된 다른 유물 1개당 방어도 2를 얻는다 (최대 8)",
+            NoteEn = "At combat start, gain 2 Block per other forged relic you carry (max 8)",
+            NoteZh = "战斗开始时，每持有一个其他已强化遗物获得2点格挡（最多8）" },
+        new Prefix { Name = "Renewing", Ko = "재기의", Zh = "重振的", Weight = 4, SecondWindBlock = 8, Color = "#9fd8ff",
+            NoteKo = "전투 중 체력이 처음으로 50% 이하가 될 때 방어도 8을 얻는다 (전투당 1회)",
+            NoteEn = "The first time your HP drops to 50% or below in a combat, gain 8 Block (once per combat)",
+            NoteZh = "战斗中生命值首次降至50%或以下时，获得8点格挡（每场战斗一次）" },
 
         // --- Run-state affixes: react to GOLD / DECK / CURSE state rather than combat power events.
         //     Cursefed/Gilded are boons (green note); Taxing is a curse (red note). All three scale no

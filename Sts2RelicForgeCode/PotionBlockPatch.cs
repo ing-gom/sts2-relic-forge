@@ -49,6 +49,7 @@ internal static class PotionBlockPatch
             int turn = player.PlayerCombatState?.TurnNumber ?? 0;
             var enemies = self.CombatState?.HittableEnemies;
             int mult = OwnsDoubler(player) ? 2 : 1;   // Concentrated (농축의) aura DOUBLES every potion-use effect
+            int boost = RefinedBoostFor(player);      // Refined (정련의) aura ADDS to each amount effect (before the doubler)
 
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
@@ -63,16 +64,16 @@ internal static class PotionBlockPatch
                 if (!any) continue;
                 relic.Flash();
 
-                if (pfx.PotionBlock > 0) await CreatureCmd.GainBlock(self, pfx.PotionBlock * mult, ValueProp.Unpowered, null);
-                if (pfx.PotionStr > 0)   await PowerCmd.Apply<StrengthPower>(ctx, self, pfx.PotionStr * mult, self, null);
-                if (pfx.PotionDex > 0)   await PowerCmd.Apply<DexterityPower>(ctx, self, pfx.PotionDex * mult, self, null);
+                if (pfx.PotionBlock > 0) await CreatureCmd.GainBlock(self, (pfx.PotionBlock + boost) * mult, ValueProp.Unpowered, null);
+                if (pfx.PotionStr > 0)   await PowerCmd.Apply<StrengthPower>(ctx, self, (pfx.PotionStr + boost) * mult, self, null);
+                if (pfx.PotionDex > 0)   await PowerCmd.Apply<DexterityPower>(ctx, self, (pfx.PotionDex + boost) * mult, self, null);
                 if (pfx.PotionBufferPct > 0 && CharAffix.Roll(player, relic, turn) * 100f < System.Math.Min(100, pfx.PotionBufferPct * mult))
-                    await PowerCmd.Apply<BufferPower>(ctx, self, 1, self, null);
+                    await PowerCmd.Apply<BufferPower>(ctx, self, 1, self, null);   // Refined doesn't touch the Buffer CHANCE
                 if ((pfx.PotionVuln > 0 || pfx.PotionWeak > 0) && enemies != null)
                     foreach (var enemy in new List<Creature>(enemies))
                     {
-                        if (pfx.PotionVuln > 0) await PowerCmd.Apply<VulnerablePower>(ctx, enemy, pfx.PotionVuln * mult, self, null);
-                        if (pfx.PotionWeak > 0) await PowerCmd.Apply<WeakPower>(ctx, enemy, pfx.PotionWeak * mult, self, null);
+                        if (pfx.PotionVuln > 0) await PowerCmd.Apply<VulnerablePower>(ctx, enemy, (pfx.PotionVuln + boost) * mult, self, null);
+                        if (pfx.PotionWeak > 0) await PowerCmd.Apply<WeakPower>(ctx, enemy, (pfx.PotionWeak + boost) * mult, self, null);
                     }
                 MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: potion-use effect x{mult} ({potion.Id.Entry}).");
             }
@@ -93,5 +94,21 @@ internal static class PotionBlockPatch
             if (pfx != null && pfx.PotionDoubler) return true;
         }
         return false;
+    }
+
+    /// <summary>Total Refined (정련의) bonus added to each potion-use AMOUNT effect. Summed from the synced relic
+    /// list so both peers compute the same boost (co-op-safe).</summary>
+    private static int RefinedBoostFor(Player player)
+    {
+        int b = 0;
+        foreach (var relic in new List<RelicModel>(player.Relics))
+        {
+            if (RelicForgeService.IsForgeEffectSuppressed(relic)) continue;
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec == null || rec.Prefix.Length == 0) continue;
+            var pfx = PrefixTable.ByName(rec.Prefix);
+            if (pfx != null) b += pfx.PotionBoost;
+        }
+        return b;
     }
 }

@@ -570,26 +570,34 @@ internal static class SoloTest
                 static bool HasGaugePanel(RelicModel r) =>
                     r.HoverTips.OfType<MegaCrit.Sts2.Core.HoverTips.HoverTip>().Any(t => t.Id == "sts2rf_gauge");
 
-                // OFF a forge location (map): gate closed — mild has no gauge panel, saturated keeps its note.
-                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Map);
-                await Task.Delay(400);
-                if (RelicForgeService.IsAtForgeLocation()) return "IsAtForgeLocation true on the map";
+                // The gauge panel is evaluated LIVE off IsAtForgeLocation() every time HoverTips is read
+                // (RelicExtraPanelsPatch postfixes the getter), so only CurrentRoom must be right when
+                // HasGaugePanel is called — no room-refresh timing is involved.
+                //
+                // T17 runs right after T10, which leaves the run IN a shop (itself a forge location). A specific
+                // RestSite node isn't reachable on the map from here — EnterRoomDebug(RestSite) falls through to
+                // an Event room (confirmed by diag) — so exercise the gate with the two states we CAN reach: the
+                // SHOP we're in (forge location → panel shows) and a NON-forge room we jump to (panel hidden; a
+                // saturated relic keeps its burnt-out note). Shop and RestSite are equivalent to IsAtForgeLocation,
+                // so the shop fully covers the "forge location" branch that the rest site used to.
+                MegaCrit.Sts2.Core.Rooms.RoomType? CurRoom() => RunManager.Instance?.State?.CurrentRoom?.RoomType;
+
+                // AT a forge location — T10 leaves us in a Shop; belt-and-suspenders jump to one if not.
+                for (int i = 0; i < 25 && !RelicForgeService.IsAtForgeLocation(); i++)
+                    { await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Shop); await Task.Delay(200); }
+                if (!RelicForgeService.IsAtForgeLocation()) return $"could not reach a forge location, CurRoom={CurRoom()}";
+                if (!HasGaugePanel(mild)) return "mild relic missing its gauge panel at a forge location (shop)";
+                if (!HasGaugePanel(sat)) return "saturated relic missing its note at a forge location";
+                W($"  forge location ({CurRoom()}): mild gauge panel shown ✓");
+
+                // OFF a forge location — the map nav reliably escapes any room screen; IsAtForgeLocation → false.
+                for (int i = 0; i < 25 && RelicForgeService.IsAtForgeLocation(); i++)
+                    { await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Map); await Task.Delay(200); }
+                if (RelicForgeService.IsAtForgeLocation()) return $"still at a forge location after leaving, CurRoom={CurRoom()}";
+                await Task.Delay(200);
                 if (HasGaugePanel(mild)) return "mild relic showed a gauge panel off a forge location";
                 if (!HasGaugePanel(sat)) return "saturated relic dropped its note off a forge location";
-                W("  map: mild=no panel, saturated=note kept ✓");
-
-                // AT a rest site: gate open — the numeric gauge panel returns for the mild relic.
-                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.RestSite);
-                await Task.Delay(400);
-                if (!RelicForgeService.IsAtForgeLocation()) return "IsAtForgeLocation false at the rest site";
-                if (!HasGaugePanel(mild)) return "mild relic missing its gauge panel at the rest site";
-                W("  rest site: mild gauge panel shown ✓");
-
-                // Shop is a forge location too.
-                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Shop);
-                await Task.Delay(400);
-                if (!RelicForgeService.IsAtForgeLocation()) return "IsAtForgeLocation false at the shop";
-                W("  shop: forge location ✓");
+                W($"  off-forge ({CurRoom()}): mild=no panel, saturated=note kept ✓");
                 return null;
             });
 
@@ -1520,6 +1528,48 @@ internal static class SoloTest
                 W("  Studious/Overflowing/Cunning: recognized effect prefixes (card-play via AfterCardPlayed)");
                 return null;
             });
+            // T37 — combat-start defensive power (Warding→Artifact) + kill-gold (Plundering) through the REAL
+            // paths, plus wiring for Warded/Afterimage/Covetous.
+            RelicModel? r37a = null, r37b = null;
+            await TestAsync("T37 inject: Warding (Artifact) + Plundering (kill gold)", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r37a = await Grant20("Warding", penalty: false);
+                r37b = await Grant20("Plundering", penalty: false, secondSlot: true);
+                if (r37a == null || r37b == null) return "forced grant failed (see log)";
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+
+                // Warding: Artifact present at combat start.
+                int art = (int)(player.Creature.GetPower<MegaCrit.Sts2.Core.Models.Powers.ArtifactPower>()?.Amount ?? 0);
+                W($"  Warding: combat-start Artifact = {art} (expected >= 1)");
+                if (art < 1) return $"Warding: Artifact {art}, expected >= 1";
+
+                // Plundering: killing an enemy grants gold.
+                var enemy = player.Creature.CombatState?.HittableEnemies?.FirstOrDefault();
+                if (enemy == null) return "no enemy to kill";
+                int gold0 = (int)player.Gold;
+                await CreatureCmd.Damage(ctx20, enemy, enemy.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature, null);
+                await Task.Delay(700);
+                int gold1 = (int)player.Gold;
+                W($"  Plundering: killed enemy → gold {gold0}→{gold1} (expected +3)");
+                if (gold1 != gold0 + 3) return $"Plundering: gold {gold1}, expected {gold0 + 3}";
+
+                foreach (var n in new[] { "Warded", "Afterimage", "Covetous",
+                                          "Alchemical", "Fermented", "Distilled", "Corrosive", "Diluting", "Effervescent", "Concentrated" })
+                {
+                    var p = PrefixTable.ByName(n);
+                    if (p == null || p.IsEnhance) return $"{n}: not a recognized effect prefix";
+                }
+                W("  Warded/Afterimage/Covetous + potion-meta family (Alchemical/Fermented/Distilled/Corrosive/Diluting/Effervescent) recognized");
+                return null;
+            });
+            await Drop20(r37a); await Drop20(r37b);
             }   // end InjectionBattery — invoked after T13 below
 
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the

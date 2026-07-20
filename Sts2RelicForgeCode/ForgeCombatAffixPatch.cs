@@ -70,6 +70,8 @@ internal static class ForgeCombatAffixPatch
                     ApplyGoldStrength(choiceContext, player, relic, pfx);
                 else if (pfx.CurseScaling && turn == 1)
                     ApplyCurseScaling(choiceContext, player, relic);
+                else if (pfx.StartPower.Length > 0 && turn == 1)
+                    ApplyStartPower(choiceContext, player, relic, pfx);
             }
         }
         catch (Exception e)
@@ -204,6 +206,28 @@ internal static class ForgeCombatAffixPatch
         if (dex > 0)     TaskHelper.RunSafely(PowerCmd.Apply<DexterityPower>(ctx, creature, dex, creature, null));
         if (intangible)  TaskHelper.RunSafely(PowerCmd.Apply<IntangiblePower>(ctx, creature, 1, creature, null));
         MainFile.Logger.Info($"[{MainFile.ModId}] Cursebound: {curses} curses → Str+{str} Dex+{dex}{(intangible ? " Intangible+1" : "")} ({relic.Id.Entry}).");
+    }
+
+    /// <summary>Warding / Warded / Afterimage (and future defensive boons) — turn 1: grant a native defensive
+    /// power to self. Self-sourced combat-start buff (the Gilded/SymPower class) → deterministic, co-op-safe.</summary>
+    private static void ApplyStartPower(PlayerChoiceContext ctx, Player player, RelicModel relic, Prefix pfx)
+    {
+        var creature = player.Creature;
+        if (creature == null || pfx.StartPowerAmount <= 0) return;
+        int amt = pfx.StartPowerAmount;
+        Task? t = pfx.StartPower switch
+        {
+            "Artifact" => PowerCmd.Apply<ArtifactPower>(ctx, creature, amt, creature, null),
+            "Buffer"   => PowerCmd.Apply<BufferPower>(ctx, creature, amt, creature, null),
+            "Blur"     => PowerCmd.Apply<BlurPower>(ctx, creature, amt, creature, null),
+            "Regen"    => PowerCmd.Apply<RegenPower>(ctx, creature, amt, creature, null),
+            "Plated"   => PowerCmd.Apply<PlatingPower>(ctx, creature, amt, creature, null),
+            _ => null,
+        };
+        if (t == null) return;
+        relic.Flash();
+        TaskHelper.RunSafely(t);
+        MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: {pfx.StartPower} {amt} on turn 1 ({relic.Id.Entry}).");
     }
 
     /// <summary>The number of curses on the player's live relics: each self-curse and each enemy-rider counts 1.</summary>

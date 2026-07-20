@@ -116,6 +116,21 @@ internal sealed class Prefix
     public int  ExhaustDodgePct;// 끈질긴: a card that would EXHAUST is discarded instead, this % of the time (any character)
     public bool EtherealSave;   // 잔존의: an ETHEREAL card that would exhaust is discarded instead (it survives)
 
+    // --- Combat-start defensive power (see ForgeCombatAffixPatch.ApplyStartPower) ---
+    public string StartPower = "";  // 수호의/방벽의/잔상의…: a native power granted to self on turn 1 ("Artifact"/"Buffer"/"Blur"/"Regen"/"Plated")
+    public int    StartPowerAmount; // how much of it
+    // --- Kill / shop affixes ---
+    public int  KillGold;      // 강탈의: gold gained each time an enemy is killed (see KillGoldPatch)
+    public int  ShopTaxPct;    // 탐욕의 (curse): merchant prices are raised by this % while carried (see MerchantPricePatch)
+    // --- Potion-use family (all fire from PotionBlockPatch on Hook.BeforePotionUsed) — a "potion meta" ---
+    public int  PotionBlock;      // 연금의: Block gained on potion use
+    public int  PotionStr;        // 발효의: Strength gained on potion use (permanent this combat, NOT the vanilla temp buff)
+    public int  PotionDex;        // 증류의: Dexterity gained on potion use
+    public int  PotionVuln;       // 부식의: Vulnerable applied to ALL enemies on potion use
+    public int  PotionWeak;       // 희석의: Weak applied to ALL enemies on potion use
+    public int  PotionBufferPct;  // 발포의: % chance to gain Buffer 1 on potion use
+    public bool PotionDoubler;    // 농축의: AURA — while owned, all of your potion-use effects are DOUBLED (rare)
+
     // Force the enemy-rider curse on unconditionally (bypasses EnemyRiderChance). Used by 공명의 so
     // its strength always comes bundled with a curse — the mod's own cost, in place of a per-trigger
     // penalty. Ignored on penalty prefixes (which never carry a rider).
@@ -153,7 +168,11 @@ internal sealed class Prefix
                                      || HitEnergyPercent > 0 || ProcDoubler || ProcBoostPct > 0
                                      || ProcReroll || CurseScaling
                                      || PowerDrawFirst || PowerEnergy || SkillDraw
-                                     || ExhaustDodgePct > 0 || EtherealSave;
+                                     || ExhaustDodgePct > 0 || EtherealSave
+                                     || StartPower.Length > 0 || KillGold > 0 || ShopTaxPct > 0
+                                     || PotionBlock > 0 || PotionStr > 0 || PotionDex > 0
+                                     || PotionVuln > 0 || PotionWeak > 0 || PotionBufferPct > 0
+                                     || PotionDoubler;
 
     /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
     /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
@@ -443,6 +462,60 @@ internal static class PrefixTable
             NoteKo = "휘발성 카드가 사라질 때 소멸되지 않고 버려진다",
             NoteEn = "An Ethereal card that would exhaust is discarded instead — it survives",
             NoteZh = "虚无牌将消失时，改为弃置而非消耗" },
+
+        // --- Combat-start defensive boons (see ForgeCombatAffixPatch.ApplyStartPower) ---
+        new Prefix { Name = "Warding", Ko = "수호의", Zh = "守护的", Weight = 4, StartPower = "Artifact", StartPowerAmount = 1, Color = "#ffd23f",
+            NoteKo = "전투 시작 시 인공물 1을 얻는다 (다음 디버프 1회 무효)",
+            NoteEn = "Gain 1 Artifact at combat start (negates the next debuff)",
+            NoteZh = "战斗开始时获得1层神器（抵消下一个减益）" },
+        new Prefix { Name = "Warded", Ko = "방벽의", Zh = "壁垒的", Weight = 3, StartPower = "Buffer", StartPowerAmount = 1, Color = "#7ed0ff",
+            NoteKo = "전투 시작 시 방벽 1을 얻는다 (다음 피해 1회 무효)",
+            NoteEn = "Gain 1 Buffer at combat start (negates the next instance of damage)",
+            NoteZh = "战斗开始时获得1层缓冲（抵消下一次伤害）" },
+        new Prefix { Name = "Afterimage", Ko = "잔상의", Zh = "残影的", Weight = 5, StartPower = "Blur", StartPowerAmount = 1, Color = "#9fd8ff",
+            NoteKo = "전투 시작 시 잔상 1을 얻는다 (다음 턴 시작 시 방어도가 사라지지 않는다)",
+            NoteEn = "Gain 1 Blur at combat start (Block isn't lost at your next turn start)",
+            NoteZh = "战斗开始时获得1层残影（下回合开始时格挡不消失）" },
+
+        // --- Kill boon / shop curse ---
+        new Prefix { Name = "Plundering", Ko = "강탈의", Zh = "掠夺的", Weight = 6, KillGold = 3, Color = "#ffd97a",
+            NoteKo = "적을 처치할 때마다 골드 3을 얻는다",
+            NoteEn = "Gain 3 gold each time you kill an enemy",
+            NoteZh = "每击杀一个敌人获得3金币" },
+        new Prefix { Name = "Covetous", Ko = "탐욕의", Zh = "贪婪的", Weight = 6, Penalty = true, ShopTaxPct = 20, Color = "#b0554d",
+            NoteKo = "상점 가격이 20% 오른다",
+            NoteEn = "Merchant prices are 20% higher",
+            NoteZh = "商店价格提高20%" },
+        new Prefix { Name = "Alchemical", Ko = "연금의", Zh = "炼金的", Weight = 6, PotionBlock = 4, Color = "#6ed9c0",
+            NoteKo = "포션을 사용할 때 방어도 4를 얻는다",
+            NoteEn = "When you use a potion, gain 4 Block",
+            NoteZh = "使用药水时，获得4点格挡" },
+        // Potion-meta family (permanent buffs / enemy debuffs, distinct from the vanilla temp-Str/Dex potion relics)
+        new Prefix { Name = "Fermented", Ko = "발효의", Zh = "发酵的", Weight = 6, PotionStr = 1, Color = "#ff6b4d",
+            NoteKo = "포션을 사용할 때 힘 1을 얻는다",
+            NoteEn = "When you use a potion, gain 1 Strength",
+            NoteZh = "使用药水时，获得1点力量" },
+        new Prefix { Name = "Distilled", Ko = "증류의", Zh = "蒸馏的", Weight = 6, PotionDex = 1, Color = "#6ed9c0",
+            NoteKo = "포션을 사용할 때 민첩 1을 얻는다",
+            NoteEn = "When you use a potion, gain 1 Dexterity",
+            NoteZh = "使用药水时，获得1点敏捷" },
+        new Prefix { Name = "Corrosive", Ko = "부식의", Zh = "腐蚀的", Weight = 6, PotionVuln = 1, Color = "#e0904d",
+            NoteKo = "포션을 사용할 때 모든 적에게 취약 1을 부여한다",
+            NoteEn = "When you use a potion, apply 1 Vulnerable to all enemies",
+            NoteZh = "使用药水时，对所有敌人施加1层易伤" },
+        new Prefix { Name = "Diluting", Ko = "희석의", Zh = "稀释的", Weight = 6, PotionWeak = 1, Color = "#c0a04d",
+            NoteKo = "포션을 사용할 때 모든 적에게 약화 1을 부여한다",
+            NoteEn = "When you use a potion, apply 1 Weak to all enemies",
+            NoteZh = "使用药水时，对所有敌人施加1层虚弱" },
+        new Prefix { Name = "Effervescent", Ko = "발포의", Zh = "起泡的", Weight = 5, PotionBufferPct = 25, Color = "#7ed0ff",
+            NoteKo = "포션을 사용할 때 25% 확률로 방벽 1을 얻는다",
+            NoteEn = "When you use a potion, 25% chance to gain 1 Buffer",
+            NoteZh = "使用药水时，25%概率获得1层缓冲" },
+        // Potion-meta AURA: while owned, all of your other potion-use prefixes fire at DOUBLE. Rare (low weight).
+        new Prefix { Name = "Concentrated", Ko = "농축의", Zh = "浓缩的", Weight = 2, PotionDoubler = true, Color = "#c04dff",
+            NoteKo = "포션 사용으로 얻는 접두사 효과가 2배가 된다",
+            NoteEn = "Your potion-use prefix effects are doubled",
+            NoteZh = "你的药水使用词缀效果翻倍" },
 
         // --- Run-state affixes: react to GOLD / DECK / CURSE state rather than combat power events.
         //     Cursefed/Gilded are boons (green note); Taxing is a curse (red note). All three scale no

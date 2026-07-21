@@ -75,16 +75,20 @@ internal static class CustomPool
 
     // ---- wire codec (rf_config arg 9): "pIdx,pIdx;cIdx,cIdx", '-' for an empty side ----
 
-    public static string Encode()
+    public static string Encode() => Encode(DisabledPrefixes, DisabledCurses);
+
+    /// <summary>Encode ARBITRARY disabled-sets against the local bases — used to broadcast the RUN-LOCKED
+    /// snapshot (see <see cref="HostForgeConfig.EncodeLockedPool"/>) rather than the live edit sets.</summary>
+    public static string Encode(ICollection<string> disabledPrefixes, ICollection<string> disabledCurses)
     {
         var pool = PrefixTable.Pool;
         var pIdx = new List<int>();
         for (int i = 0; i < pool.Count; i++)
-            if (DisabledPrefixes.Contains(pool[i].Name)) pIdx.Add(i);
+            if (disabledPrefixes.Contains(pool[i].Name)) pIdx.Add(i);
         var basis = CurseBasis();
         var cIdx = new List<int>();
         for (int i = 0; i < basis.Count; i++)
-            if (DisabledCurses.Contains(basis[i])) cIdx.Add(i);
+            if (disabledCurses.Contains(basis[i])) cIdx.Add(i);
         string p = pIdx.Count == 0 ? "-" : string.Join(",", pIdx);
         string c = cIdx.Count == 0 ? "-" : string.Join(",", cIdx);
         return p + ";" + c;

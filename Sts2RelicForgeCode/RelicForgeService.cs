@@ -1235,6 +1235,20 @@ internal static class RelicForgeService
         if (Records.TryGetValue(relic, out _)) return null; // already processed
 
         bool test = forced != null;
+
+        // SHOP GUARANTEE: the merchant's third offer is always RelicRarity.Shop (a shop-exclusive relic), so
+        // forcing THAT one to carry a prefix guarantees "at least one of the three shop relics is forged".
+        // We keep it curse-free (suppressCurse) like every other PICKUP — a guaranteed prefix is pure upside;
+        // curses still come only from reforging. Per-relic + deterministic (rarity + reforgeCount==0 pickup),
+        // so the shop preview and the purchase both derive it and every co-op peer forges it identically —
+        // no shop group, no pending descriptor, no per-peer state → no desync (the previous group approach
+        // set state only on the buyer's peer). Reforges (count>0) and forced tests keep their own behaviour.
+        if (!test && reforgeCount == 0 && relic.Rarity == RelicRarity.Shop)
+        {
+            guaranteePrefix = true;
+            suppressCurse = true;
+        }
+
         // Eligibility gates only the automatic pickup forge. A forced test or a deliberate reforge
         // (guaranteePrefix) may prefix any relic, including Starter/Event rarities.
         if (!test && !guaranteePrefix && !PrefixTable.Eligible.Contains(relic.Rarity)) return null;

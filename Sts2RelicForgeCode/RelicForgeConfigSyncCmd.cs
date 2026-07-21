@@ -114,17 +114,20 @@ internal static class ForgeConfigBroadcaster
         // Arg 6 = the host's prefix/curse pool fingerprint (order-sensitive) so clients can detect a
         // sister-mod registration mismatch — the one API-contract violation that silently desyncs rolls.
         // Old clients simply ignore the extra arg (they parse the first five positionally).
+        // Forge-RNG args are read from HostForgeConfig, which on the host returns the RUN-LOCKED snapshot
+        // (EnsureRunLock) — so a mid-run edit broadcasts the locked value, never the new one, and clients
+        // stay on the run's original settings. campfire-cleanse (arg 7) is NOT locked → read live.
         string synced = string.Format(inv, "{0} {1} {2} {3} {4} {5} {6} {7} {8} {9}",
             Verb(),
-            ForgeConfig.NoPrefixChance.ToString("R", inv),
-            ForgeConfig.CurseChance.ToString("R", inv),
-            ForgeConfig.SelfCurseShare.ToString("R", inv),
-            ForgeConfig.ForgeAncientRelics ? "1" : "0",
-            ForgeConfig.EnemyForgeEnabled ? "1" : "0",
+            HostForgeConfig.NoPrefixChance.ToString("R", inv),
+            HostForgeConfig.CurseChance.ToString("R", inv),
+            HostForgeConfig.SelfCurseShare.ToString("R", inv),
+            HostForgeConfig.ForgeAncient ? "1" : "0",
+            HostForgeConfig.EnemyForgeEnabled ? "1" : "0",
             RelicForgeConfigSyncCmd.PoolFingerprint(),
-            ForgeConfig.CampfireCleanseEnabled ? "1" : "0",    // arg 7 — campfire cleanse (old clients ignore)
-            ForgeConfig.PrefixPool.ToString(inv),              // arg 8 — prefix-pool filter (old clients ignore)
-            CustomPool.Encode());                              // arg 9 — custom-pool disabled indices (old clients ignore)
+            ForgeConfig.CampfireCleanseEnabled ? "1" : "0",    // arg 7 — campfire cleanse (LIVE, not locked)
+            HostForgeConfig.PrefixPool.ToString(inv),          // arg 8 — prefix-pool filter (run-locked)
+            HostForgeConfig.EncodeLockedPool());               // arg 9 — custom-pool disabled indices (run-locked)
 
         // Never in combat (shop / rest / menu only), so inCombat is false — matches the reforge dispatch.
         run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, synced, inCombat: false));

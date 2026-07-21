@@ -26,6 +26,53 @@ internal static class HostForgeConfig
     private static System.Collections.Generic.HashSet<string> _disabledPrefixes = new();
     private static System.Collections.Generic.HashSet<string> _disabledCurses = new();
 
+    // ── RUN LOCK ────────────────────────────────────────────────────────────────────────────────────
+    // The forge-RNG settings (prefix chance/pool/custom-pool filter, curse chance, self-curse share,
+    // Ancient, enemy-forge) are SNAPSHOT at run start and used for the whole run, so mid-run ModConfig /
+    // custom-pool edits only take effect on the NEXT run. This keeps "same seed = same result" honest and
+    // removes the co-op config-change desync window. Prices, the cleanse toggles and the co-op room-sync
+    // toggle are NOT locked — they stay live. Keyed on the run seed so a new run re-captures automatically
+    // (no explicit run-start hook). Host/SP capture from the live ForgeConfig; a co-op CLIENT ignores this
+    // entirely and follows the host's broadcast (which itself carries the host's locked snapshot).
+    private static uint _lockSeed;
+    private static bool _lockValid;
+    private static double _lkNoPrefix, _lkCurse, _lkSelfShare;
+    private static bool _lkAncient, _lkEnemyForge;
+    private static int _lkPrefixPool;
+    private static System.Collections.Generic.HashSet<string> _lkDisabledPrefixes = new();
+    private static System.Collections.Generic.HashSet<string> _lkDisabledCurses = new();
+
+    /// <summary>Snapshot the forge-RNG settings for the current run (keyed on run seed). Idempotent within
+    /// a run; re-captures when the seed changes (= a new run started). No-op outside a run.</summary>
+    internal static void EnsureRunLock()
+    {
+        uint seed;
+        try { var st = RunManager.Instance?.State; if (st == null) return; seed = st.Rng.Seed; }
+        catch { return; }
+        if (_lockValid && _lockSeed == seed) return;
+        _lockSeed = seed;
+        _lockValid = true;
+        _lkNoPrefix   = ForgeConfig.NoPrefixChance;
+        _lkCurse      = ForgeConfig.CurseChance;
+        _lkSelfShare  = ForgeConfig.SelfCurseShare;
+        _lkAncient    = ForgeConfig.ForgeAncientRelics;
+        _lkEnemyForge = ForgeConfig.EnemyForgeEnabled;
+        _lkPrefixPool = ForgeConfig.PrefixPool;
+        _lkDisabledPrefixes = new System.Collections.Generic.HashSet<string>(CustomPool.DisabledPrefixes);
+        _lkDisabledCurses   = new System.Collections.Generic.HashSet<string>(CustomPool.DisabledCurses);
+        MainFile.Logger.Info($"[{MainFile.ModId}] forge RNG locked for run (seed {seed}): pool {_lkPrefixPool}, " +
+            $"noPrefix {_lkNoPrefix:P0}, curse {_lkCurse:P0}, self {_lkSelfShare:P0}, ancient {_lkAncient}, " +
+            $"enemyForge {_lkEnemyForge}, custom {_lkDisabledPrefixes.Count}p/{_lkDisabledCurses.Count}c.");
+    }
+
+    /// <summary>Encode the RUN-LOCKED custom-pool sets for the host broadcast (so clients receive the
+    /// locked snapshot, not the live edit sets).</summary>
+    internal static string EncodeLockedPool()
+    {
+        EnsureRunLock();
+        return _lockValid ? CustomPool.Encode(_lkDisabledPrefixes, _lkDisabledCurses) : CustomPool.Encode();
+    }
+
     /// <summary>True only when WE are a real co-op client that has received the host's config: the
     /// accessors then return the host values. Host / single-player fall through to local.</summary>
     private static bool UseHost => _received && IsCoopClient;
@@ -37,21 +84,24 @@ internal static class HostForgeConfig
     public static bool IsHost
         => RunManager.Instance?.NetService?.Type == NetGameType.Host;
 
-    // Effective (host-authoritative in co-op) reads used by all forge derivation.
-    public static double NoPrefixChance    => UseHost ? _noPrefix   : ForgeConfig.NoPrefixChance;
-    public static double CurseChance       => UseHost ? _curse      : ForgeConfig.CurseChance;
-    public static double SelfCurseShare    => UseHost ? _selfShare  : ForgeConfig.SelfCurseShare;
-    public static bool   ForgeAncient      => UseHost ? _ancient    : ForgeConfig.ForgeAncientRelics;
-    public static bool   EnemyForgeEnabled => UseHost ? _enemyForge : ForgeConfig.EnemyForgeEnabled;
-    public static bool   CampfireCleanse   => UseHost ? _campCleanse : ForgeConfig.CampfireCleanseEnabled;
-    public static int    PrefixPool        => UseHost ? _prefixPool  : ForgeConfig.PrefixPool;
+    // Effective reads used by all forge derivation. Co-op CLIENT → host broadcast (already the host's
+    // locked snapshot). Host / single-player → the RUN-LOCKED snapshot (EnsureRunLock), NOT the live
+    // ForgeConfig — so a mid-run edit doesn't take effect until the next run. CampfireCleanse is the one
+    // exception below: it stays LIVE (not a forge-RNG setting).
+    public static double NoPrefixChance    { get { if (UseHost) return _noPrefix;    EnsureRunLock(); return _lockValid ? _lkNoPrefix   : ForgeConfig.NoPrefixChance; } }
+    public static double CurseChance       { get { if (UseHost) return _curse;       EnsureRunLock(); return _lockValid ? _lkCurse      : ForgeConfig.CurseChance; } }
+    public static double SelfCurseShare    { get { if (UseHost) return _selfShare;   EnsureRunLock(); return _lockValid ? _lkSelfShare  : ForgeConfig.SelfCurseShare; } }
+    public static bool   ForgeAncient      { get { if (UseHost) return _ancient;     EnsureRunLock(); return _lockValid ? _lkAncient    : ForgeConfig.ForgeAncientRelics; } }
+    public static bool   EnemyForgeEnabled { get { if (UseHost) return _enemyForge;  EnsureRunLock(); return _lockValid ? _lkEnemyForge : ForgeConfig.EnemyForgeEnabled; } }
+    public static int    PrefixPool        { get { if (UseHost) return _prefixPool;  EnsureRunLock(); return _lockValid ? _lkPrefixPool : ForgeConfig.PrefixPool; } }
+    public static bool   CampfireCleanse   => UseHost ? _campCleanse : ForgeConfig.CampfireCleanseEnabled;   // NOT locked — live
 
     /// <summary>Custom-pool membership (only consulted when <see cref="PrefixPool"/> == PoolCustom):
-    /// host-authoritative name sets, local <see cref="CustomPool"/> on host / single-player.</summary>
+    /// host-authoritative name sets on a client, the RUN-LOCKED snapshot on host / single-player.</summary>
     public static bool IsPrefixDisabled(string name)
-        => UseHost ? _disabledPrefixes.Contains(name) : CustomPool.DisabledPrefixes.Contains(name);
+    { if (UseHost) return _disabledPrefixes.Contains(name); EnsureRunLock(); return (_lockValid ? _lkDisabledPrefixes : CustomPool.DisabledPrefixes).Contains(name); }
     public static bool IsCurseDisabled(string key)
-        => UseHost ? _disabledCurses.Contains(key) : CustomPool.DisabledCurses.Contains(key);
+    { if (UseHost) return _disabledCurses.Contains(key); EnsureRunLock(); return (_lockValid ? _lkDisabledCurses : CustomPool.DisabledCurses).Contains(key); }
 
     /// <summary>Store the host's custom-pool sets (rf_config arg 9, decoded to names client-side).</summary>
     public static void ApplyPoolsFromHost(System.Collections.Generic.HashSet<string> prefixes,

@@ -88,6 +88,12 @@ internal static class CharAffix
     private static readonly ConditionalWeakTable<RelicModel, int[]> Charged = new();
     private static readonly ConditionalWeakTable<RelicModel, int[]> SacTurn = new();
 
+    // 불사의 / Undying: per-player [combatEpoch] — armed when the player is SPARED a turn-end Doom death
+    // (DoomShieldPatch). Once armed, the next HP loss while still doomed spends the reprieve (death). The
+    // arm-first gate means the hit that FIRST pushes the player into doom range never kills — only a
+    // LATER HP loss does — matching 종말로 즉사하지 않고 그 뒤 피가 감소하면 죽는다. Reset per combat via the epoch.
+    private static readonly ConditionalWeakTable<Player, int[]> DoomReprieve = new();
+
     // 양극의 / Polarized: per-relic [epochWhenArmed] — armed at turn end (queue all-empty / all-full),
     // consumed at the next turn start. Keyed on the combat epoch so a flag armed on a combat's final
     // turn can never leak into the next combat's turn 1.
@@ -271,6 +277,37 @@ internal static class CharAffix
             box[1] = 1;
             await FireAsync(relic, PowerCmd.Apply<StrengthPower>(ctx, player.Creature, 2m, player.Creature, null));
         }
+
+        // 불사의 / Undying — spend the reprieve. The player dodged Doom at their turn end (DoomShieldPatch
+        // armed the reprieve); losing HP while still doomed now lets Doom finally claim them. The armed
+        // gate means the FIRST crossing into doom range — before any turn-end sparing — never kills here;
+        // only a LATER HP loss does. (그 이후 피가 감소하면 죽는다.)
+        if (IsDoomReprieveArmed(player) && player.Creature is { IsDead: false } body)
+            foreach (var relic in Owned(player, "Undying"))
+            {
+                await FireAsync(relic, CreatureCmd.Kill(body));   // flashes Undying as Doom claims the player
+                break;
+            }
+    }
+
+    /// <summary>Undying — the player just dodged a turn-end Doom death (DoomShieldPatch stripped them
+    /// from the kill list). Arm the reprieve so their next HP loss while still doomed finishes them.</summary>
+    internal static void ArmDoomReprieve(Player player)
+    {
+        if (player == null) return;
+        DoomReprieve.GetValue(player, _ => new int[1])[0] = _combatEpoch;
+    }
+
+    /// <summary>True when the player is living on Undying's borrowed time: they were spared a turn-end
+    /// Doom death THIS combat and a DoomPower still stands ≥ their current HP. Healing above the Doom
+    /// value (IsOwnerDoomed → false) lets the reprieve lapse, so a later HP loss no longer kills.</summary>
+    internal static bool IsDoomReprieveArmed(Player player)
+    {
+        var body = player?.Creature;
+        if (body == null || body.IsDead) return false;
+        if (DoomReprieve.GetValue(player, _ => new int[1])[0] != _combatEpoch) return false;
+        var doom = body.GetPower<DoomPower>();
+        return doom != null && doom.IsOwnerDoomed();
     }
 
     /// <summary>Retaliating — turn start: gain Vigor equal to HALF the HP lost since the last own

@@ -83,13 +83,31 @@ internal sealed partial class NForgeSummaryButton : TextureButton
         MouseEntered += () =>
         {
             Scale = Vector2.One * HoverScale;
-            NHoverTipSet.CreateAndShow(this, MakeTip(), HoverTipAlignment.Left);
+            ShowTipBelow();
         };
         MouseExited += () =>
         {
             Scale = Vector2.One;
             NHoverTipSet.Remove(this);
         };
+    }
+
+    /// <summary>Show the summary tip directly BELOW this icon — like the native relic descriptions, and
+    /// unlike the built-in alignments (Left spilled off to the side; Center dropped it below but its
+    /// 360px body spilled sideways into the map/deck tips' zone). We skip the game's SetAlignment
+    /// (pass None so it does no repositioning) and place the returned set ourselves: down by the icon's
+    /// height + a small gap, and — because this icon lives in the top-right button cluster — grown
+    /// LEFTWARD when we're on the right half of the screen so the body stays clear of the native cluster
+    /// tips and never clips the right edge. _followOwner is off, so _Process leaves our position alone.</summary>
+    private void ShowTipBelow()
+    {
+        var tip = NHoverTipSet.CreateAndShow(this, MakeTip(), HoverTipAlignment.None);
+        if (tip == null) return;
+        const float tipWidth = 360f;   // NHoverTipSet._hoverTipWidth
+        const float gap = 8f;
+        float vpWidth = GetViewportRect().Size.X;
+        float dx = (GlobalPosition.X > vpWidth * 0.5f) ? (Size.X * Scale.X - tipWidth) : 0f;
+        tip.GlobalPosition = GlobalPosition + new Vector2(dx, Size.Y * Scale.Y + gap);
     }
 
     /// <summary>Match the native buttons' size, and (when not in a BoxContainer flow) anchor just

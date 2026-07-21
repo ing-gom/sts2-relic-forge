@@ -641,6 +641,7 @@ internal static class SoloTest
                     ("Unstable",   "DEFECT",      true),
                     ("Vengeful",   "NECROBINDER", false),
                     ("Empathic",   "NECROBINDER", false),
+                    ("Undying",    "NECROBINDER", false),
                     ("Famished",   "NECROBINDER", true),
                     ("Tributary",  "REGENT",      false),
                     ("Bountiful",  "REGENT",      false),
@@ -670,7 +671,7 @@ internal static class SoloTest
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var p in PrefixTable.All)
                     if (!seen.Add(p.Name)) return $"duplicate prefix name '{p.Name}' in PrefixTable";
-                W("  20 wave-2 char affixes wired (Quenched universal + real Ironclad family), no name collisions ✓");
+                W("  21 wave-2 char affixes wired (Quenched universal + real Ironclad family + Undying), no name collisions ✓");
                 return null;
             });
 
@@ -988,6 +989,45 @@ internal static class SoloTest
                     return null;
                 }
                 finally { await Drop20(famished); }   // combat stays live — T26 runs in the same fight
+            });
+
+            // T25b — Undying (불사의): death is DEFERRED, not prevented. (1) The player is SPARED a
+            // turn-end Doom death (DoomShieldPatch strips them from the real DoomKill choke), which arms
+            // the reprieve; (2) the reprieve then reports them living on borrowed time, gated on a
+            // standing Doom ≥ HP. We do NOT fire the real HP-loss kill here — it would end the shared run
+            // and starve T26+ of a live player — so the deferred death's Kill (OnPlayerHpLost) is left
+            // trivially wired; here we prove the deferral + the reprieve predicate that drives it.
+            await TestAsync("T25b inject: Undying doom-deferral", async () =>
+            {
+                if (player?.Creature == null) return "no player";
+                var body = player.Creature;
+                var undying = await Grant20("Undying", penalty: false);
+                if (undying == null) return "forced grant failed (Undying)";
+                try
+                {
+                    int hp = body.CurrentHp;
+                    await PowerCmd.Apply<DoomPower>(ctx20, body, hp, body, null);   // Doom == HP → doomed
+                    var doom = body.GetPower<DoomPower>();
+                    if (doom == null || !doom.IsOwnerDoomed()) return $"Undying: player not doomed (hp={hp})";
+                    // (1) the turn-end Doom kill is DEFERRED → player survives AND the reprieve arms.
+                    await DoomPower.DoomKill(DoomPower.GetDoomedCreatures(new[] { body }));
+                    await Task.Delay(300);
+                    if (!body.IsAlive) return "Undying: player DIED at turn end (deferral failed)";
+                    if (!CharAffix.IsDoomReprieveArmed(player))
+                        return "Undying: survived but reprieve not armed (a later HP loss would never kill)";
+                    W($"  Undying: doomed@hp{hp} → survived turn-end Doom, reprieve armed ✓");
+                    // (2) the lethal condition needs a standing Doom ≥ HP — clear the Doom and it lapses.
+                    await PowerCmd.Remove<DoomPower>(body);
+                    if (CharAffix.IsDoomReprieveArmed(player))
+                        return "Undying: reprieve still lethal after Doom removed";
+                    W("  Undying: Doom cleared → reprieve no longer lethal ✓");
+                    return null;
+                }
+                finally
+                {
+                    try { await PowerCmd.Remove<DoomPower>(body); } catch { /* clear leftover doom */ }
+                    await Drop20(undying);
+                }
             });
 
             // T26 — Ironclad family (wave-2b): exhaust/vuln/HP-loss/strength affixes, same

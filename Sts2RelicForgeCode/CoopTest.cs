@@ -129,6 +129,13 @@ internal static class CoopTest
                 return;
             }
 
+            // ── UNDYING PROBE (sentinel selftest.coop.undying): isolated death-deferral convergence. ──
+            if (File.Exists(Path.Combine(ModDir(), "selftest.coop.undying")))
+            {
+                await UndyingHostProbe(run, me);
+                return;
+            }
+
             // ── REACTIVE ENEMY-CURSE PROBE: force EVERY fight's enemies to be 'Sadistic' (Cruelty rider =
             // gain Strength each time they hit you) on BOTH peers. This is a LOCAL static set identically by
             // this same test code on host AND join, so both forge the same enemies (same encounter + round-
@@ -326,6 +333,12 @@ internal static class CoopTest
                 return;
             }
 
+            if (File.Exists(Path.Combine(ModDir(), "selftest.coop.undying")))
+            {
+                await UndyingJoinProbe(run);
+                return;
+            }
+
             // Arm the SAME reactive enemy-curse probe the host does — both peers must forge enemies identically
             // (Sadistic) so the on-hit Strength converges as the host drives the combat phases.
             EnemyForge.TestForce = true; EnemyForge.TestForcePrefix = "Cruelty";
@@ -481,6 +494,170 @@ internal static class CoopTest
             Flush(true);
         }
         catch (Exception e) { W("JOIN: FORGING exception: " + e); Flush(false); }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+    // UNDYING (불사의) death-deferral — co-op convergence probe.
+    //
+    // Both peers force the SAME "Undying" prefix onto the host player's relic LOCALLY (deterministic:
+    // same seed/floor/prefix → identical forge record — the mod's non-networked re-derivation idiom, and
+    // forge records are not part of the game checksum, so the local overwrite is checksum-neutral). Then
+    // the host, via NETWORKED console commands, dooms itself (`power DOOM 999 <idx>`), ends the turn (both
+    // peers auto-ready), and — if an enemy hit hasn't already — takes a networked `damage` hit. The
+    // engine runs DoomPower.BeforeSideTurnEnd → DoomKill in lockstep on BOTH peers: DoomShieldPatch strips
+    // the shielded player (survive at turn end + arm the reprieve), and OnPlayerHpLost fires the deferred
+    // CreatureCmd.Kill on the next HP loss. If either peer decided differently (spared vs killed), the
+    // game state diverges → checksum mismatch → the JOIN is dropped. So: both peers observing the same
+    // survive-then-die with NO session drop = the co-op verdict.
+    private static void ForceUndying(RelicModel relic, Player owner)
+    {
+        try
+        {
+            var rs = owner.RunState;
+            RelicForgeService.Forge(relic, rs.Rng.Seed, rs.TotalFloor, forced: PrefixTable.ByName("Undying"));
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec != null) { rec.EnemyRider = false; rec.EnemyRiderSuffix = ""; if (rec.SelfCurse.Length > 0) rec.SelfCurse = ""; }
+        }
+        catch (Exception e) { W("ForceUndying failed: " + e.Message); }
+    }
+
+    private static int CreatureIndex(MegaCrit.Sts2.Core.Combat.CombatManager cm, MegaCrit.Sts2.Core.Entities.Creatures.Creature? c)
+    {
+        if (c == null) return -1;
+        try
+        {
+            var list = cm.DebugOnlyGetState().Creatures;
+            for (int i = 0; i < list.Count; i++) if (ReferenceEquals(list[i], c)) return i;
+        }
+        catch { }
+        return -1;
+    }
+
+    private static async Task UndyingHostProbe(RunManager run, Player me)
+    {
+        try
+        {
+            await Task.Delay(2000);
+            await Shot("01_run");
+
+            // 1) grant the relic (networked → both peers get it) and force Undying on it (both peers do this
+            //    in their own probe → identical record).
+            Step("HOST Undying: grant + force Undying");
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, $"relic {RelicId}", inCombat: false));
+            await Task.Delay(3500);
+            var relic = FindRelic(me);
+            if (relic == null) { W("HOST: relic not granted"); Flush(false); return; }
+            ForceUndying(relic, me);
+            W($"HOST: relic prefix = '{RelicForgeService.RecordFor(relic)?.Prefix ?? "(none)"}' (expect Undying)");
+
+            // 2) enter combat (networked).
+            Step("HOST Undying: enter combat");
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, "room monster", inCombat: false));
+            await Task.Delay(9000);
+            var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+            if (cm == null || !cm.IsInProgress) { W("HOST: combat did not start"); Flush(false); return; }
+            int idx = CreatureIndex(cm, me.Creature);
+            if (idx < 0) { W("HOST: player creature not found in combat state"); Flush(false); return; }
+            int hp0 = (int)(me.Creature?.CurrentHp ?? -1);
+
+            // 3) doom the player to 999 (HP <= 999 → doomed) via the networked `power` command.
+            Step("HOST Undying: apply Doom");
+            string doomId = MegaCrit.Sts2.Core.Models.ModelDb.Power<MegaCrit.Sts2.Core.Models.Powers.DoomPower>()?.Id.Entry ?? "DOOM";
+            run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, $"power {doomId} 999 {idx}", inCombat: true));
+            await Task.Delay(4000);
+            bool doomed = me.Creature?.GetPower<MegaCrit.Sts2.Core.Models.Powers.DoomPower>()?.IsOwnerDoomed() == true;
+            W($"HOST: doomed={doomed} hp={hp0} idx={idx} doomId={doomId}");
+            if (!doomed) { W("HOST: player not doomed after `power` — abort"); Flush(false); return; }
+
+            // 4) end the turn → side-turn-end DoomKill → deferral (survive + arm). The side-turn-end fires a
+            //    few seconds into the turn cycle (both peers must be ready), so poll for ~24s, re-asserting
+            //    ready, and record whether the reprieve EVER arms (proof the shield spared the turn-end death:
+            //    without Undying a doomed player would be dead here, not armed-and-alive). Break on death.
+            Step("HOST Undying: end turn (deferral)");
+            cm.SetReadyToEndTurn(me, canBackOut: false);
+            bool armedEver = false, dead = false;
+            for (int t = 0; t < 48; t++)
+            {
+                await Task.Delay(500);
+                var b = me.Creature;
+                if (b == null || b.IsDead) { dead = true; break; }        // died (enemy hit spent the reprieve)
+                if (b.IsAlive && CharAffix.IsDoomReprieveArmed(me)) armedEver = true;
+                if ((t % 4) == 3 && cm.IsInProgress) { try { cm.SetReadyToEndTurn(me, canBackOut: false); } catch { } }
+            }
+            W($"HOST: turn cycle: armedEver={armedEver} dead={dead} alive={me.Creature?.IsAlive == true} hp={(int)(me.Creature?.CurrentHp ?? -1)}");
+
+            // 5) force the deferred death if an enemy hit hasn't already: a networked HP-loss while doomed.
+            Step("HOST Undying: lethal hit");
+            if (!dead)
+            {
+                int idx2 = CreatureIndex(cm, me.Creature);
+                if (idx2 >= 0)
+                    run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, $"damage 8 {idx2}", inCombat: true));
+                await Task.Delay(6000);
+                dead = me.Creature == null || me.Creature.IsDead;
+            }
+            W($"HOST: after lethal hit: dead={dead}");
+
+            bool pass = armedEver && dead;    // deferral fired (armedEver) AND the deferred death landed (dead)
+            W($"HOST: UNDYING RESULT armedEver={armedEver} died={dead} → {(pass ? "PASS" : "FAIL")}");
+            await Shot("02_final");
+            W("=== coop host done ===");
+            Flush(pass);
+        }
+        catch (Exception e) { W("HOST: UNDYING exception: " + e); Flush(false); }
+    }
+
+    private static async Task UndyingJoinProbe(RunManager run)
+    {
+        try
+        {
+            await Task.Delay(2000);
+            await Shot("01_run");
+            string hostTxt = Path.Combine(ModDir(), "selftest.coop.host.txt");
+            bool forced = false, sawDoomed = false, sawArmed = false, sawDead = false;
+            string last = "";
+            for (int i = 0; i < 120 && !File.Exists(hostTxt); i++)
+            {
+                Step($"JOIN(undying) t+{i * 2}s");
+                var st = run.State;
+                if (st == null || st.Players.Count == 0)
+                { W("JOIN: SESSION DROPPED (state gone mid-sequence = desync through the deferred death)"); Flush(false); return; }
+                var host = st.Players.OrderBy(p => p.NetId).First();
+
+                // mirror the host: force the same Undying prefix on THIS peer's replica so DoomShieldPatch
+                // fires identically here — otherwise the two peers decide spare-vs-kill differently and drop.
+                if (!forced)
+                {
+                    var r = FindRelic(host);
+                    if (r != null) { ForceUndying(r, host); forced = true; W($"JOIN: forced Undying → '{RelicForgeService.DescriptorOf(r) ?? "-"}'"); }
+                }
+
+                // auto-ready this peer's player so the shared turn can end.
+                var cmJ = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                var meJ = LocalPlayerOf(run);
+                if (cmJ?.IsInProgress == true && meJ != null) { try { cmJ.SetReadyToEndTurn(meJ, canBackOut: false); } catch { } }
+
+                // observe the host player's replicated doom/alive/armed state.
+                var body = host.Creature;
+                var doom = body?.GetPower<MegaCrit.Sts2.Core.Models.Powers.DoomPower>();
+                bool alive = body?.IsAlive == true;
+                bool armed = CharAffix.IsDoomReprieveArmed(host);
+                if (doom != null && doom.IsOwnerDoomed()) sawDoomed = true;
+                if (alive && armed) sawArmed = true;
+                if (body == null || body.IsDead) sawDead = true;
+                string line = $"alive={alive} hp={(int)(body?.CurrentHp ?? -1)} doom={(doom != null ? (int)doom.Amount : -1)} armed={armed}";
+                if (line != last) { W($"JOIN t+{i * 2}s: {line}"); last = line; }
+                await Task.Delay(2000);
+            }
+            await Task.Delay(1500);
+            if (run.State == null || run.State.Players.Count == 0)
+            { W("JOIN: SESSION DROPPED (state gone at end = desync)"); Flush(false); return; }
+            W($"JOIN: UNDYING observed doomed={sawDoomed} armed={sawArmed} died={sawDead} — NO session drop (converged)");
+            await Shot("02_final");
+            W("=== coop join done ===");
+            Flush(true);   // stayed in lockstep through the whole deferral+death sequence = convergence
+        }
+        catch (Exception e) { W("JOIN: UNDYING exception: " + e); Flush(false); }
     }
 
     /// <summary>Non-null describes a prefix that violates the ENHANCE-ONLY pool this test runs under:

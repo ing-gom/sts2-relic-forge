@@ -24,7 +24,8 @@ namespace Sts2RelicForge;
 /// Engine for the CHARACTER-GATED prefix family (see PrefixTable's CharAffix block + CharAffixPatches).
 /// Each prefix rolls only when the owner plays a specific character (RequiredCharacter) and reacts to
 /// that character's signature mechanic:
-///   Universal   — Quenched (vigor→strength; vigor lives on Regent/shared, so no char gate)
+///   Universal   — Vigor reactors Quenched (vigor→strength) / Bracing (vigor→block); their vigor
+///                 SOURCES (Roused/Invigorated) live in ForgeCombatAffixPatch. Cross-character by design.
 ///   Ironclad    — Cindered (block on exhaust), Bloodforged (strength on first HP loss), Gouging
 ///                 (vuln +1), Retaliating (vigor from HP lost), Mirrored (enemy copies strength),
 ///                 Lingering (exhaust dodged to discard), Karmic (vuln reflects)
@@ -224,30 +225,146 @@ internal static class CharAffix
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] affix effect failed: {e.Message}"); }
     }
 
-    // ============================ Quenched (universal) ============================
+    // ============================ Vigor reactors (universal) ============================
 
-    /// <summary>Quenched — the player's Vigor was consumed (VigorPower.AfterAttack pays it down via a
-    /// negative PowerCmd.ModifyAmount); each point consumed rolls an independent chance to grant
-    /// 1 Strength. Echo-free by construction: the grant touches StrengthPower, never VigorPower.
-    /// AWAITED (the hook fires mid-attack inside the vigor pay-down command).</summary>
-    // 15% per point: vigor supply is thin everywhere (Regent's Patter 2-3 / Terraforming 6-8, the
-    // shared Prep Time 4-6/turn, Akabeko 8/combat). At 15% that's ~1.2 Strength per Akabeko combat
-    // (the Focused "+1 Focus per combat" benchmark) and ~3-4/combat in a dedicated Prep Time or
-    // Regent vigor deck; the original 5% averaged a dead-feeling 0.4.
-    public const float QuenchedChance = 0.15f;
-
+    /// <summary>The player's Vigor was just consumed (VigorPower.AfterAttack pays it down via a negative
+    /// PowerCmd.ModifyAmount). Every forged relic whose prefix reacts to Vigor consumption rolls ONCE PER
+    /// POINT consumed: Quenched → 1 Strength, Bracing → 2 Block. Data-driven off the prefix's *Pct fields,
+    /// so a new reactor prefix needs no code here. Echo-free by construction: the grants touch Strength /
+    /// Block, never VigorPower. AWAITED (the hook fires mid-attack inside the vigor pay-down command) — a
+    /// detached grant would desync co-op the same way the other mid-command char hooks do.
+    ///
+    /// Rates stay modest because Vigor supply is thin (Akabeko 8/combat, Regent's Patter/Terraforming,
+    /// the shared Prep Time, plus this mod's own Roused/Invigorated sources): at 15% Quenched averages
+    /// ~1.2 Strength per Akabeko combat (the Focused "+1 Focus per combat" benchmark).</summary>
     public static async Task OnVigorConsumed(PlayerChoiceContext ctx, Player player, int consumed)
     {
         if (!Enabled || consumed <= 0 || player.Creature == null) return;
         int turn = TurnOf(player);
-        foreach (var relic in Owned(player, "Quenched"))
+        // Frenzied aura (VigorProcDoubler) DOUBLES the per-point reactor rates — a vigor-specific,
+        // curse-bundled cousin of Catalytic (which already doubles via MetaAffix). Read once from the
+        // synced relic list so both co-op peers agree; non-stacking (owned = ×2 regardless of count).
+        int mult = OwnsVigorAura(player) ? 2 : 1;
+        foreach (var relic in new List<RelicModel>(player.Relics))
         {
-            int gained = 0;
-            for (int i = 0; i < consumed; i++)
-                if (Roll(player, relic, turn) < QuenchedChance) gained++;
-            if (gained > 0)
-                await FireAsync(relic, PowerCmd.Apply<StrengthPower>(ctx, player.Creature, gained, player.Creature, null));
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec == null) continue;
+
+            // --- Beneficial prefix slot: the vigor reactors + Frenzied's own costs ---
+            var pfx = rec.Prefix.Length > 0 ? PrefixTable.ByName(rec.Prefix) : null;
+            if (pfx != null)
+            {
+                if (pfx.VigorStrengthPct > 0)
+                {
+                    int gained = 0;
+                    for (int i = 0; i < consumed; i++)
+                        if (Roll(player, relic, turn) * 100f < pfx.VigorStrengthPct * mult) gained++;
+                    if (gained > 0)
+                        await FireAsync(relic, PowerCmd.Apply<StrengthPower>(ctx, player.Creature, gained, player.Creature, null));
+                }
+                else if (pfx.VigorBlockPct > 0)
+                {
+                    int hits = 0;
+                    for (int i = 0; i < consumed; i++)
+                        if (Roll(player, relic, turn) * 100f < pfx.VigorBlockPct * mult) hits++;
+                    if (hits > 0)
+                        await FireAsync(relic, CreatureCmd.GainBlock(player.Creature, hits * 2m, ValueProp.Unpowered, null));
+                }
+                else if (pfx.VigorVulnPct > 0)
+                {
+                    int stacks = 0;
+                    for (int i = 0; i < consumed; i++)
+                        if (Roll(player, relic, turn) * 100f < pfx.VigorVulnPct * mult) stacks++;
+                    var foe = stacks > 0 ? RandomLivingEnemy(player, Roll(player, relic, turn)) : null;
+                    if (foe != null)   // enemy-as-applier: echo-free (never reads as a player-applied debuff)
+                        await FireAsync(relic, PowerCmd.Apply<VulnerablePower>(ctx, foe, stacks, foe, null));
+                }
+                else if (pfx.VigorWeakPct > 0)
+                {
+                    int stacks = 0;
+                    for (int i = 0; i < consumed; i++)
+                        if (Roll(player, relic, turn) * 100f < pfx.VigorWeakPct * mult) stacks++;
+                    var foe = stacks > 0 ? RandomLivingEnemy(player, Roll(player, relic, turn)) : null;
+                    if (foe != null)
+                        await FireAsync(relic, PowerCmd.Apply<WeakPower>(ctx, foe, stacks, foe, null));
+                }
+                else if (pfx.VigorEnergyPct > 0)
+                {
+                    // Per point, uncapped: a big Vigor dump can pay out multiple Energy. The rate is low
+                    // (energy is premium), so it rewards a heavy Vigor investment without being free value.
+                    int energy = 0;
+                    for (int i = 0; i < consumed; i++)
+                        if (Roll(player, relic, turn) * 100f < pfx.VigorEnergyPct * mult) energy++;
+                    if (energy > 0)
+                        await FireAsync(relic, PlayerCmd.GainEnergy(energy, player));
+                }
+                else if (pfx.VigorSelfDebuffPct > 0)
+                {
+                    // Frenzied's built-in curse: ONE roll per consume event → a random self-debuff. NOT
+                    // ×mult (the cost never doubles itself). Self-applier → echo-safe (no player-debuff reactor
+                    // reacts to a self-target). Frail / Vulnerable / Weak, picked by a second deterministic roll.
+                    if (Roll(player, relic, turn) * 100f < pfx.VigorSelfDebuffPct)
+                        await FireAsync(relic, RandomSelfDebuff(ctx, player, Roll(player, relic, turn)));
+                }
+
+                // Frenzied's SECOND cost — INDEPENDENT of the branch above (both fire on the same relic):
+                // a rare Strength/Dexterity bite. Self-sourced → co-op-safe, no echo.
+                if (pfx.VigorStatDownPct > 0 && Roll(player, relic, turn) * 100f < pfx.VigorStatDownPct)
+                    await FireAsync(relic, Roll(player, relic, turn) < 0.5f
+                        ? PowerCmd.Apply<StrengthPower>(ctx, player.Creature, -1m, player.Creature, null)
+                        : PowerCmd.Apply<DexterityPower>(ctx, player.Creature, -1m, player.Creature, null));
+            }
+
+            // --- Curse slot: the vigor curse (Waning). A relic can carry a boon prefix AND this curse,
+            //     so this is a separate pass off rec.SelfCurse (Penalty prefixes never sit in rec.Prefix). ---
+            var curse = rec.SelfCurse.Length > 0 ? PrefixTable.ByName(rec.SelfCurse) : null;
+            if (curse != null && curse.VigorStrDownPct > 0
+                && Roll(player, relic, turn) * 100f < curse.VigorStrDownPct)
+                await FireAsync(relic, PowerCmd.Apply<StrengthPower>(ctx, player.Creature, -1m, player.Creature, null));
         }
+    }
+
+    /// <summary>A random self-inflicted debuff (Frail / Vulnerable / Weak 1), picked by a deterministic
+    /// <paramref name="roll"/>. Self-applier → echo-safe (no player-debuff reactor reacts to a self-target).</summary>
+    private static Task RandomSelfDebuff(PlayerChoiceContext ctx, Player player, float roll)
+    {
+        int pick = (int)(roll * 3);
+        if (pick > 2) pick = 2;
+        return pick switch
+        {
+            0 => PowerCmd.Apply<FrailPower>(ctx, player.Creature, 1m, player.Creature, null),
+            1 => PowerCmd.Apply<VulnerablePower>(ctx, player.Creature, 1m, player.Creature, null),
+            _ => PowerCmd.Apply<WeakPower>(ctx, player.Creature, 1m, player.Creature, null),
+        };
+    }
+
+    /// <summary>True if the player owns any relic carrying the Frenzied vigor aura (VigorProcDoubler).
+    /// Read from the synced relic list → deterministic on both co-op peers.</summary>
+    private static bool OwnsVigorAura(Player player)
+    {
+        foreach (var relic in player.Relics)
+        {
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec == null || rec.Prefix.Length == 0) continue;
+            var pfx = PrefixTable.ByName(rec.Prefix);
+            if (pfx != null && pfx.VigorProcDoubler) return true;
+        }
+        return false;
+    }
+
+    /// <summary>A deterministically-picked living enemy (seed-driven <paramref name="roll"/> → same on
+    /// every co-op peer, since the enemy list order is synced). Null if there are no living enemies.</summary>
+    private static Creature? RandomLivingEnemy(Player player, float roll)
+    {
+        var cs = player.Creature?.CombatState;
+        if (cs == null) return null;
+        var foes = new List<Creature>();
+        foreach (var e in cs.Enemies)
+            if (e.IsAlive) foes.Add(e);
+        if (foes.Count == 0) return null;
+        int pick = (int)(roll * foes.Count);
+        if (pick >= foes.Count) pick = foes.Count - 1;
+        return foes[pick];
     }
 
     // ============================ Ironclad ============================

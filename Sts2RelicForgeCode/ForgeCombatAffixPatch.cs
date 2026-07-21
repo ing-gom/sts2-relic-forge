@@ -76,6 +76,10 @@ internal static class ForgeCombatAffixPatch
                     ApplyAttunedBlock(choiceContext, player, relic, pfx);
                 else if (pfx.EnduringStr > 0 && turn >= 5)
                     ApplyEnduring(choiceContext, player, relic, pfx, turn);
+                else if (pfx.StartVigor > 0 && turn == 1)
+                    ApplyStartVigor(choiceContext, player, relic, pfx);
+                else if (pfx.TurnVigor > 0)
+                    ApplyTurnVigor(choiceContext, player, relic, pfx, turn);
             }
         }
         catch (Exception e)
@@ -243,6 +247,29 @@ internal static class ForgeCombatAffixPatch
         relic.Flash();
         TaskHelper.RunSafely(PowerCmd.Apply<StrengthPower>(ctx, creature, pfx.EnduringStr, creature, null));
         MainFile.Logger.Info($"[{MainFile.ModId}] Enduring: +{pfx.EnduringStr} Strength on turn {turn} ({relic.Id.Entry}).");
+    }
+
+    /// <summary>Roused (북받친) — turn 1: grant Vigor. Vigor is a VANILLA power, so this works on ANY
+    /// character (mod characters included). Self-sourced combat-start buff on the co-op-verified turn-start
+    /// choke (deterministic on both peers) — same class as ApplyStartPower / Enduring.</summary>
+    private static void ApplyStartVigor(PlayerChoiceContext ctx, Player player, RelicModel relic, Prefix pfx)
+    {
+        var creature = player.Creature;
+        if (creature == null || pfx.StartVigor <= 0) return;
+        relic.Flash();
+        TaskHelper.RunSafely(PowerCmd.Apply<VigorPower>(ctx, creature, pfx.StartVigor, creature, null));
+        MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: Vigor {pfx.StartVigor} on turn 1 ({relic.Id.Entry}).");
+    }
+
+    /// <summary>Invigorated (생기찬) — every turn: grant Vigor (consumed by the next Attack, so a steady
+    /// trickle). Deterministic self-buff → co-op-safe, same class as Enduring.</summary>
+    private static void ApplyTurnVigor(PlayerChoiceContext ctx, Player player, RelicModel relic, Prefix pfx, int turn)
+    {
+        var creature = player.Creature;
+        if (creature == null || pfx.TurnVigor <= 0) return;
+        relic.Flash();
+        TaskHelper.RunSafely(PowerCmd.Apply<VigorPower>(ctx, creature, pfx.TurnVigor, creature, null));
+        MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: Vigor {pfx.TurnVigor} on turn {turn} ({relic.Id.Entry}).");
     }
 
     /// <summary>Bolstering (북돋움의) AURA: total +bonus to combat-start defensive power amounts from every

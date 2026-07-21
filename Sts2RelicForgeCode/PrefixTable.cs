@@ -162,6 +162,25 @@ internal sealed class Prefix
     public string RequiredCharacter = "";
     public bool CharAffix;
 
+    // --- Vigor family (universal). Vigor is a VANILLA power, so these work on ANY character — mod
+    //     characters included (Vigor is a first-class status in the no-code character creator, so
+    //     many mod characters build around it). Graft nothing, scale no host var → IsCompanionPrefix.
+    //     StartVigor/TurnVigor GRANT Vigor from the combat turn-start dispatch (ForgeCombatAffixPatch);
+    //     the *Pct fields REACT to Vigor being consumed, rolled per point in CharAffix.OnVigorConsumed
+    //     (the VigorPower pay-down hook). NOT CharAffix, so they sit in the Custom pool's Effects tab
+    //     and toggle per-entry like every other universal effect prefix. ---
+    public int StartVigor;        // 전투 시작 시(턴1) 활력 N
+    public int TurnVigor;         // 매 턴 활력 N
+    public int VigorStrengthPct;  // 활력 1 소모마다 N% 확률로 힘 1 (Quenched)
+    public int VigorBlockPct;     // 활력 1 소모마다 N% 확률로 방어도 2 (Bracing)
+    public int VigorVulnPct;      // 활력 1 소모마다 N% 확률로 무작위 적에게 취약 1 (Rending)
+    public int VigorWeakPct;      // 활력 1 소모마다 N% 확률로 무작위 적에게 약화 1 (Withering)
+    public int VigorEnergyPct;    // 활력 1 소모마다 N% 확률로 에너지 1 (per-point, 무제한 — Stoking)
+    public bool VigorProcDoubler; // AURA: 다른 활력 소모 반응 접두사의 발동 확률 2배 (Frenzied)
+    public int  VigorSelfDebuffPct; // 활력 소모 시 N% 확률로 자신에게 손상/취약/약화 중 1 — Frenzied의 자체 저주(per-event)
+    public int  VigorStatDownPct; // 활력 소모 시 N% 확률로 자신의 힘 -1 또는 민첩 -1 — Frenzied의 추가 저주(per-event)
+    public int  VigorStrDownPct;  // 활력 소모 시 N% 확률로 자신의 힘 -1 — 저주 슬롯 전용(Waning, Penalty), per-event
+
     // --- Fallback prefix (see RelicForgeService.Forge substitution + FallbackBuffPatch). NOT in the
     //     normal roll pool (PrefixTable.InPool excludes it): a magnitude prefix that rounded to NO
     //     change on a relic (too small / var-less) is REPLACED by one of these — a host-independent,
@@ -193,7 +212,11 @@ internal sealed class Prefix
                                      || PotionDoubler || LowHpDraw || GoldArmorCost > 0
                                      || StartPowerBoost > 0 || PotionBoost > 0
                                      || AttunedBlockPer > 0 || SecondWindBlock > 0 || PickupReforge
-                                     || KillBlock > 0 || EnduringStr > 0 || FirstTurnDraw || ExecutePct > 0;
+                                     || KillBlock > 0 || EnduringStr > 0 || FirstTurnDraw || ExecutePct > 0
+                                     || StartVigor > 0 || TurnVigor > 0 || VigorStrengthPct > 0 || VigorBlockPct > 0
+                                     || VigorVulnPct > 0 || VigorWeakPct > 0 || VigorEnergyPct > 0
+                                     || VigorProcDoubler || VigorSelfDebuffPct > 0
+                                     || VigorStatDownPct > 0 || VigorStrDownPct > 0;
 
     /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
     /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
@@ -312,7 +335,7 @@ internal static class PrefixTable
         // --- 2nd batch (all weakened vs the real relic: reduced value, longer interval, or delay) ---
         new Prefix { Name = "Ferocious", Ko = "사나운", Zh = "凶猛的", Weight = 5, Color = "#ff5533",
             CompanionRelic = typeof(Akabeko),   // Vigor 8 -> 2 (×0.30 floor)
-            NoteKo = "첫 턴에 활력 2", NoteEn = "Vigor 2 on turn 1", NoteZh = "第1回合获得2鼓舞" },
+            NoteKo = "첫 턴에 활력 2", NoteEn = "Vigor 2 on turn 1", NoteZh = "第1回合获得2点活力" },
         new Prefix { Name = "Bladed", Ko = "칼날의", Zh = "锋刃的", Weight = 6, Color = "#d9d9e0",
             CompanionRelic = typeof(LetterOpener),   // Damage 5->1 (×0.30 floor), interval 3->4 (VarOverride) — per-turn counter
             NoteKo = "한 턴에 스킬 4회마다 모든 적에게 1 피해", NoteEn = "1 damage to all enemies per 4 skills in one turn", NoteZh = "一回合内每4张技能牌对所有敌人造成1点伤害" },
@@ -648,16 +671,53 @@ internal static class PrefixTable
         // Each rolls ONLY when the owner plays the named character (CharAffix + RequiredCharacter),
         // and reacts to that character's signature mechanic. See CharAffix / CharAffixPatches.
 
-        // --- Universal vigor reactor ---
-        // UNIVERSAL (no RequiredCharacter): vigor cards live on Regent (Patter/Terraforming) plus the
-        // shared pool (Prep Time) and Akabeko, so no single character owns the mechanic — gating this
-        // to Ironclad (the original design) parked it on the one class with zero native vigor cards.
-        // NOTE: "Tempered" was taken (the numeric magnitude prefix above) — the Name doubles as the
-        // dispatch + descriptor key, so char affixes must never collide with ANY existing entry.
-        new Prefix { Name = "Quenched", Ko = "담금질한", Zh = "淬炼的", Weight = 7, CharAffix = true, Color = "#e07a4d",
+        // --- Universal Vigor family (see CharAffix.OnVigorConsumed + ForgeCombatAffixPatch) ---
+        // Vigor is a VANILLA power (Akabeko, Regent's Patter/Terraforming, the shared Prep Time) and mod
+        // characters very commonly build around it (the no-code character creator exposes Vigor as a
+        // first-class status), so these are TRULY universal — every character, mod included, can roll them
+        // and they work. NOT CharAffix → they live in the Custom pool's Effects tab and toggle per-entry.
+        // Two SOURCES (grant Vigor) feed two REACTORS (pay off when Vigor is consumed), so even a character
+        // with no native Vigor cards can assemble the loop from the forge alone.
+        // NOTE: the Name doubles as the dispatch/descriptor key — must never collide with ANY existing entry
+        // ("Tempered" is already the numeric magnitude tier above, hence these themed names).
+        new Prefix { Name = "Roused", Ko = "북받친", Zh = "振奋的", Weight = 6, StartVigor = 3, Color = "#ff7a4d",
+            NoteKo = "전투 시작 시 활력 3", NoteEn = "Vigor 3 at combat start", NoteZh = "战斗开始时获得3点活力" },
+        new Prefix { Name = "Invigorated", Ko = "생기찬", Zh = "焕活的", Weight = 6, TurnVigor = 1, Color = "#ff9a4d",
+            NoteKo = "매 턴 활력 1을 얻는다", NoteEn = "Gain 1 Vigor each turn", NoteZh = "每回合获得1点活力" },
+        new Prefix { Name = "Quenched", Ko = "담금질한", Zh = "淬炼的", Weight = 7, VigorStrengthPct = 15, Color = "#e07a4d",
             NoteKo = "활력이 소모될 때 소모량 1마다 15% 확률로 힘 1을 얻는다",
             NoteEn = "When Vigor is consumed, each point consumed has a 15% chance to grant 1 Strength",
             NoteZh = "活力被消耗时，每消耗1点有15%概率获得1点力量" },
+        new Prefix { Name = "Bracing", Ko = "다잡는", Zh = "坚毅的", Weight = 6, VigorBlockPct = 25, Color = "#5a9fd4",
+            NoteKo = "활력이 소모될 때 소모량 1마다 25% 확률로 방어도 2를 얻는다",
+            NoteEn = "When Vigor is consumed, each point consumed has a 25% chance to gain 2 Block",
+            NoteZh = "活力被消耗时，每消耗1点有25%概率获得2点格挡" },
+        new Prefix { Name = "Rending", Ko = "가르는", Zh = "撕裂的", Weight = 6, VigorVulnPct = 20, Color = "#e0904d",
+            NoteKo = "활력이 소모될 때 소모량 1마다 20% 확률로 무작위 적에게 취약 1을 부여한다",
+            NoteEn = "When Vigor is consumed, each point consumed has a 20% chance to apply 1 Vulnerable to a random enemy",
+            NoteZh = "活力被消耗时，每消耗1点有20%概率对随机敌人施加1层易伤" },
+        new Prefix { Name = "Withering", Ko = "시들리는", Zh = "凋敝的", Weight = 6, VigorWeakPct = 20, Color = "#c0a04d",
+            NoteKo = "활력이 소모될 때 소모량 1마다 20% 확률로 무작위 적에게 약화 1을 부여한다",
+            NoteEn = "When Vigor is consumed, each point consumed has a 20% chance to apply 1 Weak to a random enemy",
+            NoteZh = "活力被消耗时，每消耗1点有20%概率对随机敌人施加1层虚弱" },
+        new Prefix { Name = "Stoking", Ko = "불지피는", Zh = "助燃的", Weight = 5, VigorEnergyPct = 10, Color = "#ffcf3f",
+            NoteKo = "활력이 소모될 때 소모량 1마다 10% 확률로 에너지 1을 얻는다",
+            NoteEn = "When Vigor is consumed, each point consumed has a 10% chance to gain 1 Energy",
+            NoteZh = "活力被消耗时，每消耗1点有10%概率获得1点能量" },
+        // Vigor-consume AURA (the vigor-specific, curse-bundled cousin of Catalytic): doubles the OTHER
+        // vigor-reactor procs, paid for with a built-in self-debuff on consume. Mixed (amber) — a strong
+        // build-around with its own cost, the Echoing/Resonant idiom. Low weight (rare, like Catalytic).
+        new Prefix { Name = "Frenzied", Ko = "광란의", Zh = "狂乱的", Weight = 4, Mixed = true, VigorProcDoubler = true, VigorSelfDebuffPct = 5, VigorStatDownPct = 1, Color = "#ff5c33",
+            NoteKo = "활력 소모로 발동하는 다른 접두사의 확률이 2배가 된다. 활력을 소모할 때 5% 확률로 자신에게 손상·취약·약화 중 하나 1, 1% 확률로 힘 -1 또는 민첩 -1",
+            NoteEn = "Your other Vigor-consume prefixes proc twice as often — but when you consume Vigor, 5% chance to give yourself Frail/Vulnerable/Weak 1, and 1% chance to lose 1 Strength or Dexterity",
+            NoteZh = "你其他「消耗活力触发」词缀的触发几率翻倍——但消耗活力时，有5%概率给予自己1层脆弱/易伤/虚弱之一，1%概率失去1点力量或敏捷" },
+        // Vigor CURSE (Penalty → rolls into the SelfCurse slot, shows in the Curses tab). Dispatched from
+        // OnVigorConsumed's curse-slot pass (a relic can carry a boon prefix AND this curse). A nagging cost
+        // on a vigor build: each consume event has a chance to shave 1 Strength (combat-long).
+        new Prefix { Name = "Waning", Ko = "쇠하는", Zh = "衰减的", Weight = 6, Penalty = true, VigorStrDownPct = 10, Color = "#8a6a5a",
+            NoteKo = "활력을 소모할 때 10% 확률로 자신의 힘 1이 감소한다",
+            NoteEn = "When you consume Vigor, 10% chance to lose 1 Strength",
+            NoteZh = "消耗活力时，有10%概率失去1点力量" },
 
         // --- Ironclad (exhaust / vulnerable / HP-loss — the pool's measured identity:
         //     53 exhaust-family axis tags, 25 vulnerable, 13 HP-loss across his 87 cards) ---
@@ -973,28 +1033,13 @@ internal static class PrefixTable
     /// and uses this for the character gate, so a penalty like Toxic only rolls for its own character.</summary>
     public static bool CurseInPool(Prefix p, string? character) => CharacterMatches(p, character);
 
-    /// <summary>The known (vanilla) character roster — every distinct RequiredCharacter the table gates a
-    /// prefix to (IRONCLAD/SILENT/DEFECT/NECROBINDER/REGENT, plus any registered by a sister mod). A
-    /// universal CHAR-reactive prefix (only Quenched) reacts to a vanilla signature mechanic (Vigor), so
-    /// it's confined to this roster: custom/mod characters aren't guaranteed that mechanic, and a user
-    /// reported it leaking onto their mod character. Self-maintaining — a char prefix for a new character
-    /// auto-extends the roster. Ordinary universal prefixes (non-CharAffix) are NOT restricted here; they
-    /// still roll for every character, mod included.</summary>
-    private static readonly HashSet<string> VanillaRoster = BuildVanillaRoster();
-    private static HashSet<string> BuildVanillaRoster()
-    {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in All)
-            if (p.RequiredCharacter.Length > 0) set.Add(p.RequiredCharacter);
-        return set;
-    }
-
     private static bool CharacterMatches(Prefix p, string? character)
     {
-        if (p.RequiredCharacter.Length == 0)
-            // A universal char-reactive prefix (Quenched) is restricted to the known vanilla roster —
-            // mod characters can't roll it. Every other universal prefix stays truly universal.
-            return !p.CharAffix || (character != null && VanillaRoster.Contains(character));
+        // Universal (no RequiredCharacter) rolls for EVERY character, mod characters included — this now
+        // covers the Vigor family (Roused/Invigorated/Quenched/Bracing), which is deliberately cross-
+        // character: Vigor is a vanilla power that mod characters commonly build around. Character-gated
+        // prefixes roll only when the owner's CharacterModel Id.Entry matches (case-insensitive).
+        if (p.RequiredCharacter.Length == 0) return true;
         return character != null && string.Equals(p.RequiredCharacter, character, StringComparison.OrdinalIgnoreCase);
     }
 

@@ -626,7 +626,6 @@ internal static class SoloTest
             {
                 var expect = new (string name, string chr, bool penalty)[]
                 {
-                    ("Quenched",   "",            false),   // universal — vigor is cross-character
                     ("Cindered",   "IRONCLAD",    false),
                     ("Bloodforged","IRONCLAD",    false),
                     ("Gouging",    "IRONCLAD",    false),
@@ -671,7 +670,47 @@ internal static class SoloTest
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var p in PrefixTable.All)
                     if (!seen.Add(p.Name)) return $"duplicate prefix name '{p.Name}' in PrefixTable";
-                W("  21 wave-2 char affixes wired (Quenched universal + real Ironclad family + Undying), no name collisions ✓");
+                W("  20 wave-2 char affixes wired (Ironclad/Silent/Defect/Necrobinder/Regent family + Undying), no name collisions ✓");
+                return null;
+            });
+
+            // T19b — universal Vigor family (Quenched pulled out of the char-gated pool; sources added).
+            // All four are TRULY universal (roll for every character, mod included), sit in the Effects
+            // tab (non-CharAffix, effect prefixes), and carry full ko/en/zh notes.
+            Test("T19b vigor family universal", () =>
+            {
+                var vig = new (string name, string field)[]
+                {
+                    ("Roused", "start"), ("Invigorated", "turn"),
+                    ("Quenched", "str"), ("Bracing", "blk"),
+                    ("Rending", "vuln"), ("Withering", "weak"), ("Stoking", "energy"),
+                    ("Frenzied", "aura"), ("Waning", "curse"),
+                };
+                foreach (var (name, field) in vig)
+                {
+                    var p = PrefixTable.ByName(name);
+                    if (p == null) return $"{name}: missing from PrefixTable";
+                    if (p.CharAffix || p.RequiredCharacter.Length != 0)
+                        return $"{name}: not universal (CharAffix={p.CharAffix}, char='{p.RequiredCharacter}')";
+                    if (p.IsEnhance) return $"{name}: classified Enhance, expected an effect prefix";
+                    if (p.NoteKo.Length == 0 || p.NoteEn.Length == 0 || p.NoteZh.Length == 0)
+                        return $"{name}: missing note translation";
+                    bool ok = field switch
+                    {
+                        "start"  => p.StartVigor > 0,
+                        "turn"   => p.TurnVigor > 0,
+                        "str"    => p.VigorStrengthPct > 0,
+                        "blk"    => p.VigorBlockPct > 0,
+                        "vuln"   => p.VigorVulnPct > 0,
+                        "weak"   => p.VigorWeakPct > 0,
+                        "energy" => p.VigorEnergyPct > 0,
+                        "aura"   => p.VigorProcDoubler && p.VigorSelfDebuffPct > 0 && p.VigorStatDownPct > 0 && p.Mixed,
+                        "curse"  => p.VigorStrDownPct > 0 && p.Penalty,
+                        _        => false,
+                    };
+                    if (!ok) return $"{name}: expected field '{field}' set";
+                }
+                W("  vigor family: 2 sources + 5 reactors + 1 aura (Frenzied) + 1 curse (Waning), all universal ✓");
                 return null;
             });
 
@@ -754,11 +793,12 @@ internal static class SoloTest
 
             // T21 — Quenched (universal, vigor→strength) through the REAL consumption path: apply 200
             // Vigor, pay it down with the same negative PowerCmd.ModifyAmount VigorPower.AfterAttack
-            // uses → the AfterPowerAmountChanged patch must fire OnVigorConsumed (200 independent
-            // rolls at CharAffix.QuenchedChance — P(zero strength) is negligible at any sane rate).
+            // uses → the AfterPowerAmountChanged patch must fire OnVigorConsumed (200 independent rolls
+            // at Quenched's per-point rate — P(zero strength) is negligible at any sane rate).
             await TestAsync("T21 inject: Quenched vigor→strength", async () =>
             {
                 if (player?.Creature == null) return "no player creature";
+                int qpct = PrefixTable.ByName("Quenched")?.VigorStrengthPct ?? 0;
                 var relic = await Grant20("Quenched", penalty: false);
                 if (relic == null) return "forced grant failed";
                 try
@@ -770,7 +810,7 @@ internal static class SoloTest
                     await PowerCmd.ModifyAmount(ctx20, vigor, -200m, null, null);
                     await Task.Delay(800);
                     int str1 = (int)(player.Creature.GetPower<StrengthPower>()?.Amount ?? 0);
-                    W($"  consumed 200 vigor → strength {str0}→{str1} (expected ≈ +{(int)(200 * CharAffix.QuenchedChance)})");
+                    W($"  consumed 200 vigor → strength {str0}→{str1} (expected ≈ +{200 * qpct / 100})");
                     if (str1 <= str0) return "no Strength gained from 200 consumed Vigor";
                     return null;
                 }

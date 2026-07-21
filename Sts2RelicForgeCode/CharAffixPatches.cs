@@ -80,6 +80,8 @@ internal static class CharAffixPatches
                 }
                 else if (power is StrengthPower && owner.Side == CombatSide.Player && owner.Player != null)
                     await CharAffix.OnStrengthGained(choiceContext, owner.Player);     // Mirrored (owner-side attribution — relic-granted strength counts too)
+                else if (power is VigorPower && owner.Side == CombatSide.Player && owner.Player != null)
+                    await CharAffix.OnVigorGained(choiceContext, owner.Player, (int)amount);   // Surging (vigor-gain amplifier)
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char power hook failed: {e.Message}"); }
         }
@@ -500,6 +502,7 @@ internal static class CharAffixPatches
                 CharAffix.OnTurnEndUnstable(player);       // Unstable orb morph
                 CharAffix.OnTurnEndFamishedCheck(player);  // Famished arm
                 CharAffix.OnTurnEndTarnished(player);      // Tarnished star loss
+                CharAffix.OnTurnEndVigorConvert(player);   // Congealing/Evolving vigor conversion
             }
             catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] char flush hook failed: {e.Message}"); }
         }

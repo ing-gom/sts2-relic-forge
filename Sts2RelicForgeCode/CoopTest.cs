@@ -167,6 +167,7 @@ internal static class CoopTest
                     CustomPool.DisabledPrefixes.Clear();
                     foreach (var p in PrefixTable.Pool)
                         if (!p.Penalty && !p.IsFallback && p.Name != prefix) CustomPool.DisabledPrefixes.Add(p.Name);
+                    HostForgeConfig.InvalidateLock();   // TEST: re-snapshot so the mid-run pool edit applies NOW (prod locks at run start)
                     ForgeConfigBroadcaster.BroadcastIfHost();
                     await Task.Delay(2000);
                     run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, $"relic {relicId}", inCombat: false));
@@ -210,6 +211,7 @@ internal static class CoopTest
                 ForgeConfig.PrefixPool = probeSavedPool;
                 CustomPool.DisabledPrefixes.Clear();
                 foreach (var n in probeSavedDisabled) CustomPool.DisabledPrefixes.Add(n);
+                HostForgeConfig.InvalidateLock();
                 ForgeConfigBroadcaster.BroadcastIfHost();
                 await Task.Delay(1500);
             }
@@ -224,6 +226,7 @@ internal static class CoopTest
             // pool != Custom) so the JOIN can assert the arg-9 index codec end-to-end.
             CustomPool.DisabledPrefixes.Add("Keen");
             CustomPool.DisabledCurses.Add("Enfeebling");
+            HostForgeConfig.InvalidateLock();   // TEST: apply the enhance-only pool + custom sets to the locked snapshot now
             ForgeConfigBroadcaster.BroadcastIfHost();
             await Task.Delay(2500);
 
@@ -440,6 +443,7 @@ internal static class CoopTest
             CustomPool.DisabledPrefixes.Clear();
             foreach (var p in PrefixTable.Pool)
                 if (!p.Penalty && !p.IsFallback && p.Name != "Forging") CustomPool.DisabledPrefixes.Add(p.Name);
+            HostForgeConfig.InvalidateLock();
             ForgeConfigBroadcaster.BroadcastIfHost();
             await Task.Delay(2500);
             run.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(me, "relic whetstone", inCombat: false));
@@ -453,6 +457,7 @@ internal static class CoopTest
             ForgeConfig.PrefixPool = pool0;
             CustomPool.DisabledPrefixes.Clear();
             foreach (var n in dis0) CustomPool.DisabledPrefixes.Add(n);
+            HostForgeConfig.InvalidateLock();
             ForgeConfigBroadcaster.BroadcastIfHost();
             await Task.Delay(2500);
 

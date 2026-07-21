@@ -50,11 +50,22 @@ internal static class OverclockedMaxHpPatch
                 var pfx = PrefixTable.ByName(rec.Prefix);
                 if (pfx == null || pfx.StartMaxHpLoss <= 0) continue;
 
+                // NEVER fatal: only take Max HP that leaves at least 1 (at Max HP 1 there's nothing to take,
+                // so skip the reduction entirely). The per-turn ENERGY upside is applied separately in
+                // ForgeCombatAffixPatch and is unaffected, so the player still gets the benefit. MaxHp is
+                // replicated (same on both peers), so this clamp converges in co-op.
+                int loss = Math.Min(pfx.StartMaxHpLoss, (int)creature.MaxHp - 1);
+                if (loss <= 0)
+                {
+                    MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: Max HP at floor (1) — skipped the -{pfx.StartMaxHpLoss} loss; energy still applies ({relic.Id.Entry}).");
+                    continue;
+                }
+
                 relic.Flash();
                 // AWAITED in-order (not RunSafely): runs inside the synchronized turn-start action, same as
                 // PaperCutsPower's awaited LoseMaxHp — the co-op-safe path for a replicated Max-HP change.
-                await CreatureCmd.LoseMaxHp(ctx, creature, pfx.StartMaxHpLoss, isFromCard: false);
-                MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: -{pfx.StartMaxHpLoss} Max HP (permanent, awaited) on turn 1 ({relic.Id.Entry}).");
+                await CreatureCmd.LoseMaxHp(ctx, creature, loss, isFromCard: false);
+                MainFile.Logger.Info($"[{MainFile.ModId}] {pfx.Name}: -{loss} Max HP (permanent, awaited) on turn 1 ({relic.Id.Entry}).");
             }
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] Overclocked maxHp apply failed: {e.Message}"); }

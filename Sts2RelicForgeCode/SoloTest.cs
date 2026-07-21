@@ -685,6 +685,8 @@ internal static class SoloTest
                     ("Quenched", "str"), ("Bracing", "blk"),
                     ("Rending", "vuln"), ("Withering", "weak"), ("Stoking", "energy"),
                     ("Frenzied", "aura"), ("Waning", "curse"),
+                    ("Surging", "gainamp"), ("Wellspring", "regen"),
+                    ("Congealing", "tendblk"), ("Evolving", "tendstr"),
                 };
                 foreach (var (name, field) in vig)
                 {
@@ -704,13 +706,17 @@ internal static class SoloTest
                         "vuln"   => p.VigorVulnPct > 0,
                         "weak"   => p.VigorWeakPct > 0,
                         "energy" => p.VigorEnergyPct > 0,
-                        "aura"   => p.VigorProcDoubler && p.VigorSelfDebuffPct > 0 && p.VigorStatDownPct > 0 && p.Mixed,
-                        "curse"  => p.VigorStrDownPct > 0 && p.Penalty,
-                        _        => false,
+                        "aura"    => p.VigorProcDoubler && p.VigorSelfDebuffPct > 0 && p.VigorStatDownPct > 0 && p.Mixed,
+                        "curse"   => p.VigorStrDownPct > 0 && p.Penalty,
+                        "gainamp" => p.VigorGainAmplify,
+                        "regen"   => p.VigorRegenPct > 0,
+                        "tendblk" => p.VigorTurnEndBlock,
+                        "tendstr" => p.VigorTurnEndStrPct > 0,
+                        _         => false,
                     };
                     if (!ok) return $"{name}: expected field '{field}' set";
                 }
-                W("  vigor family: 2 sources + 5 reactors + 1 aura (Frenzied) + 1 curse (Waning), all universal ✓");
+                W("  vigor family: 3 sources + 6 reactors + gen-aura/proc-aura + 2 turn-end converters + curse (13), all universal ✓");
                 return null;
             });
 
@@ -762,6 +768,26 @@ internal static class SoloTest
                 return host;
             }
             async Task Drop20(RelicModel? r) { if (r != null) { try { await RelicCmd.Remove(r); } catch { /* cleanup only */ } } }
+
+            // Remove any relic the player already carries that projects a cross-relic AURA that would
+            // pollute a later test: a MetaAffix aura (Catalytic/Priming/Empowering — ProcDoubler/
+            // ProcBoostPct/ProcReroll) skews the MetaAffix.Doubled/Boost assertions, and Forging
+            // (PickupReforge) re-rolls ANOTHER relic's prefix on every obtain — so a stray Forging relic
+            // corrupts the very prefix a later test just granted (it turned T41's Finishing host into
+            // 'Renewing'). Both arise from the documented "an upstream non-forced roll persists" fragility.
+            // Clearing them first makes each downstream test measure ONLY its own grant.
+            async Task ClearForgeAuras()
+            {
+                if (player == null) return;
+                foreach (var r in new List<RelicModel>(player.Relics))
+                {
+                    var rec = RelicForgeService.RecordFor(r);
+                    if (rec == null || rec.Prefix.Length == 0) continue;
+                    var pfx = PrefixTable.ByName(rec.Prefix);
+                    if (pfx != null && (pfx.ProcDoubler || pfx.ProcReroll || pfx.ProcBoostPct > 0 || pfx.PickupReforge))
+                        await Drop20(r);
+                }
+            }
 
             // T20 — Preheated + Slippery through the REAL turn-1 dispatch: grant both, enter a fresh
             // fight, and read what the TurnStartPatch actually did (an orb appeared / a card was
@@ -1211,20 +1237,22 @@ internal static class SoloTest
                     // IsCompanionPrefix — the same flags the filter used — so the note-less keyword
                     // family (Retaining) leaked through both the filter AND the test; coop caught it).
                     var rng = new Rng(424242u);
-                    ForgeConfig.PrefixPool = 1;                 // enhance-only (vertical)
+                    // Pool settings are run-locked (production applies mid-run edits next run), so force a
+                    // re-snapshot after each change or PoolAllows would keep reading the run-start value.
+                    ForgeConfig.PrefixPool = 1; HostForgeConfig.InvalidateLock();   // enhance-only (vertical)
                     for (int i = 0; i < 60; i++)
                     {
                         var p = PrefixTable.Roll(rng, "IRONCLAD");
                         if (p.PowerPct == 0 && !p.Amplify) return $"enhance-only rolled non-scaling prefix '{p.Name}'";
                         if (p.NoteEn.Length > 0) return $"enhance-only rolled note-bearing prefix '{p.Name}'";
                     }
-                    ForgeConfig.PrefixPool = 2;                 // effects-only (horizontal)
+                    ForgeConfig.PrefixPool = 2; HostForgeConfig.InvalidateLock();   // effects-only (horizontal)
                     for (int i = 0; i < 60; i++)
                     {
                         var p = PrefixTable.Roll(rng, "IRONCLAD");
                         if (p.NoteEn.Length == 0 && !p.IsCompanionPrefix) return $"effects-only rolled numeric prefix '{p.Name}'";
                     }
-                    ForgeConfig.PrefixPool = 0;                 // all — sanity: both kinds appear in 80 rolls
+                    ForgeConfig.PrefixPool = 0; HostForgeConfig.InvalidateLock();   // all — sanity: both kinds appear in 80 rolls
                     bool sawNumeric = false, sawEffect = false;
                     for (int i = 0; i < 80; i++)
                     {
@@ -1235,7 +1263,7 @@ internal static class SoloTest
                     W("  pool filter: 60/60 enhance-only numeric, 60/60 effects-only companion, unfiltered mixed ✓");
                     return null;
                 }
-                finally { ForgeConfig.PrefixPool = saved; }
+                finally { ForgeConfig.PrefixPool = saved; HostForgeConfig.InvalidateLock(); }
             });
 
             // T27b — 'Enhance only' must NOT leak effect-style grafts (workshop bug report: a filter set to
@@ -1251,14 +1279,15 @@ internal static class SoloTest
                 int saved = ForgeConfig.PrefixPool;
                 try
                 {
-                    // (1) the gate predicate itself, across the three preset modes.
-                    ForgeConfig.PrefixPool = 1; if (PrefixTable.PoolAllowsAnyEffect()) return "enhance-only: PoolAllowsAnyEffect() should be false";
-                    ForgeConfig.PrefixPool = 0; if (!PrefixTable.PoolAllowsAnyEffect()) return "all: PoolAllowsAnyEffect() should be true";
-                    ForgeConfig.PrefixPool = 2; if (!PrefixTable.PoolAllowsAnyEffect()) return "effects-only: PoolAllowsAnyEffect() should be true";
+                    // (1) the gate predicate itself, across the three preset modes. (Pool is run-locked →
+                    //     re-snapshot after each edit, else PoolAllowsAnyEffect reads the run-start value.)
+                    ForgeConfig.PrefixPool = 1; HostForgeConfig.InvalidateLock(); if (PrefixTable.PoolAllowsAnyEffect()) return "enhance-only: PoolAllowsAnyEffect() should be false";
+                    ForgeConfig.PrefixPool = 0; HostForgeConfig.InvalidateLock(); if (!PrefixTable.PoolAllowsAnyEffect()) return "all: PoolAllowsAnyEffect() should be true";
+                    ForgeConfig.PrefixPool = 2; HostForgeConfig.InvalidateLock(); if (!PrefixTable.PoolAllowsAnyEffect()) return "effects-only: PoolAllowsAnyEffect() should be true";
 
                     // (2) behavioral: forge many relics under enhance-only with a guaranteed prefix — none may
                     //     gain a fallback graft, and every landed prefix must be a pure enhancement.
-                    ForgeConfig.PrefixPool = 1;
+                    ForgeConfig.PrefixPool = 1; HostForgeConfig.InvalidateLock();
                     int forged = 0;
                     for (uint s = 500; s < 640; s++)
                     {
@@ -1278,7 +1307,7 @@ internal static class SoloTest
 
                     // (3) positive control: the SAME relic under 'All' DOES still get fallback grafts, so the
                     //     zero above is real suppression, not an unreachable code path.
-                    ForgeConfig.PrefixPool = 0;
+                    ForgeConfig.PrefixPool = 0; HostForgeConfig.InvalidateLock();
                     bool sawFallbackUnderAll = false;
                     for (uint s = 500; s < 640 && !sawFallbackUnderAll; s++)
                     {
@@ -1292,7 +1321,7 @@ internal static class SoloTest
                     W($"  enhance-only: {forged} forges, 0 effect fallbacks; predicate off; 'All' control grafts ✓");
                     return null;
                 }
-                finally { ForgeConfig.PrefixPool = saved; }
+                finally { ForgeConfig.PrefixPool = saved; HostForgeConfig.InvalidateLock(); }
             });
 
             // T28 — CUSTOM pool (workshop request): with everything but Legendary disabled every roll
@@ -1310,6 +1339,7 @@ internal static class SoloTest
                     CustomPool.DisabledPrefixes.Clear();
                     foreach (var p in PrefixTable.Pool)
                         if (!p.Penalty && !p.IsFallback && p.Name != "Legendary") CustomPool.DisabledPrefixes.Add(p.Name);
+                    HostForgeConfig.InvalidateLock();   // custom sets are run-locked — re-snapshot to apply now
                     var rng = new Rng(777u);
                     for (int i = 0; i < 30; i++)
                     {
@@ -1318,6 +1348,7 @@ internal static class SoloTest
                     }
                     CustomPool.DisabledCurses.Clear();
                     foreach (var k in CustomPool.CurseBasis()) CustomPool.DisabledCurses.Add(k);
+                    HostForgeConfig.InvalidateLock();   // apply the disabled-curse set to the locked snapshot too
                     for (double r0 = 0.05; r0 < 1.0; r0 += 0.3)
                         if (SelfCurseTable.PickCombined(r0, "IRONCLAD") != "") return "all-curses-disabled still picked a curse";
                     string enc = CustomPool.Encode();
@@ -1332,6 +1363,7 @@ internal static class SoloTest
                     ForgeConfig.PrefixPool = saved;
                     CustomPool.DisabledPrefixes.Clear(); foreach (var n in savedP) CustomPool.DisabledPrefixes.Add(n);
                     CustomPool.DisabledCurses.Clear(); foreach (var n in savedC) CustomPool.DisabledCurses.Add(n);
+                    HostForgeConfig.InvalidateLock();
                 }
             });
             // T29 — Energy-gamble affixes (Immolating / Overclocked) through the REAL turn-1 dispatch
@@ -1424,6 +1456,7 @@ internal static class SoloTest
             await TestAsync("T31 inject: Catalytic proc-doubler aura", async () =>
             {
                 if (player == null) return "no player";
+                await ClearForgeAuras();   // an upstream roll may have left a doubler relic (T10 akabeko) on the player
                 var relic = await Grant20("Catalytic", penalty: false);
                 if (relic == null) return "forced grant failed (see log)";
                 try
@@ -1455,6 +1488,7 @@ internal static class SoloTest
             await TestAsync("T32 inject: Priming flat-boost aura + precedence", async () =>
             {
                 if (player == null) return "no player";
+                await ClearForgeAuras();
                 var prime = await Grant20("Priming", penalty: false);
                 if (prime == null) return "forced grant failed (Priming)";
                 RelicModel? cat = null;
@@ -1600,6 +1634,7 @@ internal static class SoloTest
             await TestAsync("T35 inject: Empowering re-roll (advantage) aura + precedence", async () =>
             {
                 if (player == null) return "no player";
+                await ClearForgeAuras();
                 var emp = await Grant20("Empowering", penalty: false);
                 if (emp == null) return "forced grant failed (Empowering)";
                 RelicModel? cat = null;
@@ -1899,6 +1934,7 @@ internal static class SoloTest
             await TestAsync("T41 inject: Regenerating + Preemptive + Finishing", async () =>
             {
                 if (run == null || player?.Creature == null) return "no run/player";
+                await ClearForgeAuras();   // a stray Forging (PickupReforge) aura would re-roll these grants' prefixes on obtain
                 r41a = await Grant20("Regenerating", penalty: false);
                 r41b = await Grant20("Finishing", penalty: false, secondSlot: true);
                 r41c = await Grant20("Preemptive", penalty: false, thirdSlot: true);
@@ -1927,8 +1963,10 @@ internal static class SoloTest
                 if (enemy == null) return "no enemy to kill for Finishing";
                 int b0 = self.Block;
                 await CreatureCmd.Damage(ctx20, enemy, enemy.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, self, null);
-                await Task.Delay(600);
-                int b1 = self.Block;
+                // Poll for the kill-block rather than a fixed delay — the death → KillGoldPatch → GainBlock
+                // chain settles a beat later, and under a heavy mod load 600ms wasn't always enough.
+                int b1 = b0;
+                for (int i = 0; i < 15 && b1 == b0; i++) { await Task.Delay(400); b1 = self.Block; }
                 W($"  Finishing: killed enemy → Block {b0}->{b1} (expected +3)");
                 if (b1 != b0 + 3) return $"Finishing: Block {b1}, expected {b0 + 3}";
                 return null;
@@ -2195,7 +2233,8 @@ internal static class SoloTest
                 try
                 {
                     // (a) knob 0 → zero curses, zero duds (a re-rolled boon), at any reforge count.
-                    ForgeConfig.CurseChance = 0.0;
+                    // CurseChance is run-locked (like PrefixPool) → re-snapshot so the knob applies mid-run.
+                    ForgeConfig.CurseChance = 0.0; HostForgeConfig.InvalidateLock();
                     int curses = 0, duds = 0, n = 0;
                     for (uint s = 200; s < 260; s++)
                     {
@@ -2211,7 +2250,7 @@ internal static class SoloTest
                     if (duds > 0) return $"CurseChance=0 produced {duds}/{n} duds (re-roll should land a boon)";
 
                     // (b) FIRST reforge (count 1) is the pity — no curse even at 100%.
-                    ForgeConfig.CurseChance = 1.0;
+                    ForgeConfig.CurseChance = 1.0; HostForgeConfig.InvalidateLock();
                     int firstCurses = 0;
                     for (uint s = 200; s < 260; s++)
                     {
@@ -2237,7 +2276,7 @@ internal static class SoloTest
                     W($"  curse: chance0 -> {curses}c/{duds}dud; first(pity) -> {firstCurses}c; 5th@100% -> {lateCurses}c / 60");
                     return null;
                 }
-                finally { ForgeConfig.CurseChance = saved; }
+                finally { ForgeConfig.CurseChance = saved; HostForgeConfig.InvalidateLock(); }
             });
 
             // T15 — CLEANSE (lowered cost + campfire cleanse option): assert the lowered cost curve
@@ -2272,12 +2311,12 @@ internal static class SoloTest
                 double savedCC = ForgeConfig.CurseChance;
                 try
                 {
-                    ForgeConfig.CurseChance = 1.0;   // pity ramps with count → a later reforge curses at 100%
+                    ForgeConfig.CurseChance = 1.0; HostForgeConfig.InvalidateLock();   // pity ramps with count → a later reforge curses at 100%
                     for (int c = 2; c <= 10 && !RelicForgeService.CanCleanse(relic); c++)
                         RelicForgeService.Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
                                                 guaranteePrefix: true, reforgeCount: c);
                 }
-                finally { ForgeConfig.CurseChance = savedCC; }
+                finally { ForgeConfig.CurseChance = savedCC; HostForgeConfig.InvalidateLock(); }
 
                 if (!RelicForgeService.CanCleanse(relic))
                 { W("  (no curse landed this seed — cleanse-logic step skipped; cost + option verified)"); return null; }

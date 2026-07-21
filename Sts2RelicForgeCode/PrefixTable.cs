@@ -180,6 +180,10 @@ internal sealed class Prefix
     public int  VigorSelfDebuffPct; // 활력 소모 시 N% 확률로 자신에게 손상/취약/약화 중 1 — Frenzied의 자체 저주(per-event)
     public int  VigorStatDownPct; // 활력 소모 시 N% 확률로 자신의 힘 -1 또는 민첩 -1 — Frenzied의 추가 저주(per-event)
     public int  VigorStrDownPct;  // 활력 소모 시 N% 확률로 자신의 힘 -1 — 저주 슬롯 전용(Waning, Penalty), per-event
+    public bool VigorGainAmplify; // AURA: 활력을 얻을 때마다 활력 +1 (턴당 3회 캡 — Surging)
+    public int  VigorRegenPct;    // 활력 1 소모마다 N% 확률로 재생 1 (Wellspring)
+    public bool VigorTurnEndBlock; // 턴 종료 시 안 쓴 활력 전부를 방어도로 전환 1:1 (Congealing)
+    public int  VigorTurnEndStrPct; // 턴 종료 시 안 쓴 활력 소모, 1당 N% 확률로 힘 1 (Evolving)
 
     // --- Fallback prefix (see RelicForgeService.Forge substitution + FallbackBuffPatch). NOT in the
     //     normal roll pool (PrefixTable.InPool excludes it): a magnitude prefix that rounded to NO
@@ -216,7 +220,9 @@ internal sealed class Prefix
                                      || StartVigor > 0 || TurnVigor > 0 || VigorStrengthPct > 0 || VigorBlockPct > 0
                                      || VigorVulnPct > 0 || VigorWeakPct > 0 || VigorEnergyPct > 0
                                      || VigorProcDoubler || VigorSelfDebuffPct > 0
-                                     || VigorStatDownPct > 0 || VigorStrDownPct > 0;
+                                     || VigorStatDownPct > 0 || VigorStrDownPct > 0
+                                     || VigorGainAmplify || VigorRegenPct > 0
+                                     || VigorTurnEndBlock || VigorTurnEndStrPct > 0;
 
     /// <summary>"Vertical" classification for the prefix-pool filter (<see cref="ForgeConfig.PrefixPool"/>):
     /// a prefix that ONLY scales the relic's own numbers. Flags alone under-count (keyword-family
@@ -718,6 +724,27 @@ internal static class PrefixTable
             NoteKo = "활력을 소모할 때 10% 확률로 자신의 힘 1이 감소한다",
             NoteEn = "When you consume Vigor, 10% chance to lose 1 Strength",
             NoteZh = "消耗活力时，有10%概率失去1点力量" },
+        // Vigor GENERATION amplifier (the missing role): boosts how much Vigor you gain — feeds both the
+        // sources above and any Vigor-heavy character's cards. Capped 3/turn (the Resonant idiom).
+        new Prefix { Name = "Surging", Ko = "공진의", Zh = "共振的", Weight = 5, VigorGainAmplify = true, Color = "#ff9a4d",
+            NoteKo = "활력을 얻을 때마다 활력 1을 추가로 얻는다 (턴당 3회)",
+            NoteEn = "Whenever you gain Vigor, gain 1 more (up to 3 times per turn)",
+            NoteZh = "每当你获得活力时，额外获得1点（每回合最多3次）" },
+        new Prefix { Name = "Wellspring", Ko = "샘솟는", Zh = "涌泉的", Weight = 6, VigorRegenPct = 20, Color = "#7ee0a0",
+            NoteKo = "활력이 소모될 때 소모량 1마다 20% 확률로 재생 1을 얻는다",
+            NoteEn = "When Vigor is consumed, each point consumed has a 20% chance to gain 1 Regen",
+            NoteZh = "活力被消耗时，每消耗1点有20%概率获得1点再生" },
+        // Turn-end CONVERSION (the Evolution axis — rewards NOT spending Vigor). Consuming Vigor here does
+        // NOT trigger the on-consume reactors (a suppression guard in CharAffix), by design — the leftover
+        // Vigor is spent by the conversion itself, not by an attack.
+        new Prefix { Name = "Congealing", Ko = "응결의", Zh = "凝结的", Weight = 5, VigorTurnEndBlock = true, Color = "#5a9fd4",
+            NoteKo = "턴 종료 시 사용하지 않은 활력을 모두 같은 양의 방어도로 전환한다",
+            NoteEn = "At the end of your turn, convert all unused Vigor into an equal amount of Block",
+            NoteZh = "回合结束时，将所有未使用的活力转化为等量的格挡" },
+        new Prefix { Name = "Evolving", Ko = "진화의", Zh = "进化的", Weight = 5, VigorTurnEndStrPct = 18, Color = "#c04dff",
+            NoteKo = "턴 종료 시 사용하지 않은 활력을 소모하고, 소모량 1마다 18% 확률로 힘 1을 얻는다",
+            NoteEn = "At the end of your turn, consume all unused Vigor; each point consumed has an 18% chance to grant 1 Strength",
+            NoteZh = "回合结束时，消耗所有未使用的活力，每消耗1点有18%概率获得1点力量" },
 
         // --- Ironclad (exhaust / vulnerable / HP-loss — the pool's measured identity:
         //     53 exhaust-family axis tags, 25 vulnerable, 13 HP-loss across his 87 cards) ---

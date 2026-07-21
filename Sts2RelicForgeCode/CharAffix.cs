@@ -137,6 +137,19 @@ internal static class CharAffix
     // exactly that echo (the _suppressChannel idiom). Reset each turn / combat.
     private static int _suppressStarGain;
 
+    // Surging (공진의) echo suppressor: the +1 Vigor it grants re-raises AfterPowerAmountChanged (a
+    // positive vigor gain), which would re-enter OnVigorGained forever; swallow exactly that echo.
+    private static int _suppressVigorGain;
+
+    // Turn-end conversion guard (Congealing / Evolving): while a turn-end converter is paying DOWN the
+    // leftover Vigor, the on-consume reactors (Quenched/Wellspring/…) must NOT fire — the Vigor is spent
+    // by the conversion itself, not by an attack (user decision). Set for the whole conversion task.
+    private static bool _suppressVigorReactors;
+
+    // Surging per-relic [turn, count] — the 3/turn cap on the vigor-gain amplifier.
+    private static readonly ConditionalWeakTable<RelicModel, int[]> VigorAmpCount = new();
+    public const int SurgingCapPerTurn = 3;
+
     // Depth of OrbCmd.Channel calls in flight (see ChannelBracketPatch). Channeling into a FULL queue
     // auto-evokes the oldest orb FIRST and enqueues the new one after (decompile-verified), so the
     // evoke hook sees a transiently non-full queue mid-channel. Reconcile skips those transients; the
@@ -157,10 +170,10 @@ internal static class CharAffix
     }
 
     /// <summary>New-combat reset (Hook.BeforeCombatStart): bump the epoch so per-combat state re-arms.</summary>
-    public static void OnCombatStart() { _combatEpoch++; _suppressChannel = 0; _channelDepth = 0; _suppressStarGain = 0; }
+    public static void OnCombatStart() { _combatEpoch++; _suppressChannel = 0; _channelDepth = 0; _suppressStarGain = 0; _suppressVigorGain = 0; _suppressVigorReactors = false; }
 
     /// <summary>Per-turn reset (Hook.AfterPlayerTurnStart): clear the echo suppressors.</summary>
-    public static void ResetTurn() { _suppressChannel = 0; _suppressStarGain = 0; }
+    public static void ResetTurn() { _suppressChannel = 0; _suppressStarGain = 0; _suppressVigorGain = 0; }
 
     private static int TurnOf(Player p) => p.PlayerCombatState?.TurnNumber ?? 0;
 
@@ -240,6 +253,9 @@ internal static class CharAffix
     public static async Task OnVigorConsumed(PlayerChoiceContext ctx, Player player, int consumed)
     {
         if (!Enabled || consumed <= 0 || player.Creature == null) return;
+        // Turn-end conversion (Congealing/Evolving) is spending the leftover Vigor itself — the on-consume
+        // reactors deliberately do NOT fire on it (they pay off ATTACK consumption only). User decision.
+        if (_suppressVigorReactors) return;
         int turn = TurnOf(player);
         // Frenzied aura (VigorProcDoubler) DOUBLES the per-point reactor rates — a vigor-specific,
         // curse-bundled cousin of Catalytic (which already doubles via MetaAffix). Read once from the
@@ -297,6 +313,14 @@ internal static class CharAffix
                         if (Roll(player, relic, turn) * 100f < pfx.VigorEnergyPct * mult) energy++;
                     if (energy > 0)
                         await FireAsync(relic, PlayerCmd.GainEnergy(energy, player));
+                }
+                else if (pfx.VigorRegenPct > 0)
+                {
+                    int gained = 0;
+                    for (int i = 0; i < consumed; i++)
+                        if (Roll(player, relic, turn) * 100f < pfx.VigorRegenPct * mult) gained++;
+                    if (gained > 0)
+                        await FireAsync(relic, PowerCmd.Apply<RegenPower>(ctx, player.Creature, gained, player.Creature, null));
                 }
                 else if (pfx.VigorSelfDebuffPct > 0)
                 {
@@ -365,6 +389,90 @@ internal static class CharAffix
         int pick = (int)(roll * foes.Count);
         if (pick >= foes.Count) pick = foes.Count - 1;
         return foes[pick];
+    }
+
+    /// <summary>Surging (공진의) — the player GAINED Vigor (positive VigorPower change); each Surging relic
+    /// grants +1 more Vigor, up to <see cref="SurgingCapPerTurn"/> times per turn. Echo-free: the +1 we
+    /// apply re-raises this same hook, swallowed by <see cref="_suppressVigorGain"/>. AWAITED (the hook
+    /// fires mid-command, like Mirrored's OnStrengthGained) so it stays co-op lockstep.</summary>
+    public static async Task OnVigorGained(PlayerChoiceContext ctx, Player player, int amount)
+    {
+        if (!Enabled || amount <= 0 || player.Creature == null) return;
+        if (_suppressVigorGain > 0) { _suppressVigorGain--; return; }   // swallow the echo of our own +1
+        int turn = TurnOf(player);
+        foreach (var relic in new List<RelicModel>(player.Relics))
+        {
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec == null || rec.Prefix.Length == 0) continue;
+            var pfx = PrefixTable.ByName(rec.Prefix);
+            if (pfx == null || !pfx.VigorGainAmplify) continue;
+            var box = VigorAmpCount.GetValue(relic, _ => new int[2]);
+            if (box[0] != turn) { box[0] = turn; box[1] = 0; }
+            if (box[1] >= SurgingCapPerTurn) continue;
+            box[1]++;
+            _suppressVigorGain++;   // consumed by the echo of the +1 below (this same hook, re-raised)
+            await FireAsync(relic, PowerCmd.Apply<VigorPower>(ctx, player.Creature, 1m, player.Creature, null));
+        }
+    }
+
+    /// <summary>Congealing (응결의) + Evolving (진화의) — turn end (Hook.BeforeFlush): convert the player's
+    /// UNUSED Vigor. Congealing → an equal amount of Block; Evolving → per-point 18% chance for Strength.
+    /// Both CONSUME the leftover Vigor. Runs as ONE detached task with <see cref="_suppressVigorReactors"/>
+    /// held for its whole duration, so the pay-down never triggers the on-consume reactors (user decision).
+    /// Deterministic (Evolving's roll is seeded; Congealing is exact) and networked (PowerCmd/CreatureCmd)
+    /// → co-op-safe, same detached-at-turn-end class as Tarnished's LoseStars.</summary>
+    public static void OnTurnEndVigorConvert(Player player)
+    {
+        if (!Enabled || player.Creature == null) return;
+        bool any = false;
+        foreach (var relic in player.Relics)
+        {
+            var rec = RelicForgeService.RecordFor(relic);
+            if (rec == null || rec.Prefix.Length == 0) continue;
+            var pfx = PrefixTable.ByName(rec.Prefix);
+            if (pfx != null && (pfx.VigorTurnEndBlock || pfx.VigorTurnEndStrPct > 0)) { any = true; break; }
+        }
+        if (any) TaskHelper.RunSafely(TurnEndVigorConvertAsync(player));
+    }
+
+    private static async Task TurnEndVigorConvertAsync(Player player)
+    {
+        var ctx = new BlockingPlayerChoiceContext();   // no prompt — plain power/block ops (the Vakuu idiom)
+        int turn = TurnOf(player);
+        _suppressVigorReactors = true;
+        try
+        {
+            foreach (var relic in new List<RelicModel>(player.Relics))
+            {
+                if (player.Creature == null) break;
+                var rec = RelicForgeService.RecordFor(relic);
+                if (rec == null || rec.Prefix.Length == 0) continue;
+                var pfx = PrefixTable.ByName(rec.Prefix);
+                if (pfx == null) continue;
+                var vigor = player.Creature.GetPower<VigorPower>();
+                int amt = vigor != null ? (int)vigor.Amount : 0;
+                if (amt <= 0) continue;   // no unused Vigor left to convert (an earlier converter took it)
+
+                if (pfx.VigorTurnEndBlock)
+                {
+                    relic.Flash();
+                    await PowerCmd.ModifyAmount(ctx, vigor, -amt, null, null);   // consume (reactors suppressed)
+                    await CreatureCmd.GainBlock(player.Creature, amt, ValueProp.Unpowered, null);
+                }
+                else if (pfx.VigorTurnEndStrPct > 0)
+                {
+                    int gained = 0;
+                    for (int i = 0; i < amt; i++)
+                        if (Roll(player, relic, turn) * 100f < pfx.VigorTurnEndStrPct) gained++;
+                    relic.Flash();
+                    await PowerCmd.ModifyAmount(ctx, vigor, -amt, null, null);   // consume ALL unused Vigor
+                    if (gained > 0)
+                        await PowerCmd.Apply<StrengthPower>(ctx, player.Creature, gained, player.Creature, null);
+                }
+            }
+        }
+        catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] vigor turn-end convert failed: {e.Message}"); }
+        finally { _suppressVigorReactors = false; }
     }
 
     // ============================ Ironclad ============================

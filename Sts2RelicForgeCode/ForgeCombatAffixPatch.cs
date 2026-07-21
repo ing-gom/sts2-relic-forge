@@ -354,8 +354,14 @@ internal static class ForgeCombatAffixPatch
         // OverclockedMaxHpPatch.
         if (turn == 1 && pfx.StartDamage > 0)
         {
-            relic.Flash(); flashed = true;
-            TaskHelper.RunSafely(CreatureCmd.Damage(ctx, creature, pfx.StartDamage, ValueProp.Unpowered, creature, null));
+            // NEVER lethal: a combat-start self-cost must leave the player alive — cap the hit so at least
+            // 1 HP remains (currentHp is the same on both peers at turn 1, so the clamp converges in co-op).
+            int dmg = Math.Min(pfx.StartDamage, (int)creature.CurrentHp - 1);
+            if (dmg > 0)
+            {
+                relic.Flash(); flashed = true;
+                TaskHelper.RunSafely(CreatureCmd.Damage(ctx, creature, dmg, ValueProp.Unpowered, creature, null));
+            }
         }
 
         if (pfx.TurnEnergy > 0)   // every turn

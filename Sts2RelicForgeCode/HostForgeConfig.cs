@@ -65,6 +65,12 @@ internal static class HostForgeConfig
             $"enemyForge {_lkEnemyForge}, custom {_lkDisabledPrefixes.Count}p/{_lkDisabledCurses.Count}c.");
     }
 
+    /// <summary>Test-only: drop the run-lock so the NEXT read re-snapshots from the live
+    /// <see cref="ForgeConfig"/>. Production locks forge settings at run start by design (mid-run edits
+    /// apply next run), so the self-test — which must exercise a pool change WITHIN one run — calls this
+    /// after each <c>ForgeConfig.PrefixPool</c>/CustomPool edit to make the change take effect immediately.</summary>
+    internal static void InvalidateLock() => _lockValid = false;
+
     /// <summary>Encode the RUN-LOCKED custom-pool sets for the host broadcast (so clients receive the
     /// locked snapshot, not the live edit sets).</summary>
     internal static string EncodeLockedPool()

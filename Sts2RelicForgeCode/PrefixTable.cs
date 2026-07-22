@@ -121,6 +121,8 @@ internal sealed class Prefix
     public int    StartPowerAmount; // how much of it
     // --- Kill / shop affixes ---
     public int  KillGold;      // 강탈의: gold gained each time an enemy is killed (see KillGoldPatch)
+    public bool SpreadDebuffsOnKill; // 전염의: kill a VULNERABLE enemy → its debuffs (Vuln/Weak/Frail/Poison)
+                                     //   jump to a random other living enemy at full amount (see ContagionKillPatch)
     public int  ShopTaxPct;    // 탐욕의 (curse): merchant prices are raised by this % while carried (see MerchantPricePatch)
     // --- Potion-use family (all fire from PotionBlockPatch on Hook.BeforePotionUsed) — a "potion meta" ---
     public int  PotionBlock;      // 연금의: Block gained on potion use
@@ -217,6 +219,7 @@ internal sealed class Prefix
                                      || StartPowerBoost > 0 || PotionBoost > 0
                                      || AttunedBlockPer > 0 || SecondWindBlock > 0 || PickupReforge
                                      || KillBlock > 0 || EnduringStr > 0 || FirstTurnDraw || ExecutePct > 0
+                                     || SpreadDebuffsOnKill
                                      || StartVigor > 0 || TurnVigor > 0 || VigorStrengthPct > 0 || VigorBlockPct > 0
                                      || VigorVulnPct > 0 || VigorWeakPct > 0 || VigorEnergyPct > 0
                                      || VigorProcDoubler || VigorSelfDebuffPct > 0
@@ -532,6 +535,13 @@ internal static class PrefixTable
             NoteKo = "적을 처치할 때마다 골드 3을 얻는다",
             NoteEn = "Gain 3 gold each time you kill an enemy",
             NoteZh = "每击杀一个敌人获得3金币" },
+        // Contagious (전염의): kill a VULNERABLE enemy and the debuffs it carried (Vulnerable / Weak / Frail /
+        // Poison) LEAP to a random other living enemy at full amount — the plague finds a new host, so the
+        // debuffs you invested aren't wasted when the target dies. See ContagionKillPatch (AfterDeath).
+        new Prefix { Name = "Contagious", Ko = "전염의", Zh = "传染的", Weight = 5, SpreadDebuffsOnKill = true, Color = "#8fbf4d",
+            NoteKo = "취약에 걸린 적을 처치하면, 그 적의 디버프(취약·약화·손상·중독)가 다른 무작위 적에게 전이된다",
+            NoteEn = "When you kill a Vulnerable enemy, its debuffs (Vulnerable, Weak, Frail, Poison) spread to a random other enemy",
+            NoteZh = "击杀处于易伤状态的敌人时，其减益（易伤/虚弱/脆弱/中毒）传播给另一个随机敌人" },
         new Prefix { Name = "Covetous", Ko = "탐욕의", Zh = "贪婪的", Weight = 6, Penalty = true, ShopTaxPct = 20, Color = "#b0554d",
             NoteKo = "상점 가격이 20% 오른다",
             NoteEn = "Merchant prices are 20% higher",

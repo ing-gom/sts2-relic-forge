@@ -2024,6 +2024,66 @@ internal static class SoloTest
                 W("  Enduring (지구전의) recognized: +1 Strength/turn from turn 5");
                 return null;
             });
+
+            // T41d — Contagious (전염의): killing a VULNERABLE enemy jumps its debuffs (Vuln/Weak/Poison) to a
+            // random surviving enemy, at full amount, through the REAL AfterDeath path (ContagionKillPatch).
+            // The target pick is random, but the SUM of a debuff across all OTHER living enemies is not — assert
+            // the delta of that sum (after − before the kill) equals what the victim carried. BowlbugsWeak spawns
+            // several bugs, so there is always a host to jump to.
+            RelicModel? r41e = null;
+            await TestAsync("T41d inject: Contagious debuff-spread on Vulnerable kill", async () =>
+            {
+                if (run == null || player?.Creature == null) return "no run/player";
+                r41e = await Grant20("Contagious", penalty: false);
+                if (r41e == null) return "forced grant failed (see log)";
+                var enc = ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                    ModelDb.GetId(typeof(MegaCrit.Sts2.Core.Models.Encounters.BowlbugsWeak)));
+                if (enc == null) return "BowlbugsWeak encounter not registered";
+                await run.EnterRoomDebug(MegaCrit.Sts2.Core.Rooms.RoomType.Monster, model: enc.ToMutable());
+                await Task.Delay(6000);
+                var cm = MegaCrit.Sts2.Core.Combat.CombatManager.Instance;
+                if (cm == null || !cm.IsInProgress) return "combat did not start";
+                var self = player.Creature;
+                var cs = self.CombatState;
+                if (cs == null || cs.HittableEnemies == null) return "no combat state / enemies";
+
+                var living = cs.HittableEnemies.Where(e => e != null && e.IsAlive).ToList();
+                if (living.Count < 2) return $"need >=2 enemies to spread (got {living.Count})";
+                var victim = living[0];
+
+                // Sum a debuff across every OTHER living enemy (the pool the plague can jump to).
+                decimal SumOthers(System.Func<MegaCrit.Sts2.Core.Entities.Creatures.Creature, decimal> read)
+                {
+                    decimal s = 0m;
+                    foreach (var e in cs.HittableEnemies)
+                        if (e != null && e != victim && e.IsAlive) s += read(e);
+                    return s;
+                }
+                decimal ReadV(MegaCrit.Sts2.Core.Entities.Creatures.Creature e) => e.GetPower<MegaCrit.Sts2.Core.Models.Powers.VulnerablePower>()?.Amount ?? 0m;
+                decimal ReadW(MegaCrit.Sts2.Core.Entities.Creatures.Creature e) => e.GetPower<MegaCrit.Sts2.Core.Models.Powers.WeakPower>()?.Amount ?? 0m;
+                decimal ReadP(MegaCrit.Sts2.Core.Entities.Creatures.Creature e) => e.GetPower<MegaCrit.Sts2.Core.Models.Powers.PoisonPower>()?.Amount ?? 0m;
+
+                // Load the victim with debuffs (the player applied them) and snapshot the survivors' baseline.
+                await PowerCmd.Apply<MegaCrit.Sts2.Core.Models.Powers.VulnerablePower>(ctx20, victim, 2m, self, null);
+                await PowerCmd.Apply<MegaCrit.Sts2.Core.Models.Powers.WeakPower>(ctx20, victim, 1m, self, null);
+                await PowerCmd.Apply<MegaCrit.Sts2.Core.Models.Powers.PoisonPower>(ctx20, victim, 3m, self, null);
+                await Task.Delay(300);
+                decimal vBefore = SumOthers(ReadV), wBefore = SumOthers(ReadW), pBefore = SumOthers(ReadP);
+
+                // Kill the Vulnerable victim → the debuffs should jump to a survivor. Poll: the spread settles a
+                // beat after death (AfterDeath → await original → apply chain), same as T41's Finishing.
+                await CreatureCmd.Damage(ctx20, victim, victim.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, self, null);
+                decimal vDelta = 0m;
+                for (int i = 0; i < 15 && vDelta < 2m; i++) { await Task.Delay(400); vDelta = SumOthers(ReadV) - vBefore; }
+                decimal wDelta = SumOthers(ReadW) - wBefore;
+                decimal pDelta = SumOthers(ReadP) - pBefore;
+                W($"  Contagious: killed Vulnerable victim → survivor debuff Δ Vuln={vDelta} Weak={wDelta} Poison={pDelta} (expected 2/1/3)");
+                if (vDelta != 2m) return $"Contagious: spread Vulnerable {vDelta}, expected 2";
+                if (wDelta != 1m) return $"Contagious: spread Weak {wDelta}, expected 1";
+                if (pDelta != 3m) return $"Contagious: spread Poison {pDelta}, expected 3";
+                return null;
+            });
+            await Drop20(r41e);
             }   // end InjectionBattery — invoked after T13 below
 
             // T11 — Rewind (皮皮倒带) mod compat: the reported bug is "rewinding turn 4 → turn 2 loses the

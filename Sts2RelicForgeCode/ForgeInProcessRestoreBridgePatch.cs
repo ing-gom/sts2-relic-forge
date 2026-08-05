@@ -39,7 +39,7 @@ internal static class ForgeInProcessRestoreBridgePatch
         {
             var live = RunManager.Instance?.State;
             if (live == null || __result == null || ReferenceEquals(live, __result)) return;
-            if (live.Rng.Seed != __result.Rng.Seed) return;   // different run — a real load, don't bridge
+            if (ForgeSeed.Of(live.Rng) != ForgeSeed.Of(__result.Rng)) return;   // different run — a real load, don't bridge
 
             // A CHECKPOINT (map-node) rewind reads a JSON save, which PRESERVES our __rf_* keys — so
             // ReforgeLoadCapturePatch + RunLoadReforgePatch already restore the checkpoint's OWN forge state

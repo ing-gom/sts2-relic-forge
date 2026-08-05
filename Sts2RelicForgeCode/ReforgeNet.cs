@@ -169,7 +169,7 @@ internal static class ReforgeNet
         // command (ApplyReforgeStepOnClient), but the initiator's campfire UI needs the outcome up
         // front to end its free reforge on a penalty. Both agree because both are the same function.
         var runState = player.RunState;
-        return RelicForgeService.PredictReforgeOutcome(relic, runState.Rng.Seed, relic.FloorAddedToDeck, nextCount,
+        return RelicForgeService.PredictReforgeOutcome(relic, ForgeSeed.Of(runState.Rng), relic.FloorAddedToDeck, nextCount,
                                                        character: CharAffix.TitleOf(player));
     }
 

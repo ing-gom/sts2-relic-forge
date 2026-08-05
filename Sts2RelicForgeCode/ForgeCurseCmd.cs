@@ -51,7 +51,7 @@ public class ForgeCurseCmd : AbstractConsoleCmd
         RelicModel relic = canonical.ToMutable();
         var rs = issuingPlayer.RunState;
         // Force a strong beneficial prefix so the rider is valid (penalty prefixes never carry it).
-        RelicForgeService.Forge(relic, rs.Rng.Seed, rs.TotalFloor, PrefixTable.ByName("Legendary"));
+        RelicForgeService.Forge(relic, ForgeSeed.Of(rs.Rng), rs.TotalFloor, PrefixTable.ByName("Legendary"));
 
         var rec = RelicForgeService.RecordFor(relic);
         // Forge may have rolled its OWN curse (self-curse) — clear it so the forced enemy-rider is the
@@ -81,7 +81,7 @@ public class ForgeCurseCmd : AbstractConsoleCmd
         {
             if (i >= pool.Count) break;
             RelicModel relic = pool[i++].ToMutable();
-            RelicForgeService.Forge(relic, rs.Rng.Seed, rs.TotalFloor, PrefixTable.ByName("Legendary"));
+            RelicForgeService.Forge(relic, ForgeSeed.Of(rs.Rng), rs.TotalFloor, PrefixTable.ByName("Legendary"));
             var rec = RelicForgeService.RecordFor(relic);
             if (rec != null) { rec.EnemyRider = true; rec.EnemyRiderSuffix = sfx.En; rec.SelfCurse = ""; }
             TaskHelper.RunSafely(RelicCmd.Obtain(relic, player));

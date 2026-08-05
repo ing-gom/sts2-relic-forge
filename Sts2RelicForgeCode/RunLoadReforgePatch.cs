@@ -26,7 +26,7 @@ internal static class RunLoadReforgePatch
     {
         try
         {
-            uint seed = runState.Rng.Seed;
+            uint seed = ForgeSeed.Of(runState.Rng);
             int count = 0;
             foreach (var player in runState.Players)
             {

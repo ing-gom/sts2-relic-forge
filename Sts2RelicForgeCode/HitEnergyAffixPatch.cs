@@ -44,7 +44,7 @@ internal static class HitEnergyAffixPatch
             if (player == null) return;                          // only the player's own creature
             if (dealer != null && dealer.Player != null) return; // enemy-sourced only (ignore self/ally HP loss)
 
-            uint seed = player.RunState?.Rng.Seed ?? 0;
+            uint seed = ForgeSeed.Of(player.RunState?.Rng, 0);
             int turn = player.PlayerCombatState?.TurnNumber ?? 0;
             int hp = player.Creature?.CurrentHp ?? 0;            // post-hit HP → distinct per unblocked hit
 
@@ -56,8 +56,8 @@ internal static class HitEnergyAffixPatch
                 var pfx = PrefixTable.ByName(rec.Prefix);
                 if (pfx == null || pfx.HitEnergyPercent <= 0) continue;
 
-                var rng = new Rng((uint)((int)seed + turn * 48611 + hp * 769 + result.UnblockedDamage * 919
-                                         + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+                var rng = RngCompat.Create((uint)((int)seed + turn * 48611 + hp * 769 + result.UnblockedDamage * 919
+                                         + ForgeHash.Of(relic.Id.Entry)));
                 if (rng.NextFloat() * 100f >= MetaAffix.ChancePct(pfx.HitEnergyPercent, player)) continue;   // Catalytic aura doubles it
 
                 relic.Flash();

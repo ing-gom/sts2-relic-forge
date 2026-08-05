@@ -395,7 +395,13 @@ internal static class CharAffixPatches
         {
             Type[][] candidates =
             {
-                // richest first (current SDK) → progressively older / DamageVar variants
+                // richest first (current SDK) → progressively older / DamageVar variants.
+                // v0.110 added a CardPlay tail to every batch overload AND dropped the older
+                // (…, Creature, CardModel) shape, so without these two entries the probe silently
+                // fell through to the thin 5-arg wrapper — which is not the funnel, so direct
+                // callers of the rich overload would stop raising the lethal-summon path.
+                new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(decimal), typeof(ValueProp), typeof(Creature), typeof(CardModel), typeof(CardPlay) },
+                new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(DamageVar), typeof(Creature), typeof(CardModel), typeof(CardPlay) },
                 new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(decimal), typeof(ValueProp), typeof(Creature), typeof(CardModel) },
                 new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(decimal), typeof(ValueProp), typeof(Creature) },
                 new[] { typeof(PlayerChoiceContext), typeof(IEnumerable<Creature>), typeof(DamageVar), typeof(Creature), typeof(CardModel) },

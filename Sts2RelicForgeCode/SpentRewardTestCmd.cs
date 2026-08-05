@@ -55,7 +55,7 @@ public class SpentRewardTestCmd : AbstractConsoleCmd
                     "No owned one-time reward relic, and NeowsTalisman isn't in ModelDb. Try `forge lost_coffer` then `spenttest lost_coffer`.");
             RelicModel granted = canonical.ToMutable();
             var rs = issuingPlayer.RunState;
-            RelicForgeService.Forge(granted, rs.Rng.Seed, rs.TotalFloor, PrefixTable.ByName("Legendary"));
+            RelicForgeService.Forge(granted, ForgeSeed.Of(rs.Rng), rs.TotalFloor, PrefixTable.ByName("Legendary"));
             return new CmdResult(RelicCmd.Obtain(granted, issuingPlayer), success: true,
                 "Granted a forged NeowsTalisman (its one-time effect fired). Run `spenttest` again to verify the reforge note.");
         }

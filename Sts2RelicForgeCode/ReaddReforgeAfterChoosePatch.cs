@@ -67,33 +67,42 @@ internal static class ReaddReforgeAfterChoosePatch
                     if (player != null
                         && sync.GetOptionsForPlayer(player) is List<RestSiteOption> opts)
                     {
-                        bool changed = false;
+                        // DECIDE FIRST, MUTATE AFTER. Re-opening a completed rest site (below) and then
+                        // adding nothing would leave it open with an empty option list — and room exit
+                        // awaits that completion source, so it would hang forever. Both membership tests
+                        // key on the option TYPE (RestSiteReforgeSupport.Has), not List.Contains: Contains
+                        // goes through RestSiteOption.Equals (OptionId + Owner), which only recognizes the
+                        // instance we happen to hold — a stale instance from an earlier Generate pass, or
+                        // one added by a second copy of this mod, reads as "not present" and we would
+                        // append a duplicate button.
 
-                        // Re-add REFORGE (free + repeatable). Membership keys on HasReforgeable (replicated
-                        // → identical on all clients); its per-visit "ended" state only greys the button.
-                        if (RestSiteReforgeSupport.ByPlayer.TryGetValue(player.NetId, out var reforge)
+                        // REFORGE is free + repeatable. Membership keys on HasReforgeable (replicated →
+                        // identical on all clients); its per-visit "ended" state only greys the button.
+                        bool addReforge = RestSiteReforgeSupport.ByPlayer.TryGetValue(player.NetId, out var reforge)
                             && RestSiteReforgeSupport.HasReforgeable(player)
-                            && !opts.Contains(reforge))
-                        {
-                            opts.Add(reforge);
-                            changed = true;
-                        }
+                            && !RestSiteReforgeSupport.Has<ReforgeRestSiteOption>(opts);
 
-                        // Re-add CLEANSE (one per visit). Membership keys on HasCleansable (replicated); its
+                        // CLEANSE is one per visit. Membership keys on HasCleansable (replicated); its
                         // per-visit "used" state only greys the button, so the lists can't diverge.
-                        if (RestSiteReforgeSupport.CleanseByPlayer.TryGetValue(player.NetId, out var cleanse)
+                        bool addCleanse = RestSiteReforgeSupport.CleanseByPlayer.TryGetValue(player.NetId, out var cleanse)
                             && RestSiteReforgeSupport.HasCleansable(player)
-                            && !opts.Contains(cleanse))
-                        {
-                            opts.Add(cleanse);
-                            changed = true;
-                        }
+                            && !RestSiteReforgeSupport.Has<CleanseRestSiteOption>(opts);
 
-                        // Runs on every client for this player, so all copies of the list stay identical
-                        // (index-based selection therefore stays consistent). Only refresh the button UI
-                        // on the client actually viewing this player's rest site.
-                        if (changed && LocalContext.IsMe(player))
-                            NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
+                        // v0.110+ COMPLETES a rest site the moment Heal/Smith empties its option list, and
+                        // then BOTH clicking a re-added option and walking away throw. Re-open it before
+                        // putting anything back; if that fails, re-add nothing — losing the repeatable
+                        // reforge for this campfire beats faulting the room. See RestSiteCompletion.
+                        if ((addReforge || addCleanse) && RestSiteCompletion.Reopen(sync, opts))
+                        {
+                            if (addReforge) opts.Add(reforge!);
+                            if (addCleanse) opts.Add(cleanse!);
+
+                            // Runs on every client for this player, so all copies of the list stay identical
+                            // (index-based selection therefore stays consistent). Only refresh the button UI
+                            // on the client actually viewing this player's rest site.
+                            if (LocalContext.IsMe(player))
+                                NRestSiteRoom.Instance?.CallDeferred(NRestSiteRoom.MethodName.UpdateRestSiteOptions);
+                        }
                     }
                 }
                 catch (Exception e)

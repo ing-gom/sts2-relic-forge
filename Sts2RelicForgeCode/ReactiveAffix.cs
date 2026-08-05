@@ -158,7 +158,7 @@ internal static class ReactiveAffix
     private static Task DealDamage(PlayerChoiceContext ctx, Player player, Creature enemy, int amount)
     {
         if (ctx == null || enemy == null || player.Creature == null || amount <= 0) return Task.CompletedTask;
-        return CreatureCmd.Damage(ctx, enemy, amount,
-            ValueProp.Unblockable | ValueProp.Unpowered | ValueProp.SkipHurtAnim, player.Creature, null);
+        return ForgeDamage.Deal(ctx, enemy, amount,
+            ValueProp.Unblockable | ValueProp.Unpowered | ValueProp.SkipHurtAnim, player.Creature);
     }
 }

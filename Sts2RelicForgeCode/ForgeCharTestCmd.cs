@@ -80,7 +80,7 @@ public class ForgeCharTestCmd : AbstractConsoleCmd
             return new CmdResult(success: false, $"Only {hosts.Count} eligible hosts for {prefixes.Count} prefixes.");
 
         var runState = issuingPlayer.RunState;
-        uint seed = runState.Rng.Seed;
+        uint seed = ForgeSeed.Of(runState.Rng);
         int floor = runState.TotalFloor;
 
         var plan = new List<(RelicModel host, Prefix pfx)>();

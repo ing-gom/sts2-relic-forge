@@ -183,8 +183,8 @@ internal static class CharAffix
         var box = Occ.GetValue(relic, _ => new int[2]);
         if (box[0] != turn) { box[0] = turn; box[1] = 0; }
         int occ = box[1]++;
-        uint seed = player.RunState.Rng.Seed;
-        var rng = new Rng((uint)((int)seed + turn * 24107 + StringHelper.GetDeterministicHashCode(relic.Id.Entry) + occ * 6151));
+        uint seed = ForgeSeed.Of(player.RunState.Rng);
+        var rng = RngCompat.Create((uint)((int)seed + turn * 24107 + ForgeHash.Of(relic.Id.Entry) + occ * 6151));
         float raw = rng.NextFloat();
         float raw2 = rng.NextFloat();   // a second independent roll — used only by Empowering (advantage)
         // Meta auras ([[MetaAffix]]): AdjustRoll transforms the roll so every `Roll() < chance` site fires at the

@@ -72,7 +72,7 @@ public class ForgeUndyingTestCmd : AbstractConsoleCmd
 
             // 1) force-forge an Undying relic onto the player (same idiom as SoloTest.Grant20).
             RelicModel host = ModelDb.Relic<Anchor>().ToMutable();
-            RelicForgeService.Forge(host, rs.Rng.Seed, rs.TotalFloor, forced: PrefixTable.ByName("Undying"));
+            RelicForgeService.Forge(host, ForgeSeed.Of(rs.Rng), rs.TotalFloor, forced: PrefixTable.ByName("Undying"));
             var rec = RelicForgeService.RecordFor(host);
             if (rec != null) { rec.EnemyRider = false; rec.EnemyRiderSuffix = ""; if (rec.SelfCurse.Length > 0) rec.SelfCurse = ""; }
             await RelicCmd.Obtain(host, player);
@@ -98,7 +98,7 @@ public class ForgeUndyingTestCmd : AbstractConsoleCmd
             if (lethal)
             {
                 Log("dealing 1 unblocked damage while doomed → the deferred death should fire…");
-                await CreatureCmd.Damage(ctx, body, 1m, ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                await ForgeDamage.Deal(ctx, body, 1m, ValueProp.Unblockable | ValueProp.Unpowered, dealer: null);
                 Log($"after 1 dmg: alive={body.IsAlive} (expected dead)");
                 Log(body.IsAlive ? "FAIL: still alive after HP loss while doomed."
                                  : "OK ✓ died on HP loss while doomed (유예 소진).");

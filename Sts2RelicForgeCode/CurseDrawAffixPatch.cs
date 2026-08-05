@@ -56,7 +56,7 @@ internal static class CurseDrawAffixPatch
             if (player?.Creature == null) return;
 
             int turn = player.PlayerCombatState?.TurnNumber ?? 0;
-            uint seed = player.RunState.Rng.Seed;
+            uint seed = ForgeSeed.Of(player.RunState.Rng);
 
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
@@ -72,7 +72,7 @@ internal static class CurseDrawAffixPatch
                 box[1] = 1;
 
                 // Deterministic per (seed, turn, relic) coin flip: Strength or Dexterity.
-                var rng = new Rng((uint)((int)seed + turn * 60961 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+                var rng = RngCompat.Create((uint)((int)seed + turn * 60961 + ForgeHash.Of(relic.Id.Entry)));
                 bool dex = rng.NextFloat() < 0.5f;
 
                 relic.Flash();

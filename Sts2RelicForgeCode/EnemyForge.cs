@@ -370,7 +370,7 @@ internal static class EnemyForge
     /// <summary>Re-apply recurring buffs (Frenzied Strength, Regen…) on forged enemies each turn, with any per-turn chance.</summary>
     public static void RunPeriodic(ICombatState combatState, PlayerChoiceContext ctx, Player player, int turn)
     {
-        uint seed = player.RunState?.Rng.Seed ?? 0;
+        uint seed = ForgeSeed.Of(player.RunState?.Rng, 0);
         int floor = player.RunState?.TotalFloor ?? 0;
         foreach (var enemy in combatState.HittableEnemies)
         {
@@ -382,7 +382,7 @@ internal static class EnemyForge
                 if (p.Period <= 0 || turn % p.Period != 0) continue;
                 if (p.Chance > 0)   // seed-fixed per-turn roll (deterministic / MP-safe)
                 {
-                    var rng = new Rng((uint)((int)seed + floor * 7919 + turn * 48611 + i * 104729));
+                    var rng = RngCompat.Create((uint)((int)seed + floor * 7919 + turn * 48611 + i * 104729));
                     if (rng.NextFloat() >= p.Chance) continue;
                 }
                 try { TaskHelper.RunSafely(p.Apply(ctx, enemy, p.Amount)); }

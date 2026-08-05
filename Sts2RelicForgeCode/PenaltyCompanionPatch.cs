@@ -53,7 +53,7 @@ internal static class PenaltyTurnPatch
         {
             int turn = player.PlayerCombatState?.TurnNumber ?? 0;
             if (turn <= 0) return;
-            uint seed = player.RunState.Rng.Seed;
+            uint seed = ForgeSeed.Of(player.RunState.Rng);
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
                 var rec = RelicForgeService.RecordFor(relic);
@@ -86,7 +86,7 @@ internal static class PenaltyTurnPatch
                         break;
                     }
                     case "Fickle":
-                        var rng = new Rng((uint)((int)seed + turn * 48611 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+                        var rng = RngCompat.Create((uint)((int)seed + turn * 48611 + ForgeHash.Of(relic.Id.Entry)));
                         if (rng.NextFloat() < MetaAffix.Chance(0.25f, player))   // Catalytic aura doubles curse procs too
                         {
                             int idx = (int)(rng.NextFloat() * FickleDebuffs.Length);

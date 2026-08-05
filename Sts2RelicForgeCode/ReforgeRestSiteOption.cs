@@ -167,6 +167,26 @@ internal static class RestSiteReforgeSupport
 
     public static bool HasCleansable(Player player) => Cleansable(player).Any();
 
+    /// <summary>True if <paramref name="opts"/> already holds one of OUR rest options of type
+    /// <typeparamref name="T"/>. Matches on the runtime TYPE, never on <c>List.Contains</c>: that
+    /// compares with <c>RestSiteOption.Equals</c> (OptionId + Owner), so it only recognizes the
+    /// instance we happen to be holding — a second copy of this mod, or a stale instance left by an
+    /// earlier Generate pass, slips straight past it. Type identity is the property we actually
+    /// depend on ("is one of ours already in this list"), and it holds across game versions.</summary>
+    public static bool Has<T>(IList<RestSiteOption> opts) where T : RestSiteOption
+    {
+        for (int i = 0; i < opts.Count; i++)
+            if (opts[i] is T) return true;
+        return false;
+    }
+
+    /// <summary>Strip every option this mod added from <paramref name="opts"/>, leaving the game's own
+    /// (and other mods') options untouched — the dedupe half of the idempotent add in
+    /// <see cref="RestSiteReforgeOptionPatch"/>. Deterministic from the list contents alone, so co-op
+    /// peers stay index-identical.</summary>
+    public static void RemoveOurs(List<RestSiteOption> opts)
+        => opts.RemoveAll(o => o is ReforgeRestSiteOption or CleanseRestSiteOption);
+
     private static string Localize(string ko, string zh, string en)
     {
         string lang = LocManager.Instance?.Language ?? "";

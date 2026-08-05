@@ -97,14 +97,14 @@ internal static class ForgeReplicaSyncPatch
                 {
                     // Authoritative restore: identity + curse verbatim from the descriptor, numeric deltas
                     // recomputed deterministically (rebuilt instances are fresh = no record, so this applies).
-                    RelicForgeService.RestoreForged(r, s.Desc, __instance.RunState.Rng.Seed, r.FloorAddedToDeck,
+                    RelicForgeService.RestoreForged(r, s.Desc, ForgeSeed.Of(__instance.RunState.Rng), r.FloorAddedToDeck,
                                                     s.Count, s.Cleansed, s.Gred, CharAffix.TitleOf(__instance));
                 }
                 else
                 {
                     // No descriptor (count/cleanse-only state) — seed re-derive, same as the legacy
                     // ReconcileToHost branch.
-                    RelicForgeService.Forge(r, __instance.RunState.Rng.Seed, r.FloorAddedToDeck,
+                    RelicForgeService.Forge(r, ForgeSeed.Of(__instance.RunState.Rng), r.FloorAddedToDeck,
                                             reforgeCount: s.Count, guaranteePrefix: s.Count > 0,
                                             character: CharAffix.TitleOf(__instance), gaugeReduction: s.Gred);
                     if (s.Cleansed) RelicForgeService.ApplyCleanse(r);

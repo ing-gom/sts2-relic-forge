@@ -41,7 +41,7 @@ public class ForgeFallbackTestCmd : AbstractConsoleCmd
             return new CmdResult(success: false, "No active player — start a run first.");
 
         var runState = issuingPlayer.RunState;
-        uint seed = runState.Rng.Seed;
+        uint seed = ForgeSeed.Of(runState.Rng);
         int floor = runState.TotalFloor;
 
         // Distinct benign host TYPES — the fallback effect is host-independent, so any relic works.

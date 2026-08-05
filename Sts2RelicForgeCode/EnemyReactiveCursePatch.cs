@@ -78,10 +78,10 @@ internal static class EnemyReactiveCursePatch
                     var self = target.Player.Creature;
                     if (self == null) return;
                     // Deterministic per-hit roll from synced state (post-hit player HP strictly decreases → distinct).
-                    uint seed = target.Player.RunState?.Rng.Seed ?? 0;
+                    uint seed = ForgeSeed.Of(target.Player.RunState?.Rng, 0);
                     int turn = target.Player.PlayerCombatState?.TurnNumber ?? 0;
-                    var rng = new Rng((uint)((int)seed + turn * 40129 + target.CurrentHp * 769 + result.UnblockedDamage * 733
-                                             + StringHelper.GetDeterministicHashCode(dealer.Name ?? "")));
+                    var rng = RngCompat.Create((uint)((int)seed + turn * 40129 + target.CurrentHp * 769 + result.UnblockedDamage * 733
+                                             + ForgeHash.Of(dealer.Name ?? "")));
                     if (rng.NextFloat() >= 0.5f) return;                    // 50% miss
                     int pick = (int)(rng.NextFloat() * Debuffs.Length);
                     switch (pick >= Debuffs.Length ? Debuffs.Length - 1 : pick)

@@ -51,7 +51,7 @@ public class ForgeSelfCurseCmd : AbstractConsoleCmd
         RelicModel relic = canonical.ToMutable();
         var rs = issuingPlayer.RunState;
         // Force a strong beneficial prefix so the relic is a normal (non-penalty) host for the curse.
-        RelicForgeService.Forge(relic, rs.Rng.Seed, rs.TotalFloor, PrefixTable.ByName("Legendary"));
+        RelicForgeService.Forge(relic, ForgeSeed.Of(rs.Rng), rs.TotalFloor, PrefixTable.ByName("Legendary"));
 
         var rec = RelicForgeService.RecordFor(relic);
         // Forge may have rolled its OWN curse (enemy-rider) — clear it so the forced curse is the only
@@ -95,7 +95,7 @@ public class ForgeSelfCurseCmd : AbstractConsoleCmd
         {
             if (i >= pool.Count) break;
             RelicModel relic = pool[i++].ToMutable();
-            RelicForgeService.Forge(relic, rs.Rng.Seed, rs.TotalFloor, PrefixTable.ByName("Legendary"));
+            RelicForgeService.Forge(relic, ForgeSeed.Of(rs.Rng), rs.TotalFloor, PrefixTable.ByName("Legendary"));
             var rec = RelicForgeService.RecordFor(relic);
             if (rec != null) { rec.SelfCurse = key; rec.EnemyRider = false; rec.EnemyRiderSuffix = ""; }
             TaskHelper.RunSafely(RelicCmd.Obtain(relic, player));

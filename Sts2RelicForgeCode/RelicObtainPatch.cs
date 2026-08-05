@@ -63,7 +63,7 @@ internal static class RelicObtainPatch
                 int rf = RelicForgeService.TakePendingReforgeCount(relic);
                 bool cleansed = RelicForgeService.TakePendingCleansed(relic);
                 int gred = RelicForgeService.TakePendingGaugeReduction(relic);
-                if (RelicForgeService.RestoreForged(relic, pendingDesc!, runState.Rng.Seed, runState.TotalFloor,
+                if (RelicForgeService.RestoreForged(relic, pendingDesc!, ForgeSeed.Of(runState.Rng), runState.TotalFloor,
                         rf, cleansed, gred, CharAffix.TitleOf(player)) != null)
                     MainFile.Logger.Info($"[{MainFile.ModId}] inherited forge on {relic.Id.Entry} [{pendingDesc}]");
             }
@@ -71,7 +71,7 @@ internal static class RelicObtainPatch
             {
                 // Pass the obtaining player's character explicitly — the relic isn't added yet, so
                 // relic.Owner is still null and the roll can't derive the character on its own.
-                string? summary = RelicForgeService.Forge(relic, runState.Rng.Seed, runState.TotalFloor,
+                string? summary = RelicForgeService.Forge(relic, ForgeSeed.Of(runState.Rng), runState.TotalFloor,
                                                           character: CharAffix.TitleOf(player));
                 if (summary != null)
                     MainFile.Logger.Info($"[{MainFile.ModId}] forged {summary}");

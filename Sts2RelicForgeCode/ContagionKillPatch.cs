@@ -89,11 +89,11 @@ internal static class ContagionKillPatch
 
             // Deterministic target pick from synced state (both peers seed identically at this death).
             var first = players[0];
-            uint baseSeed = first?.RunState?.Rng.Seed ?? 0;
+            uint baseSeed = ForgeSeed.Of(first?.RunState?.Rng, 0);
             int turn = first?.PlayerCombatState?.TurnNumber ?? 0;
-            var rng = new Rng((uint)((int)baseSeed + turn * 47189
+            var rng = RngCompat.Create((uint)((int)baseSeed + turn * 47189
                                      + hosts.Count * 769
-                                     + StringHelper.GetDeterministicHashCode(creature.Name ?? "")));
+                                     + ForgeHash.Of(creature.Name ?? "")));
             var target = ForgeCombat.PickOne(hosts, rng);
             if (target == null) return;
 

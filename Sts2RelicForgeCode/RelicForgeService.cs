@@ -274,7 +274,7 @@ internal static class RelicForgeService
     /// <summary>The base per-relic grade seed, matching the game's own per-relic RNG idiom
     /// (runState.Rng.Seed + TotalFloor + hash(id), see decompile ~line 291714).</summary>
     private static uint GradeSeed(uint runSeed, int floor, string relicId)
-        => (uint)((int)runSeed + floor + StringHelper.GetDeterministicHashCode(relicId));
+        => (uint)((int)runSeed + floor + ForgeHash.Of(relicId));
 
     // splitmix32 finalizer (same as Sts2RngFix.Mix): every input bit affects every output bit, so
     // consecutive reforge counts map to unrelated grades instead of the correlated drift a linear
@@ -461,7 +461,12 @@ internal static class RelicForgeService
             return cached[2];                       // unchanged since last compute — return the memoized fill
 
         var owner = relic.Owner as Player;
-        uint runSeed = owner?.RunState.Rng.Seed ?? RunManager.Instance?.State?.Rng.Seed ?? 0;
+        // Was `owner?.RunState.Rng.Seed ?? RunManager.Instance?.State?.Rng.Seed ?? 0` — the ??-chain
+        // only branched on `owner` being null, so it becomes a plain conditional now that the seed
+        // read is a non-nullable uint.
+        uint runSeed = owner != null
+            ? ForgeSeed.Of(owner.RunState.Rng)
+            : ForgeSeed.Of(RunManager.Instance?.State?.Rng, 0);
         int floor = relic.FloorAddedToDeck;
         string? character = CharAffix.TitleOf(owner);
         string relicId = relic.Id.Entry;
@@ -474,7 +479,7 @@ internal static class RelicForgeService
             else
             {
                 // Seeded 5–30 increment for step k, from a derived stream (never touches the grade rng).
-                var rng = new Rng(SplitMix32(GradeSeed(runSeed, floor, relicId) + (uint)k * 0x85EBCA6Bu + 0x27D4EB2Fu));
+                var rng = RngCompat.Create(SplitMix32(GradeSeed(runSeed, floor, relicId) + (uint)k * 0x85EBCA6Bu + 0x27D4EB2Fu));
                 raw += GaugeStepMin + (int)(rng.NextFloat() * (GaugeStepMax - GaugeStepMin + 1));
             }
         }
@@ -518,9 +523,9 @@ internal static class RelicForgeService
     /// honest + reload-stable, and it never touches the run rng stream. Initiator-local → co-op unaffected.</summary>
     public static int LocationGaugeStep(Player player, int reforgeIndexThisVisit)
     {
-        uint seed = player?.RunState?.Rng.Seed ?? 0;
+        uint seed = ForgeSeed.Of(player?.RunState?.Rng, 0);
         uint floor = (uint)(player?.RunState?.TotalFloor ?? 0);
-        var rng = new Rng(SplitMix32(seed + floor * 2654435761u + (uint)reforgeIndexThisVisit * 0x9E3779B9u + 0x165667B1u));
+        var rng = RngCompat.Create(SplitMix32(seed + floor * 2654435761u + (uint)reforgeIndexThisVisit * 0x9E3779B9u + 0x165667B1u));
         return LocationStepMin + (int)(rng.NextFloat() * (LocationStepMax - LocationStepMin + 1));
     }
 
@@ -715,7 +720,7 @@ internal static class RelicForgeService
 
         // No record: the restart swapped in a fresh instance. Re-derive exactly like LoadRun does —
         // a re-forged relic persisted a count>0 (parked on FromSerializable) and guarantees a prefix.
-        uint seed = player.RunState.Rng.Seed;
+        uint seed = ForgeSeed.Of(player.RunState.Rng);
         int rf = TakePendingReforgeCount(relic);
         bool cleansed = TakePendingCleansed(relic);
         int gred = TakePendingGaugeReduction(relic);
@@ -814,7 +819,7 @@ internal static class RelicForgeService
         // (2) Re-roll: guaranteePrefix also bypasses the rarity-eligibility gate, so a deliberate
         //     reforge can prefix even a Starter/Event relic the pickup path would have skipped.
         var runState = player.RunState;
-        string? summary = Forge(relic, runState.Rng.Seed, relic.FloorAddedToDeck,
+        string? summary = Forge(relic, ForgeSeed.Of(runState.Rng), relic.FloorAddedToDeck,
                                 reforgeCount: next, guaranteePrefix: true, character: CharAffix.TitleOf(player),
                                 gaugeReduction: reduction);
 
@@ -978,10 +983,10 @@ internal static class RelicForgeService
             // re-derive only when no descriptor was carried (legacy wire). Then graft, reproducing the exact
             // state the host holds so checksums reconverge.
             if (!string.IsNullOrEmpty(desc))
-                RestoreForged(relic, desc!, player.RunState.Rng.Seed, relic.FloorAddedToDeck, count, cleansed, gaugeReduction, CharAffix.TitleOf(player));
+                RestoreForged(relic, desc!, ForgeSeed.Of(player.RunState.Rng), relic.FloorAddedToDeck, count, cleansed, gaugeReduction, CharAffix.TitleOf(player));
             else
             {
-                Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
+                Forge(relic, ForgeSeed.Of(player.RunState.Rng), relic.FloorAddedToDeck,
                       reforgeCount: count, guaranteePrefix: count > 0, character: CharAffix.TitleOf(player), gaugeReduction: gaugeReduction);
                 if (cleansed) ApplyCleanse(relic);
             }
@@ -1047,7 +1052,7 @@ internal static class RelicForgeService
     {
         uint seed = GradeSeed(runSeed, floor, relic.Id.Entry);
         if (count > 0) seed = SplitMix32(seed + (uint)count * 0x9E3779B9u);
-        var rng = new Rng(seed);
+        var rng = RngCompat.Create(seed);
         rng.NextFloat();                        // gate draw — ignored under guaranteePrefix, kept for rng order
         string? charTitle = character ?? CharAffix.TitleOf(relic.Owner) ?? CharAffix.LocalTitle();
         Prefix rolled = PrefixTable.Roll(rng, charTitle);
@@ -1167,14 +1172,14 @@ internal static class RelicForgeService
             int rf = TakePendingReforgeCount(relic);
             bool cleansed = TakePendingCleansed(relic);
             int gred = TakePendingGaugeReduction(relic);
-            Forge(relic, owner.RunState.Rng.Seed, relic.FloorAddedToDeck,
+            Forge(relic, ForgeSeed.Of(owner.RunState.Rng), relic.FloorAddedToDeck,
                   reforgeCount: rf, guaranteePrefix: rf > 0, character: CharAffix.TitleOf(owner), gaugeReduction: gred);
             if (cleansed) ApplyCleanse(relic);
             return;
         }
         var state = RunManager.Instance.State;
         if (state == null) return;                      // not in a run
-        Forge(relic, state.Rng.Seed, state.TotalFloor);
+        Forge(relic, ForgeSeed.Of(state.Rng), state.TotalFloor);
     }
 
     // Treasure-room relics are shared CANONICAL instances (not per-offer mutables like
@@ -1209,7 +1214,7 @@ internal static class RelicForgeService
         if (OfferedPreview.TryGetValue(relic, out var existing)) return existing;
         var state = RunManager.Instance?.State;
         if (state == null) return null;
-        OfferPreview(relic, state.Rng.Seed, state.TotalFloor);
+        OfferPreview(relic, ForgeSeed.Of(state.Rng), state.TotalFloor);
         return PreviewCloneFor(relic);
     }
 
@@ -1273,7 +1278,7 @@ internal static class RelicForgeService
         uint seed = GradeSeed(runSeed, floor, relicId);
         if (reforgeCount > 0)
             seed = SplitMix32(seed + (uint)reforgeCount * 0x9E3779B9u);
-        var rng = new Rng(seed);
+        var rng = RngCompat.Create(seed);
 
         // Prefix gate + roll. Draw both from the seeded rng in a fixed order so the
         // outcome stays deterministic and stable even if the config threshold changes:

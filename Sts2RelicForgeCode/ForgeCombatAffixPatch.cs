@@ -48,7 +48,7 @@ internal static class ForgeCombatAffixPatch
         {
             int turn = player.PlayerCombatState?.TurnNumber ?? 0;
             if (turn <= 0) return;
-            uint seed = player.RunState.Rng.Seed;
+            uint seed = ForgeSeed.Of(player.RunState.Rng);
             // Snapshot: applying a power won't change player.Relics, but be safe.
             foreach (var relic in new List<RelicModel>(player.Relics))
             {
@@ -102,7 +102,7 @@ internal static class ForgeCombatAffixPatch
                     candidates.Add((enemy, p.GetType(), p.Amount));
         if (candidates.Count == 0) return; // nothing to erode this turn
 
-        var rng = new Rng((uint)((int)seed + turn * 51473 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+        var rng = RngCompat.Create((uint)((int)seed + turn * 51473 + ForgeHash.Of(relic.Id.Entry)));
         int idx = (int)(rng.NextFloat() * candidates.Count);
         if (idx >= candidates.Count) idx = candidates.Count - 1;
         var (enemy2, type, amount) = candidates[idx];
@@ -121,7 +121,7 @@ internal static class ForgeCombatAffixPatch
     /// </summary>
     private static void ApplyRandomDebuff(ICombatState cs, PlayerChoiceContext ctx, Player player, RelicModel relic, uint seed, int turn)
     {
-        var rng = new Rng((uint)((int)seed + turn * 39119 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+        var rng = RngCompat.Create((uint)((int)seed + turn * 39119 + ForgeHash.Of(relic.Id.Entry)));
         if (rng.NextFloat() >= MetaAffix.Chance(0.5f, player)) return;   // 50% base; Catalytic aura doubles it (→100%)
         bool self = rng.NextFloat() < 0.5f;    // a player vs an enemy
         Creature source = player.Creature;
@@ -150,7 +150,7 @@ internal static class ForgeCombatAffixPatch
     {
         int a = pfx.SymAmount;
         Creature source = player.Creature;
-        var rng = new Rng((uint)((int)seed + turn * 22079 + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+        var rng = RngCompat.Create((uint)((int)seed + turn * 22079 + ForgeHash.Of(relic.Id.Entry)));
         Creature? ally = ForgeCombat.PickOne(cs.PlayerCreatures, rng);
         Creature? enemy = ForgeCombat.PickOne(cs.HittableEnemies, rng);
         relic.Flash();
@@ -360,7 +360,7 @@ internal static class ForgeCombatAffixPatch
             if (dmg > 0)
             {
                 relic.Flash(); flashed = true;
-                TaskHelper.RunSafely(CreatureCmd.Damage(ctx, creature, dmg, ValueProp.Unpowered, creature, null));
+                TaskHelper.RunSafely(ForgeDamage.Deal(ctx, creature, dmg, ValueProp.Unpowered, creature));
             }
         }
 

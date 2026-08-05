@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
+using HarmonyLib;                                         // UnpatchForeign (test-env isolation)
 using MegaCrit.Sts2.Core.Commands;                        // CardSelectCmd
 using MegaCrit.Sts2.Core.Entities.CardRewardAlternatives; // CardRewardAlternative
 using MegaCrit.Sts2.Core.Entities.Cards;                  // CardCreationResult
@@ -266,7 +267,36 @@ internal static class SoloTest
                 await Task.Delay(3000);
                 await Shot("01_run");   // visual evidence: the run actually started (map screen)
             }
-            catch (Exception e) { W("run-start skipped (mod env): " + e.Message.Split('\n')[0]); }
+            catch (Exception e)
+            {
+                // Log the FRAMES, not just the message: when the mod soup breaks run start, the message
+                // ("RoomSet.Ancient not set!") names the victim, never the culprit — the culprit is
+                // whichever patched frame is on the stack.
+                string trace = e.ToString() ?? "";
+                W("run-start failed: " + e.Message.Split('\n')[0]);
+                foreach (var line in trace.Split('\n').Take(12)) W("  | " + line.TrimEnd());
+
+                // ★ONE retry with the guilty patch removed. A single sister mod that faults during room
+                // generation otherwise takes every room-dependent test down with it and reads like OUR
+                // failure (observed on the v0.110 beta: Oddmelt/SlayTheUniverse's ActModel.GenerateRooms
+                // postfix reads RoomSet.Ancient before it is set). Only owners whose OWN patch frames are
+                // in this stack are dropped — blanket-unpatching the method also removes RitsuLib/BaseLib,
+                // which this modded environment needs to start a run at all. Debug-only, in-process,
+                // nothing on disk changes.
+                if (UnpatchBlamedIn(AccessTools.Method(typeof(ActModel), "GenerateRooms"), trace) && ResetRun())
+                {
+                    try
+                    {
+                        await NGame.Instance.StartNewSingleplayerRun(ModelDb.AllCharacters.First(),
+                            shouldSave: false, ActModel.GetDefaultList().ToList(),
+                            Array.Empty<ModifierModel>(), "SOLOTEST", GameMode.Standard, 0);
+                        await Task.Delay(3000);
+                        await Shot("01_run");
+                        W("run-start retry OK");
+                    }
+                    catch (Exception e2) { W("run-start retry failed: " + e2.Message.Split('\n')[0]); }
+                }
+            }
 
             // Answer selection prompts from here on. MUST come after the run start: RunManager.CleanUp
             // calls CardSelectCmd.Reset(), which drops every pushed selector.
@@ -274,7 +304,7 @@ internal static class SoloTest
 
             var run = RunManager.Instance;
             var player = run?.State?.Players?.FirstOrDefault();
-            uint seed = player?.RunState.Rng.Seed ?? 12345u;
+            uint seed = ForgeSeed.Of(player?.RunState.Rng, 12345u);
             W($"battery: run={run?.IsInProgress == true}, player={player?.Character?.Id.Entry ?? "none"}, seed={seed}");
 
             // Pick a positive numeric prefix + a relic with a scalable var (for the forge tests).
@@ -423,6 +453,66 @@ internal static class SoloTest
                     ? null : "reforge option not generated at the rest site";
             });
 
+            // T9b — campfire AFTER HEAL, the v0.110 regression (workshop report: "two sets of reforge and
+            // cleanse at the campfire"). Heal empties the option list, which on v0.110+ also COMPLETES the
+            // rest site; our re-add then puts Reforge/Cleanse back. Three things must hold afterwards:
+            //   (1) exactly ONE of each option — a second Reforge/Cleanse pair is the reported symptom, and
+            //       Heal/Smith can't double because they are gone from the list by then;
+            //   (2) the rest site must be OPEN again — otherwise ChooseOption throws
+            //       "...already been completed!" the moment the player clicks the re-added button;
+            //   (3) leaving must not throw — BeforeLocalRestSiteExited calls SetResult() (not TrySetResult)
+            //       whenever options remain, so a still-completed source faults RestSiteRoom.Exit.
+            // Runs in place at the T9 rest site. On v0.107.1 there is no completion source at all, so (2)
+            // is vacuously true there and this test still passes — same DLL, both branches.
+            await TestAsync("T9b campfire survives heal (no dup, still open, exit clean)", async () =>
+            {
+                if (player == null || run == null) return "no run/player";
+                var sync = run.RestSiteSynchronizer;
+                if (sync == null) return "no rest site synchronizer";
+
+                if (sync.GetOptionsForPlayer(player) is not List<MegaCrit.Sts2.Core.Entities.RestSite.RestSiteOption> opts)
+                    return "no option list for the player";
+
+                int heal = opts.FindIndex(o => o.OptionId == "HEAL");
+                if (heal < 0) return $"no HEAL option to choose (have: {string.Join(",", opts.Select(o => o.OptionId))})";
+
+                await sync.ChooseLocalOption(heal);   // clears the list -> completes the site on v0.110+
+                await Task.Delay(1500);               // our re-add rides ChooseOption's task continuation
+
+                int nReforge = opts.Count(o => o is ReforgeRestSiteOption);
+                int nCleanse = opts.Count(o => o is CleanseRestSiteOption);
+                if (nReforge > 1 || nCleanse > 1)
+                    return $"DUPLICATE options after heal: reforge x{nReforge}, cleanse x{nCleanse}";
+                if (nReforge == 0)
+                    return "reforge was not restored after heal (should stay available)";
+
+                // (2) open again — read the same private completion source the game gates ChooseOption on.
+                if (RestSiteCompletion.Tracked && !RestSiteCompletion.Reopen(sync, opts))
+                    return "rest site is still marked completed — clicking reforge would throw";
+
+                // (3) the exit path the game runs when the player walks away. Reached by REFLECTION because
+                // both members are v0.110+ only — a direct call would make this battery unbuildable on
+                // v0.107.1, where the pair simply does not exist (and neither does the bug).
+                var exitM = sync.GetType().GetMethod("BeforeLocalRestSiteExited");
+                var awaitM = sync.GetType().GetMethod("AfterAllRestSitesCompleted");
+                if (exitM != null && awaitM != null)
+                {
+                    try { exitM.Invoke(sync, null); }
+                    catch (Exception e)
+                    {
+                        var cause = e is TargetInvocationException tie ? tie.InnerException ?? e : e;
+                        return $"leaving the campfire threw: {cause.GetType().Name}: {cause.Message}";
+                    }
+
+                    if (awaitM.Invoke(sync, null) is Task completed
+                        && await Task.WhenAny(completed, Task.Delay(3000)) != completed)
+                        return "room exit hung waiting for the rest site to complete";
+                }
+
+                await Shot("02b_restsite_after_heal");
+                return null;
+            });
+
             // T10 — shop, IN PLACE + PAID: jump to a REAL shop, confirm the mod's reforge button attached,
             // top up gold if short (networked `gold` = GainGold), then run the exact paid flow the button
             // runs (LoseGold + SyncLocalGoldLost + ReforgeNet.Reforge) and assert the charge + the reforge.
@@ -492,7 +582,7 @@ internal static class SoloTest
                 // no-ops on the already-rolled record — so this is the only way to guarantee pure-numeric
                 // ROWS, the exact case the workshop reported as invisible.
                 uint seed16 = 0; int floor16 = 0;
-                try { seed16 = player.RunState.Rng.Seed; floor16 = player.RunState.TotalFloor; } catch { }
+                try { seed16 = ForgeSeed.Of(player.RunState.Rng); floor16 = player.RunState.TotalFloor; } catch { }
                 var hosts16 = new List<RelicModel>();
                 async Task Grant16(RelicModel? host, string prefixName)
                 {
@@ -736,7 +826,7 @@ internal static class SoloTest
             player = RunManager.Instance?.State?.Players?.FirstOrDefault() ?? player;
             var ctx20 = new MegaCrit.Sts2.Core.GameActions.Multiplayer.BlockingPlayerChoiceContext();
             uint seed20 = 0; int floor20 = 0;
-            try { if (player != null) { seed20 = player.RunState.Rng.Seed; floor20 = player.RunState.TotalFloor; } }
+            try { if (player != null) { seed20 = ForgeSeed.Of(player.RunState.Rng); floor20 = player.RunState.TotalFloor; } }
             catch (Exception e) { W("T20 setup failed: " + e.Message); }
 
             // Force-forge prefixName onto a KNOWN-BENIGN host and obtain it. Hosts are fixed
@@ -1214,8 +1304,8 @@ internal static class SoloTest
                     {
                         var foes = player.Creature.CombatState?.Enemies?.Where(e => e.IsAlive).ToList();
                         if (foes is { Count: > 0 })
-                            await CreatureCmd.Damage(ctx20, foes, 9999m,
-                                ValueProp.Unblockable | ValueProp.Unpowered, null, null);
+                            await ForgeDamage.DealAll(ctx20, foes, 9999m,
+                                ValueProp.Unblockable | ValueProp.Unpowered, null);
                         await Task.Delay(4000);
                     }
                     catch (Exception e) { W("  combat cleanup failed: " + e.Message); }
@@ -1236,7 +1326,7 @@ internal static class SoloTest
                     // actually SCALE something and carry no mechanic note (the first cut asserted
                     // IsCompanionPrefix — the same flags the filter used — so the note-less keyword
                     // family (Retaining) leaked through both the filter AND the test; coop caught it).
-                    var rng = new Rng(424242u);
+                    var rng = RngCompat.Create(424242u);
                     // Pool settings are run-locked (production applies mid-run edits next run), so force a
                     // re-snapshot after each change or PoolAllows would keep reading the run-start value.
                     ForgeConfig.PrefixPool = 1; HostForgeConfig.InvalidateLock();   // enhance-only (vertical)
@@ -1340,7 +1430,7 @@ internal static class SoloTest
                     foreach (var p in PrefixTable.Pool)
                         if (!p.Penalty && !p.IsFallback && p.Name != "Legendary") CustomPool.DisabledPrefixes.Add(p.Name);
                     HostForgeConfig.InvalidateLock();   // custom sets are run-locked — re-snapshot to apply now
-                    var rng = new Rng(777u);
+                    var rng = RngCompat.Create(777u);
                     for (int i = 0; i < 30; i++)
                     {
                         var p = PrefixTable.Roll(rng, "IRONCLAD");
@@ -1550,7 +1640,7 @@ internal static class SoloTest
 
                     // Enraging: the player hits the enemy → enemy Strength +1.
                     int s0 = (int)(enemy.GetPower<StrengthPower>()?.Amount ?? 0);
-                    await CreatureCmd.Damage(ctx20, enemy, 1m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature, null);
+                    await ForgeDamage.Deal(ctx20, enemy, 1m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature);
                     await Task.Delay(400);
                     if (!enemy.IsAlive) return "enemy died before assert (pick a tankier encounter)";
                     int s1 = (int)(enemy.GetPower<StrengthPower>()?.Amount ?? 0);
@@ -1558,7 +1648,7 @@ internal static class SoloTest
                     if (s1 != s0 + 1) return $"Enraging: enemy Str {s1}, expected {s0 + 1}";
 
                     // Sadistic: the enemy damages the player → enemy Strength +1.
-                    await CreatureCmd.Damage(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                    await ForgeDamage.Deal(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy);
                     await Task.Delay(400);
                     int s2 = (int)(enemy.GetPower<StrengthPower>()?.Amount ?? 0);
                     W($"  Sadistic: enemy hit player → enemy Str {s1}→{s2} (expected +1)");
@@ -1571,7 +1661,7 @@ internal static class SoloTest
                         int w0 = (int)(player.Creature.GetPower<WeakPower>()?.Amount ?? 0);
                         int f0 = (int)(player.Creature.GetPower<FrailPower>()?.Amount ?? 0);
                         int v0 = (int)(player.Creature.GetPower<VulnerablePower>()?.Amount ?? 0);
-                        await CreatureCmd.Damage(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                        await ForgeDamage.Deal(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy);
                         await Task.Delay(120);
                         int w1 = (int)(player.Creature.GetPower<WeakPower>()?.Amount ?? 0);
                         int f1 = (int)(player.Creature.GetPower<FrailPower>()?.Amount ?? 0);
@@ -1582,12 +1672,12 @@ internal static class SoloTest
 
                     // Vampiric: arm 100% lifesteal; wound the enemy, then it hits the player → it heals.
                     tag.OnDealHealPct = 100;
-                    await CreatureCmd.Damage(ctx20, enemy, 4m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature, null);
+                    await ForgeDamage.Deal(ctx20, enemy, 4m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature);
                     await Task.Delay(300);
                     if (enemy.IsAlive)
                     {
                         int eh0 = enemy.CurrentHp;
-                        await CreatureCmd.Damage(ctx20, player.Creature, 3m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                        await ForgeDamage.Deal(ctx20, player.Creature, 3m, ValueProp.Unblockable | ValueProp.Unpowered, enemy);
                         await Task.Delay(300);
                         int eh1 = enemy.CurrentHp;
                         W($"  Vampiric: enemy hit player → enemy HP {eh0}→{eh1} (lifesteal, expected higher)");
@@ -1598,7 +1688,7 @@ internal static class SoloTest
                     // Fouling: enemy hits the player → a Wound clogs the discard pile.
                     tag.OnDealCard = true;
                     int wound0 = PileType.Discard.GetPile(player).Cards.Count(c => c.Id.Entry.ToUpperInvariant().Contains("WOUND"));
-                    await CreatureCmd.Damage(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                    await ForgeDamage.Deal(ctx20, player.Creature, 1m, ValueProp.Unblockable | ValueProp.Unpowered, enemy);
                     await Task.Delay(300);
                     int wound1 = PileType.Discard.GetPile(player).Cards.Count(c => c.Id.Entry.ToUpperInvariant().Contains("WOUND"));
                     W($"  Fouling: enemy hit player → discard Wounds {wound0}→{wound1} (expected +1)");
@@ -1734,7 +1824,7 @@ internal static class SoloTest
                 var enemy = player.Creature.CombatState?.HittableEnemies?.FirstOrDefault();
                 if (enemy == null) return "no enemy to kill";
                 int gold0 = (int)player.Gold;
-                await CreatureCmd.Damage(ctx20, enemy, enemy.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature, null);
+                await ForgeDamage.Deal(ctx20, enemy, enemy.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, player.Creature);
                 await Task.Delay(700);
                 int gold1 = (int)player.Gold;
                 W($"  Plundering: killed enemy → gold {gold0}→{gold1} (expected +3)");
@@ -1787,15 +1877,12 @@ internal static class SoloTest
                 if (enemy == null) return "no enemy for Bribing";
                 await MegaCrit.Sts2.Core.Commands.PlayerCmd.GainGold(100, player, false);
                 await Task.Delay(200);
-                decimal red = MegaCrit.Sts2.Core.Hooks.Hook.ModifyDamage(
-                    run.State, cs, self, enemy, 10m, ValueProp.Unblockable | ValueProp.Unpowered, null,
-                    MegaCrit.Sts2.Core.Hooks.ModifyDamageHookType.All,
-                    MegaCrit.Sts2.Core.Entities.Cards.CardPreviewMode.None, out _);
+                decimal red = ForgeDamage.ModifyDamage(run.State, cs, self, enemy, 10m, ValueProp.Unblockable | ValueProp.Unpowered);
                 W($"  Bribing: ModifyDamage 10→{(int)red} (expected 9, gold {(int)player.Gold})");
                 if ((int)red != 9) return $"Bribing: reduced damage {red}, expected 9";
 
                 int g0 = (int)player.Gold;
-                await CreatureCmd.Damage(ctx20, self, 6m, ValueProp.Unblockable | ValueProp.Unpowered, enemy, null);
+                await ForgeDamage.Deal(ctx20, self, 6m, ValueProp.Unblockable | ValueProp.Unpowered, enemy);
                 await Task.Delay(400);
                 int g1 = (int)player.Gold;
                 W($"  Bribing: enemy hit → gold {g0}→{g1} (expected −5)");
@@ -1803,10 +1890,7 @@ internal static class SoloTest
 
                 await MegaCrit.Sts2.Core.Commands.PlayerCmd.LoseGold(g1, player, MegaCrit.Sts2.Core.Entities.Gold.GoldLossType.Spent);
                 await Task.Delay(200);
-                decimal red2 = MegaCrit.Sts2.Core.Hooks.Hook.ModifyDamage(
-                    run.State, cs, self, enemy, 10m, ValueProp.Unblockable | ValueProp.Unpowered, null,
-                    MegaCrit.Sts2.Core.Hooks.ModifyDamageHookType.All,
-                    MegaCrit.Sts2.Core.Entities.Cards.CardPreviewMode.None, out _);
+                decimal red2 = ForgeDamage.ModifyDamage(run.State, cs, self, enemy, 10m, ValueProp.Unblockable | ValueProp.Unpowered);
                 if ((int)red2 != 10) return $"Bribing: broke reduction {red2}, expected 10 (no reduction while broke)";
                 W("  Bribing: broke → no reduction ✓");
                 return null;
@@ -1962,7 +2046,7 @@ internal static class SoloTest
                 var enemy = cs.HittableEnemies?.FirstOrDefault();
                 if (enemy == null) return "no enemy to kill for Finishing";
                 int b0 = self.Block;
-                await CreatureCmd.Damage(ctx20, enemy, enemy.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, self, null);
+                await ForgeDamage.Deal(ctx20, enemy, enemy.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, self);
                 // Poll for the kill-block rather than a fixed delay — the death → KillGoldPatch → GainBlock
                 // chain settles a beat later, and under a heavy mod load 600ms wasn't always enough.
                 int b1 = b0;
@@ -1992,10 +2076,7 @@ internal static class SoloTest
                 var enemy = cs?.HittableEnemies?.FirstOrDefault();
                 if (enemy == null) return "no enemy for Executing";
 
-                decimal Md(MegaCrit.Sts2.Core.Entities.Creatures.Creature e) => MegaCrit.Sts2.Core.Hooks.Hook.ModifyDamage(
-                    run.State, cs, e, self, 100m, ValueProp.Unblockable | ValueProp.Unpowered, null,
-                    MegaCrit.Sts2.Core.Hooks.ModifyDamageHookType.All,
-                    MegaCrit.Sts2.Core.Entities.Cards.CardPreviewMode.None, out _);
+                decimal Md(MegaCrit.Sts2.Core.Entities.Creatures.Creature e) => ForgeDamage.ModifyDamage(run.State, cs, e, self, 100m, ValueProp.Unblockable | ValueProp.Unpowered);
 
                 decimal full = Md(enemy);
                 W($"  Executing: full-HP enemy ({enemy.CurrentHp}/{enemy.MaxHp}) ModifyDamage 100→{(int)full} (expected 100)");
@@ -2072,7 +2153,7 @@ internal static class SoloTest
 
                 // Kill the Vulnerable victim → the debuffs should jump to a survivor. Poll: the spread settles a
                 // beat after death (AfterDeath → await original → apply chain), same as T41's Finishing.
-                await CreatureCmd.Damage(ctx20, victim, victim.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, self, null);
+                await ForgeDamage.Deal(ctx20, victim, victim.CurrentHp + 5m, ValueProp.Unblockable | ValueProp.Unpowered, self);
                 decimal vDelta = 0m;
                 for (int i = 0; i < 15 && vDelta < 2m; i++) { await Task.Delay(400); vDelta = SumOthers(ReadV) - vBefore; }
                 decimal wDelta = SumOthers(ReadW) - wBefore;
@@ -2373,7 +2454,7 @@ internal static class SoloTest
                 {
                     ForgeConfig.CurseChance = 1.0; HostForgeConfig.InvalidateLock();   // pity ramps with count → a later reforge curses at 100%
                     for (int c = 2; c <= 10 && !RelicForgeService.CanCleanse(relic); c++)
-                        RelicForgeService.Forge(relic, player.RunState.Rng.Seed, relic.FloorAddedToDeck,
+                        RelicForgeService.Forge(relic, ForgeSeed.Of(player.RunState.Rng), relic.FloorAddedToDeck,
                                                 guaranteePrefix: true, reforgeCount: c);
                 }
                 finally { ForgeConfig.CurseChance = savedCC; HostForgeConfig.InvalidateLock(); }
@@ -2443,6 +2524,56 @@ internal static class SoloTest
 
     /// <summary>Async twin of <see cref="Test"/> — for tests that drive the game (room jumps, awaited
     /// commands, screenshots) rather than pure in-memory assertions.</summary>
+    /// <summary>
+    /// Drop the patches on <paramref name="target"/> whose own patch methods appear in
+    /// <paramref name="trace"/> — i.e. the ones the failure actually blames. Test scaffolding only: it
+    /// keeps ONE broken sister mod from making the whole battery unrunnable, while leaving every
+    /// innocent patch (RitsuLib / BaseLib / ours) in place, and names what it dropped so a real
+    /// third-party incompatibility stays visible instead of being silently papered over.
+    /// </summary>
+    private static bool UnpatchBlamedIn(MethodBase? target, string trace)
+    {
+        if (target == null) { W("  [unpatch] target method not found"); return false; }
+        try
+        {
+            var info = Harmony.GetPatchInfo(target);
+            if (info == null) return false;
+
+            // An owner is blamed when one of its patch methods for THIS target is named in the stack.
+            var blamed = info.Prefixes.Concat(info.Postfixes).Concat(info.Finalizers).Concat(info.Transpilers)
+                .Where(p => p.owner != MainFile.ModId
+                            && p.PatchMethod?.DeclaringType?.FullName is string t
+                            && trace.Contains(t, StringComparison.Ordinal))
+                .Select(p => p.owner).Distinct().ToList();
+            if (blamed.Count == 0) { W("  [unpatch] no foreign patch is named in the stack — leaving all in place"); return false; }
+
+            var mine = new Harmony(MainFile.ModId + ".SoloTest");
+            foreach (var owner in blamed)
+            {
+                mine.Unpatch(target, HarmonyPatchType.All, owner);
+                W($"  [unpatch] dropped blamed '{owner}' from {target.DeclaringType?.Name}.{target.Name} (test env only)");
+            }
+            return true;
+        }
+        catch (Exception e) { W($"  [unpatch] failed: {e.Message}"); return false; }
+    }
+
+    /// <summary>Clear the half-built run left behind by a failed start so a retry is possible
+    /// (SetUpNewSingleplayer refuses to run while State is set).</summary>
+    private static bool ResetRun()
+    {
+        try
+        {
+            var rm = RunManager.Instance;
+            if (rm == null) return false;
+            if (rm.State != null) rm.CleanUp(graceful: false);
+            if (rm.State == null) return true;
+            AccessTools.Property(typeof(RunManager), nameof(RunManager.State))?.SetValue(rm, null);
+            return rm.State == null;
+        }
+        catch (Exception e) { W($"  [reset] could not clear the failed run: {e.Message}"); return false; }
+    }
+
     private static async Task TestAsync(string name, Func<Task<string?>> body)
     {
         Step(name);
@@ -2617,7 +2748,7 @@ internal static class SoloTest
 
     private static async Task PumpLoop()
     {
-        var rng = new Rng(1u);                       // deterministic: handlers pick with this
+        var rng = RngCompat.Create(1u);                       // deterministic: handlers pick with this
         object? seen = null;
         var seenAt = DateTime.UtcNow;
         int attempts = 0;

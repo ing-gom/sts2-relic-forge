@@ -55,7 +55,7 @@ internal static class ForgeSafeMode
         var run = RunManager.Instance;
         var state = run?.State;
         if (state == null || run!.IsSingleplayerOrFakeMultiplayer) return;   // co-op only
-        uint seed = state.Players.Count > 0 ? state.Players[0].RunState.Rng.Seed : 0u;
+        uint seed = state.Players.Count > 0 ? ForgeSeed.Of(state.Players[0].RunState.Rng) : 0u;
         if (seed == 0 || seed == _announcedForSeed) return;
         var me = LocalContext.GetMe(state.Players);
         if (me == null) return;                                               // later room re-triggers

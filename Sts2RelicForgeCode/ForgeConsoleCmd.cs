@@ -51,7 +51,7 @@ public class ForgeConsoleCmd : AbstractConsoleCmd
 
         RelicModel relic = canonical.ToMutable();
         var runState = issuingPlayer.RunState;
-        string? summary = RelicForgeService.Forge(relic, runState.Rng.Seed, runState.TotalFloor, forced);
+        string? summary = RelicForgeService.Forge(relic, ForgeSeed.Of(runState.Rng), runState.TotalFloor, forced);
         MainFile.Logger.Info($"[{MainFile.ModId}] forge cmd: {summary ?? (relic.Id.Entry + " (no numeric vars changed)")}");
 
         // Prefix on Obtain will see this instance is already forged and skip re-rolling.

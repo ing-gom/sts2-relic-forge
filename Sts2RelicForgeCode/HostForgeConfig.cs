@@ -47,7 +47,7 @@ internal static class HostForgeConfig
     internal static void EnsureRunLock()
     {
         uint seed;
-        try { var st = RunManager.Instance?.State; if (st == null) return; seed = st.Rng.Seed; }
+        try { var st = RunManager.Instance?.State; if (st == null) return; seed = ForgeSeed.Of(st.Rng); }
         catch { return; }
         if (_lockValid && _lockSeed == seed) return;
         _lockSeed = seed;

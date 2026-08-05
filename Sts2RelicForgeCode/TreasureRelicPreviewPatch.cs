@@ -23,7 +23,7 @@ internal static class TreasureRelicPreviewPatch
 {
     private static void Postfix(RelicModel relic, IRunState runState)
     {
-        try { RelicForgeService.OfferPreview(relic, runState.Rng.Seed, runState.TotalFloor); }
+        try { RelicForgeService.OfferPreview(relic, ForgeSeed.Of(runState.Rng), runState.TotalFloor); }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] treasure preview failed: {e.Message}"); }
     }
 }
@@ -55,7 +55,7 @@ internal static class ChooseARelicPreviewPatch
             var state = RunManager.Instance?.State;
             if (state == null || relics == null) return;
             foreach (var relic in relics)
-                if (relic != null) RelicForgeService.OfferPreview(relic, state.Rng.Seed, state.TotalFloor);
+                if (relic != null) RelicForgeService.OfferPreview(relic, ForgeSeed.Of(state.Rng), state.TotalFloor);
         }
         catch (Exception e) { MainFile.Logger.Warn($"[{MainFile.ModId}] choose-a-relic preview failed: {e.Message}"); }
     }

@@ -519,7 +519,7 @@ internal static class CoopTest
         try
         {
             var rs = owner.RunState;
-            RelicForgeService.Forge(relic, rs.Rng.Seed, rs.TotalFloor, forced: PrefixTable.ByName("Undying"));
+            RelicForgeService.Forge(relic, ForgeSeed.Of(rs.Rng), rs.TotalFloor, forced: PrefixTable.ByName("Undying"));
             var rec = RelicForgeService.RecordFor(relic);
             if (rec != null) { rec.EnemyRider = false; rec.EnemyRiderSuffix = ""; if (rec.SelfCurse.Length > 0) rec.SelfCurse = ""; }
         }
@@ -739,7 +739,7 @@ internal static class CoopTest
 
     private static async Task PumpLoop()
     {
-        var rng = new Rng(1u);
+        var rng = RngCompat.Create(1u);
         object? seen = null;
         var seenAt = DateTime.UtcNow;
         int attempts = 0;

@@ -60,9 +60,9 @@ internal static class PickupReforgePatch
             if (candidates.Count == 0) return;
 
             var runState = player.RunState;
-            var rng = new Rng((uint)((int)runState.Rng.Seed
+            var rng = RngCompat.Create((uint)((int)ForgeSeed.Of(runState.Rng)
                         + runState.TotalFloor * 24917
-                        + StringHelper.GetDeterministicHashCode(relic.Id.Entry) * 131
+                        + ForgeHash.Of(relic.Id.Entry) * 131
                         + player.Relics.Count * 7));
             int idx = (int)(rng.NextFloat() * candidates.Count);
             if (idx >= candidates.Count) idx = candidates.Count - 1;

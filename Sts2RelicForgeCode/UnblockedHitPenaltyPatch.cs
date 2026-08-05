@@ -78,10 +78,10 @@ internal static class UnblockedHitPenaltyPatch
     // debuff, so reloading the fight reproduces it with no per-hit counter to serialize.
     private static string RandomDebuff(Player player, RelicModel relic, DamageResult result)
     {
-        uint seed = player.RunState?.Rng.Seed ?? 0;
+        uint seed = ForgeSeed.Of(player.RunState?.Rng, 0);
         int turn = player.PlayerCombatState?.TurnNumber ?? 0;
-        var rng = new Rng((uint)((int)seed + turn * 40129 + result.UnblockedDamage * 733
-                                  + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+        var rng = RngCompat.Create((uint)((int)seed + turn * 40129 + result.UnblockedDamage * 733
+                                  + ForgeHash.Of(relic.Id.Entry)));
         int i = (int)(rng.NextFloat() * Debuffs.Length);
         return Debuffs[i >= Debuffs.Length ? Debuffs.Length - 1 : i];
     }

@@ -38,7 +38,7 @@ internal static class FallbackBuffPatch
             var creature = player.Creature;
             if (creature == null) return;
 
-            uint runSeed = player.RunState.Rng.Seed;
+            uint runSeed = ForgeSeed.Of(player.RunState.Rng);
             int floor = player.RunState.TotalFloor;        // per-combat nonce (increments each room)
 
             // Snapshot: applying a power won't change player.Relics, but be safe.
@@ -53,8 +53,8 @@ internal static class FallbackBuffPatch
                 // test command can force a relic to always fire WITHOUT touching the displayed chance.
                 if (!RelicForgeService.IsForceFire(relic))
                 {
-                    var rng = new Rng((uint)((int)runSeed + floor * 68917
-                                             + StringHelper.GetDeterministicHashCode(relic.Id.Entry)));
+                    var rng = RngCompat.Create((uint)((int)runSeed + floor * 68917
+                                             + ForgeHash.Of(relic.Id.Entry)));
                     if (rng.NextFloat() * 100f >= rec.FallbackPercent) continue;   // didn't fire this combat
                 }
 

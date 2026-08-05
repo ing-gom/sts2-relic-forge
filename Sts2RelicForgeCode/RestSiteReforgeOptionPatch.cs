@@ -39,6 +39,15 @@ internal static class RestSiteReforgeOptionPatch
             }
             RestSiteReforgeSupport.EnsureLoc();
 
+            // IDEMPOTENT ADD. Everything below appends to __result, so this postfix running twice over
+            // the SAME list yields a second Reforge + Cleanse pair while Heal/Smith stay single — which
+            // is exactly the "two sets of reforge/cleanse at the campfire" report. Two ways that happens:
+            // the patch is applied twice (the mod installed a second time under a different id, so two
+            // assemblies each patch Generate), or a game build calls Generate more than once over one
+            // list. Drop any of ours already present before adding, so the list can hold at most one of
+            // each no matter how many times we run. A no-op on a freshly generated list.
+            RestSiteReforgeSupport.RemoveOurs(__result);
+
             var option = new ReforgeRestSiteOption(player);
             RestSiteReforgeSupport.ByPlayer[player.NetId] = option; // per-player, for the synced re-add after Heal/Smith
             __result.Add(option);
